@@ -1,0 +1,25 @@
+{
+  "name": "automation-restaurant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automation Restaurant — multi-tenant SaaS POS with tier-gated feature provisioning.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run build -w @automation-restaurant/shared",
+    "build:shared": "npm run build -w @automation-restaurant/shared",
+    "dev:api": "npm run build:shared && npm run dev -w @automation-restaurant/api",
+    "dev:web": "npm run build:shared && npm run dev -w @automation-restaurant/web",
+    "typecheck": "npm run build:shared && npm run typecheck -w @automation-restaurant/api && npm run typecheck -w @automation-restaurant/web",
+    "build": "npm run build:shared && npm run build -w @automation-restaurant/api && npm run build -w @automation-restaurant/web",
+    "db:push": "supabase db push"
+  },
+  "devDependencies": {
+    "supabase": "^2.117.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

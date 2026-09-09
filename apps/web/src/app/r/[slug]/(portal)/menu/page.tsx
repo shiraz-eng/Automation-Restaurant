@@ -1,0 +1,37 @@
+import { notFound, redirect } from 'next/navigation';
+import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { MenuManager } from './MenuManager';
+
+export const dynamic = 'force-dynamic';
+
+export default async function MenuPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const t = await createTenantServerClient(slug);
+  if (!t) notFound();
+
+  const {
+    data: { user },
+  } = await t.client.auth.getUser();
+  if (!user) redirect(`/r/${slug}/login`);
+
+  const [{ data: categories }, { data: items, error }] = await Promise.all([
+    t.client.from('menu_categories').select('id, name').order('sort_order'),
+    t.client
+      .from('menu_items')
+      .select('id, name, price_cents, is_available, category_id')
+      .order('name'),
+  ]);
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <h1 className="text-xl font-black">Menu</h1>
+      {error ? (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
+          {error.message}
+        </div>
+      ) : (
+        <MenuManager categories={categories ?? []} items={items ?? []} />
+      )}
+    </div>
+  );
+}

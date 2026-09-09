@@ -1,0 +1,204 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
+import { formatCents } from '@/lib/format';
+
+type Line = { name_snapshot: string; qty: number; line_total_cents: number };
+export type TrackedOrder = {
+  id: string;
+  order_number: number;
+  table_label: string | null;
+  customer_name: string | null;
+  status: string;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  created_at: string;
+  order_lines: Line[];
+};
+
+const STEPS = [
+  { key: 'placed', label: 'Order placed' },
+  { key: 'kitchen', label: 'In the kitchen' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'served', label: 'Served' },
+] as const;
+
+function stepIndex(status: string): number {
+  switch (status) {
+    case 'served':
+    case 'paid':
+      return 3;
+    case 'ready':
+      return 2;
+    case 'in_kitchen':
+    case 'pending':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+export function TrackClient({
+  slug,
+  restaurantName,
+  supabaseUrl,
+  supabaseAnonKey,
+  initial,
+}: {
+  slug: string;
+  restaurantName: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  initial: TrackedOrder;
+}) {
+  const supabase = useMemo(
+    () => createTenantBrowserClient(supabaseUrl, supabaseAnonKey),
+    [supabaseUrl, supabaseAnonKey],
+  );
+  const [status, setStatus] = useState(initial.status);
+  const current = stepIndex(status);
+
+  // Live: react to this order's status changes with no refresh.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`order-${initial.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${initial.id}` },
+        (payload) => {
+          const next = (payload.new as { status?: string }).status;
+          if (next) setStatus(next);
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, initial.id]);
+
+  const [fbOpen, setFbOpen] = useState(false);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [fbDone, setFbDone] = useState(false);
+  const [fbErr, setFbErr] = useState<string | null>(null);
+
+  async function sendFeedback() {
+    setFbErr(null);
+    const { error } = await supabase.from('feedback').insert({
+      order_id: initial.id,
+      table_label: initial.table_label,
+      guest_name: initial.customer_name,
+      overall: rating,
+      comment: comment.trim() || null,
+    });
+    if (error) {
+      setFbErr(error.message);
+      return;
+    }
+    setFbDone(true);
+  }
+
+  return (
+    <div className="min-h-screen px-6 py-8 max-w-md mx-auto">
+      <h1 className="font-black text-lg">Order #{initial.order_number}</h1>
+      <p className="text-muted text-xs mb-6">
+        {restaurantName} · {initial.table_label ?? 'no table'}
+        {initial.customer_name ? ` · ${initial.customer_name}` : ''}
+      </p>
+
+      <ol className="space-y-3 mb-8">
+        {STEPS.map((s, i) => {
+          const done = i < current;
+          const active = i === current;
+          return (
+            <li key={s.key} className="flex items-center gap-3">
+              <span
+                className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-black ${
+                  done
+                    ? 'bg-ok text-white'
+                    : active
+                      ? 'bg-primary text-primary-fg'
+                      : 'border border-border text-muted'
+                }`}
+              >
+                {done ? '✓' : ''}
+              </span>
+              <span
+                className={`text-sm ${active ? 'font-bold text-body' : done ? 'text-body' : 'text-muted'}`}
+              >
+                {s.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="rounded-lg border border-border bg-surface p-4 text-xs space-y-1 mb-6">
+        {initial.order_lines.map((l, i) => (
+          <div key={i} className="flex justify-between">
+            <span>
+              {l.qty}× {l.name_snapshot}
+            </span>
+            <span className="font-semibold">{formatCents(l.line_total_cents)}</span>
+          </div>
+        ))}
+        <div className="flex justify-between pt-1 border-t border-border mt-1 text-muted">
+          <span>tax {formatCents(initial.tax_cents)}</span>
+          <span className="text-body font-bold">total {formatCents(initial.total_cents)}</span>
+        </div>
+      </div>
+
+      <Link
+        href={`/order/${slug}?table=${encodeURIComponent(initial.table_label ?? '')}`}
+        className="block text-center rounded border border-border font-semibold py-2.5 text-sm mb-4"
+      >
+        Order more items
+      </Link>
+
+      {current >= 3 && !fbDone && (
+        <div className="rounded-lg border border-border bg-surface p-4">
+          {!fbOpen ? (
+            <button
+              onClick={() => setFbOpen(true)}
+              className="w-full rounded bg-primary text-primary-fg font-bold py-2.5 text-sm"
+            >
+              Rate your experience
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => setRating(n)}
+                    className={`text-2xl ${n <= rating ? 'text-warn' : 'text-muted'}`}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Tell us about your experience"
+                className="w-full rounded border border-border bg-main px-3 py-2 text-xs outline-none focus:border-primary"
+                rows={3}
+              />
+              {fbErr && <p className="text-danger text-xs">{fbErr}</p>}
+              <button
+                onClick={sendFeedback}
+                className="w-full rounded bg-primary text-primary-fg font-bold py-2.5 text-sm"
+              >
+                Submit feedback
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {fbDone && <p className="text-ok text-sm text-center">Thanks for the feedback!</p>}
+    </div>
+  );
+}

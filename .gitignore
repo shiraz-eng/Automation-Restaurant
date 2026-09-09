@@ -1,0 +1,31 @@
+node_modules/
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# supabase cli
+supabase/.temp/
+supabase/.branches/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# prisma
+apps/api/prisma/*.db
+
+# local tooling
+stripe.exe
+server.log
+
+# editor / os
+.DS_Store
+Thumbs.db
+.idea/

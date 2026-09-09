@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens (RULE-UI-03). Values are space-separated RGB channels so Tailwind
+   can apply opacity via rgb(var(--x) / <alpha-value>). */
+:root {
+  --primary: 234 88 12;
+  --primary-fg: 255 255 255;
+  --bg-main: 248 250 252;
+  --bg-surface: 255 255 255;
+  --border-color: 226 232 240;
+  --text-body: 15 23 42;
+  --text-muted: 100 116 139;
+  --ok: 5 150 105;
+  --warn: 217 119 6;
+  --danger: 225 29 72;
+  --radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg-main: 2 6 23;
+    --bg-surface: 15 23 42;
+    --border-color: 30 41 59;
+    --text-body: 226 232 240;
+    --text-muted: 148 163 184;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg-main: 2 6 23;
+  --bg-surface: 15 23 42;
+  --border-color: 30 41 59;
+  --text-body: 226 232 240;
+  --text-muted: 148 163 184;
+}
+
+html,
+body {
+  background: rgb(var(--bg-main));
+  color: rgb(var(--text-body));
+}
