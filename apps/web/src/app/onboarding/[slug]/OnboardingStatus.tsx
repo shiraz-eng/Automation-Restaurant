@@ -107,17 +107,33 @@ export function OnboardingStatus({ slug }: { slug: string }) {
               Something went wrong setting up {name ?? 'your restaurant'}
             </h1>
             <p className="text-muted text-sm mt-2">
-              Our team has been alerted. Please contact support with your restaurant name.
+              {connectUrl
+                ? 'This usually means the Supabase organization you picked has no room for a new project. Pick a different organization (or free up a project) and try again.'
+                : 'Our team has been alerted. Please contact support with your restaurant name.'}
             </p>
             {error && (
               <p className="text-danger text-[11px] mt-3 font-mono break-all">{error}</p>
             )}
-            <Link
-              href="/contact"
-              className="inline-block mt-6 rounded-lg bg-primary text-primary-fg font-semibold px-5 py-2.5 text-sm"
-            >
-              Contact support
-            </Link>
+            <div className="mt-6 flex gap-2">
+              {connectUrl && (
+                <a
+                  href={connectUrl}
+                  className="inline-block rounded-lg bg-primary text-primary-fg font-bold px-5 py-2.5 text-sm"
+                >
+                  Try connecting again
+                </a>
+              )}
+              <Link
+                href="/contact"
+                className={`inline-block rounded-lg px-5 py-2.5 text-sm font-semibold ${
+                  connectUrl
+                    ? 'border border-border'
+                    : 'bg-primary text-primary-fg'
+                }`}
+              >
+                Contact support
+              </Link>
+            </div>
           </>
         ) : status === 'active' ? (
           <>

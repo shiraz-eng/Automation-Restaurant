@@ -155,6 +155,13 @@ onboardingRouter.get('/connect/start', async (req: Request, res: Response) => {
   }
 
   try {
+    // Retrying after a failure: clear the stale error while we go around again.
+    if (tenant.status === 'failed') {
+      await supabaseAdmin
+        .from('tenants')
+        .update({ status: 'awaiting_connection', provisioning_error: null })
+        .eq('id', tenant.id);
+    }
     const state = await createOAuthState(tenant.id);
     res.redirect(buildAuthorizeUrl(state));
   } catch (err) {
@@ -222,14 +229,18 @@ onboardingRouter.get('/status/:slug', async (req: Request, res: Response) => {
     .eq('slug', slug)
     .maybeSingle();
   if (!data) return res.status(404).json({ error: 'not_found' });
+  // A failed connect/provision is recoverable by re-authorizing, so offer the
+  // link on both 'awaiting_connection' and 'failed' when connect is enabled.
+  const canConnect =
+    oauthConnectEnabled &&
+    (data.status === 'awaiting_connection' || data.status === 'failed');
   res.json({
     status: data.status,
     error: data.provisioning_error ?? null,
     restaurant_name: data.restaurant_name,
-    connect_url:
-      data.status === 'awaiting_connection'
-        ? `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(slug)}`
-        : null,
+    connect_url: canConnect
+      ? `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(slug)}`
+      : null,
   });
 });
 
