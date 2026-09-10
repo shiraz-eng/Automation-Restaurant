@@ -303,6 +303,8 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    // Create the owner, or — if provisioning already made the user and this is a
+    // re-run of the claim link (e.g. forgotten password) — reset it in place.
     const { data: created, error: userErr } = await tenantAdmin.auth.admin.createUser({
       email: claimed.email,
       password,
@@ -310,18 +312,42 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
       app_metadata: { role: 'owner' }, // the project IS the tenant; only role matters
       user_metadata: fullName ? { full_name: fullName } : {},
     });
-    if (userErr || !created?.user) {
-      throw new Error(userErr?.message ?? 'createUser returned no user');
+
+    let userId = created?.user?.id;
+    if (userErr || !userId) {
+      const alreadyExists =
+        userErr?.status === 422 ||
+        /already (been )?registered|already exists|email_exists/i.test(userErr?.message ?? '');
+      if (!alreadyExists) {
+        throw new Error(userErr?.message ?? 'createUser returned no user');
+      }
+      const { data: list, error: listErr } = await tenantAdmin.auth.admin.listUsers();
+      if (listErr) throw new Error(`listUsers failed: ${listErr.message}`);
+      const existing = list.users.find(
+        (u) => u.email?.toLowerCase() === claimed.email.toLowerCase(),
+      );
+      if (!existing) throw new Error('owner user reported as existing but not found');
+      userId = existing.id;
+      const { error: updErr } = await tenantAdmin.auth.admin.updateUserById(userId, {
+        password,
+        email_confirm: true,
+        app_metadata: { ...(existing.app_metadata ?? {}), role: 'owner' },
+        ...(fullName ? { user_metadata: { ...(existing.user_metadata ?? {}), full_name: fullName } } : {}),
+      });
+      if (updErr) throw new Error(`password reset failed: ${updErr.message}`);
     }
 
-    const { error: memErr } = await tenantAdmin.from('memberships').insert({
-      user_id: created.user.id,
-      email: claimed.email,
-      full_name: fullName ?? null,
-      role: 'owner',
-      status: 'active',
-    });
-    if (memErr) throw new Error(`membership insert failed: ${memErr.message}`);
+    const { error: memErr } = await tenantAdmin.from('memberships').upsert(
+      {
+        user_id: userId,
+        email: claimed.email,
+        full_name: fullName ?? null,
+        role: 'owner',
+        status: 'active',
+      },
+      { onConflict: 'email' },
+    );
+    if (memErr) throw new Error(`membership upsert failed: ${memErr.message}`);
 
     const slug = (proj as { tenants?: { slug?: string } }).tenants?.slug ?? null;
     return res.status(200).json({ ok: true, slug });
