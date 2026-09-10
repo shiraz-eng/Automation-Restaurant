@@ -7,11 +7,31 @@ import { Button, Card, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 
 type Category = { id: string; name: string };
+type Variant = { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean };
+type RawItem = { id: string; name: string; category_id: string | null; menu_variants: Variant[] };
 type Item = { id: string; name: string; price_cents: number; category_id: string | null };
 type CartLine = { item: Item; qty: number };
 type Placed = { order_number: number; total_cents: number; discount_cents: number };
 
 const CHANNELS = ['dine_in', 'takeaway', 'delivery'] as const;
+
+/** One row per available variant, labelled with its item. id = variant id. */
+function toProducts(items: RawItem[]): Item[] {
+  const out: Item[] = [];
+  for (const it of items) {
+    for (const v of (it.menu_variants ?? [])
+      .filter((x) => x.is_available)
+      .sort((a, b) => a.sort_order - b.sort_order)) {
+      out.push({
+        id: v.id,
+        name: v.name === 'Regular' ? it.name : `${it.name} · ${v.name}`,
+        price_cents: v.price_cents,
+        category_id: it.category_id,
+      });
+    }
+  }
+  return out;
+}
 
 export function PosClient({
   taxRateBps,
@@ -20,12 +40,13 @@ export function PosClient({
 }: {
   taxRateBps: number;
   categories: Category[];
-  items: Item[];
+  items: RawItem[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [activeCat, setActiveCat] = useState<string>('all');
   const [cart, setCart] = useState<Record<string, CartLine>>({});
+  const products = useMemo(() => toProducts(items), [items]);
   const [channel, setChannel] = useState<(typeof CHANNELS)[number]>('dine_in');
   const [table, setTable] = useState('');
   const [promo, setPromo] = useState('');
@@ -33,7 +54,7 @@ export function PosClient({
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<Placed | null>(null);
 
-  const shown = items.filter((i) => activeCat === 'all' || i.category_id === activeCat);
+  const shown = products.filter((i) => activeCat === 'all' || i.category_id === activeCat);
   const lines = Object.values(cart);
   const subtotal = useMemo(
     () => lines.reduce((s, l) => s + l.item.price_cents * l.qty, 0),
@@ -67,7 +88,7 @@ export function PosClient({
       p_table_label: table.trim() || null,
       p_customer_name: null,
       p_tax_rate_bps: taxRateBps,
-      p_lines: lines.map((l) => ({ menu_item_id: l.item.id, qty: l.qty })),
+      p_lines: lines.map((l) => ({ variant_id: l.item.id, qty: l.qty })),
       p_promo_code: promo.trim() || null,
     });
     setBusy(false);

@@ -5,14 +5,34 @@ import { useRouter } from 'next/navigation';
 import { formatCents } from '@/lib/format';
 
 export type MenuCategory = { id: string; name: string; sort_order: number };
+type Variant = { id: string; name: string; price_cents: number; sort_order: number };
 export type MenuItem = {
   id: string;
   name: string;
+  description?: string | null;
   price_cents: number;
   category_id: string | null;
+  menu_variants: Variant[];
 };
+/** A selectable product = one variant, labelled with its item. */
+type Product = { id: string; name: string; price_cents: number; category_id: string | null };
 
 const TAX_RATE_BPS = 800;
+
+function toProducts(items: MenuItem[]): Product[] {
+  const out: Product[] = [];
+  for (const it of items) {
+    for (const v of (it.menu_variants ?? []).slice().sort((a, b) => a.sort_order - b.sort_order)) {
+      out.push({
+        id: v.id,
+        name: v.name === 'Regular' ? it.name : `${it.name} · ${v.name}`,
+        price_cents: v.price_cents,
+        category_id: it.category_id,
+      });
+    }
+  }
+  return out;
+}
 
 export function StorefrontClient({
   slug,
@@ -33,7 +53,7 @@ export function StorefrontClient({
   const [started, setStarted] = useState(false);
 
   const [activeCat, setActiveCat] = useState('all');
-  const [cart, setCart] = useState<Record<string, { item: MenuItem; qty: number }>>({});
+  const [cart, setCart] = useState<Record<string, { item: Product; qty: number }>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +62,8 @@ export function StorefrontClient({
     { status: 'idle' | 'checking' } | { status: 'ok'; code: string; discount: number } | { status: 'bad' }
   >({ status: 'idle' });
 
-  const shown = items.filter((i) => activeCat === 'all' || i.category_id === activeCat);
+  const products = useMemo(() => toProducts(items), [items]);
+  const shown = products.filter((i) => activeCat === 'all' || i.category_id === activeCat);
   const lines = Object.values(cart);
   const subtotal = useMemo(
     () => lines.reduce((s, l) => s + l.item.price_cents * l.qty, 0),
@@ -71,7 +92,7 @@ export function StorefrontClient({
     }
   }
 
-  function bump(item: MenuItem, delta: number) {
+  function bump(item: Product, delta: number) {
     setError(null);
     setPromoState((s) => (s.status === 'ok' || s.status === 'bad' ? { status: 'idle' } : s));
     setCart((c) => {
@@ -98,7 +119,7 @@ export function StorefrontClient({
           channel: 'dine_in',
           promo_code:
             promoState.status === 'ok' ? promoState.code : promo.trim() || undefined,
-          lines: lines.map((l) => ({ menu_item_id: l.item.id, qty: l.qty })),
+          lines: lines.map((l) => ({ variant_id: l.item.id, qty: l.qty })),
         }),
       });
       const body = await res.json();

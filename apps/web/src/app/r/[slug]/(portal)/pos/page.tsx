@@ -20,7 +20,9 @@ export default async function PosPage({ params }: { params: Promise<{ slug: stri
     t.client.from('menu_categories').select('id, name').order('sort_order'),
     t.client
       .from('menu_items')
-      .select('id, name, price_cents, category_id')
+      .select(
+        'id, name, category_id, menu_variants(id, name, price_cents, sort_order, is_available)',
+      )
       .eq('is_available', true)
       .order('name'),
   ]);

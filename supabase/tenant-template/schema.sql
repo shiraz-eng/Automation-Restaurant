@@ -135,10 +135,29 @@ create table public.menu_items (
   id uuid primary key default gen_random_uuid(),
   category_id uuid references public.menu_categories(id) on delete set null,
   name text not null,
-  price_cents integer not null check (price_cents >= 0),
+  description text,
+  image_url text,
+  price_cents integer not null default 0 check (price_cents >= 0),  -- base / fallback; real price is on the variant
   is_available boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- ── Menu variants (Phase 4) ──────────────────────────────────────────────
+-- Every item has >= 1 variant. Price, SKU and (optionally) an availability
+-- counter live on the variant. Orders record the exact variant purchased.
+create table public.menu_variants (
+  id                 uuid primary key default gen_random_uuid(),
+  menu_item_id       uuid not null references public.menu_items(id) on delete cascade,
+  name               text not null default 'Regular',
+  price_cents        integer not null check (price_cents >= 0),
+  sku                text,
+  sort_order         int not null default 0,
+  is_available       boolean not null default true,
+  track_availability boolean not null default false,
+  available_qty      int not null default 0,
+  created_at         timestamptz not null default now()
+);
+create index menu_variants_item_idx on public.menu_variants(menu_item_id, sort_order);
 
 create table public.inventory_items (
   id uuid primary key default gen_random_uuid(),
@@ -200,7 +219,9 @@ create table public.order_lines (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.orders(id) on delete cascade,
   menu_item_id uuid references public.menu_items(id) on delete set null,
+  variant_id uuid references public.menu_variants(id) on delete set null,
   name_snapshot text not null,
+  variant_name_snapshot text,
   unit_price_cents integer not null check (unit_price_cents >= 0),
   qty integer not null check (qty > 0),
   line_total_cents integer not null check (line_total_cents >= 0),
@@ -263,7 +284,7 @@ do $$
 declare tbl text;
 begin
   foreach tbl in array array[
-    'memberships','menu_categories','menu_items','inventory_items',
+    'memberships','menu_categories','menu_items','menu_variants','inventory_items',
     'recipe_components','reservations','restaurant_tables'
   ] loop
     execute format('alter table public.%I enable row level security;', tbl);
@@ -279,6 +300,7 @@ end $$;
 -- are limited to those on sale.
 create policy guest_read on public.menu_categories for select using (true);
 create policy guest_read on public.menu_items for select using (is_available);
+create policy guest_read on public.menu_variants for select using (is_available);
 
 -- orders / order_lines: any staff reads and updates (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
@@ -356,8 +378,10 @@ create or replace function public.place_order(
 language plpgsql security definer set search_path = public, app as $$
 declare
   v_order_id uuid; v_no bigint; v_sub int := 0; v_tax int; v_total int;
-  v_line jsonb; v_mi record; v_qty int; v_lt int; v_comp record; v_need numeric; v_upd int;
+  v_line jsonb; v_qty int; v_lt int; v_comp record; v_need numeric; v_upd int;
   v_session_id uuid; v_disc int := greatest(0, coalesce(p_discount_cents, 0));
+  v_variant_id uuid; v_item_id uuid; v_item_name text; v_variant_name text;
+  v_price int; v_avail boolean;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'no_lines' using errcode = 'check_violation';
@@ -383,18 +407,48 @@ begin
     v_qty := coalesce((v_line->>'qty')::int, 0);
     if v_qty <= 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
 
-    select id, name, price_cents, is_available into v_mi
-      from public.menu_items where id = (v_line->>'menu_item_id')::uuid;
-    if not found then raise exception 'menu_item_not_found: %', v_line->>'menu_item_id' using errcode = 'foreign_key_violation'; end if;
-    if not v_mi.is_available then raise exception 'menu_item_unavailable: %', v_mi.name using errcode = 'check_violation'; end if;
+    v_variant_id := nullif(v_line->>'variant_id', '')::uuid;
+    if v_variant_id is not null then
+      -- Explicit variant: price + availability come from the variant.
+      select v.id, v.menu_item_id, i.name, v.name, v.price_cents, (v.is_available and i.is_available)
+        into v_variant_id, v_item_id, v_item_name, v_variant_name, v_price, v_avail
+        from public.menu_variants v join public.menu_items i on i.id = v.menu_item_id
+       where v.id = v_variant_id;
+      if not found then raise exception 'variant_not_found: %', v_line->>'variant_id' using errcode = 'foreign_key_violation'; end if;
+    else
+      -- Legacy line: item id only. Use its default (first) variant if one exists.
+      v_item_id := (v_line->>'menu_item_id')::uuid;
+      select i.name, i.is_available, i.price_cents into v_item_name, v_avail, v_price
+        from public.menu_items i where i.id = v_item_id;
+      if not found then raise exception 'menu_item_not_found: %', v_line->>'menu_item_id' using errcode = 'foreign_key_violation'; end if;
+      select v.id, v.name, v.price_cents, (v.is_available and v_avail)
+        into v_variant_id, v_variant_name, v_price, v_avail
+        from public.menu_variants v where v.menu_item_id = v_item_id
+       order by v.sort_order, v.created_at limit 1;
+    end if;
 
-    v_lt := v_mi.price_cents * v_qty;
+    if not coalesce(v_avail, false) then
+      raise exception 'item_unavailable: %', coalesce(v_item_name, v_item_id::text) using errcode = 'check_violation';
+    end if;
+
+    v_lt := v_price * v_qty;
     v_sub := v_sub + v_lt;
 
-    insert into public.order_lines (order_id, menu_item_id, name_snapshot, unit_price_cents, qty, line_total_cents, modifiers)
-    values (v_order_id, v_mi.id, v_mi.name, v_mi.price_cents, v_qty, v_lt, coalesce(v_line->'modifiers','[]'::jsonb));
+    insert into public.order_lines
+      (order_id, menu_item_id, variant_id, name_snapshot, variant_name_snapshot, unit_price_cents, qty, line_total_cents, modifiers)
+    values
+      (v_order_id, v_item_id, v_variant_id,
+       v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
+       v_variant_name, v_price, v_qty, v_lt, coalesce(v_line->'modifiers','[]'::jsonb));
 
-    for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_mi.id loop
+    -- Variant availability counter (Phase 4 wiring; full counter in Phase 6).
+    if v_variant_id is not null then
+      update public.menu_variants
+         set available_qty = greatest(0, available_qty - v_qty)
+       where id = v_variant_id and track_availability;
+    end if;
+
+    for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_item_id loop
       v_need := v_comp.qty_per_unit * v_qty;
       update public.inventory_items set stock_qty = stock_qty - v_need
        where id = v_comp.inventory_item_id and stock_qty >= v_need;
@@ -701,7 +755,7 @@ do $$
 declare tbl text;
 begin
   foreach tbl in array array[
-    'menu_categories','menu_items','inventory_items','recipe_components',
+    'menu_categories','menu_items','menu_variants','inventory_items','recipe_components',
     'memberships','restaurant_tables','reservations',
     'promotions','suppliers','purchase_orders','shifts',
     'portals','portal_staff'

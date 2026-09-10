@@ -61,12 +61,24 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
-      .select('id, name, price_cents, category_id')
+      .select(
+        'id, name, description, price_cents, category_id, menu_variants(id, name, price_cents, sku, is_available, track_availability, available_qty, sort_order)',
+      )
       .eq('is_available', true)
       .order('name'),
   ]);
 
-  res.json({ categories: categories ?? [], items: items ?? [] });
+  // Drop unavailable/out-of-stock variants; keep only items that still have one.
+  const cleaned = (items ?? [])
+    .map((it: Record<string, unknown>) => ({
+      ...it,
+      menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
+        .filter((v) => v.is_available && (!v.track_availability || (v.available_qty as number) > 0))
+        .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+    }))
+    .filter((it) => (it.menu_variants as unknown[]).length > 0);
+
+  res.json({ categories: categories ?? [], items: cleaned });
 });
 
 // Storefront promo-code preview: validate a code against a subtotal without
@@ -99,12 +111,16 @@ const orderSchema = z.object({
   lines: z
     .array(
       z.object({
-        menu_item_id: z.string().uuid(),
+        menu_item_id: z.string().uuid().optional(),
+        variant_id: z.string().uuid().optional(),
         qty: z.number().int().positive().max(99),
       }),
     )
     .min(1)
-    .max(50),
+    .max(50)
+    .refine((ls) => ls.every((l) => l.menu_item_id || l.variant_id), {
+      message: 'each line needs menu_item_id or variant_id',
+    }),
 });
 
 publicRouter.post('/orders', express.json(), async (req: Request, res: Response) => {
