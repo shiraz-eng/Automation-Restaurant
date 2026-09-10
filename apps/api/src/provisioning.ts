@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from './supabase';
-import { env } from './env';
-import { platformMgmt } from './mgmt';
+import { env, supabaseOrgPool } from './env';
+import { platformMgmt, type CreatedProject } from './mgmt';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
 import { PLANS, isPlanTier } from '@automation-restaurant/shared';
@@ -27,6 +27,39 @@ function strongPassword(): string {
 function mailStatus(r: MailResult): 'sent' | 'skipped' | 'failed' {
   if (r.delivered) return 'sent';
   return r.provider === 'console' ? 'skipped' : 'failed';
+}
+
+/** A free org that's at its 2-project cap answers project creation with this. */
+function isOrgAtCapacity(message: string): boolean {
+  return /maximum limits for the number of active free projects|free project limit|2 project limit/i.test(
+    message,
+  );
+}
+
+/**
+ * Create the project in the first pooled org that has room. On free tier each
+ * org caps at 2 projects; when one is full we move to the next. On a paid plan
+ * the pool is just one org and the loop runs once.
+ */
+async function createProjectInPool(
+  name: string,
+  dbPass: string,
+): Promise<{ project: CreatedProject; organizationId: string }> {
+  const tried: string[] = [];
+  for (const organizationId of supabaseOrgPool) {
+    try {
+      const project = await platformMgmt.createProject({ organizationId, name, dbPass });
+      return { project, organizationId };
+    } catch (err) {
+      const msg = String((err as Error).message ?? err);
+      tried.push(`${organizationId}: ${msg.slice(0, 120)}`);
+      if (!isOrgAtCapacity(msg)) throw err; // a real error — don't mask it
+      console.warn(`[provision] org ${organizationId} at capacity, trying next…`);
+    }
+  }
+  throw new Error(
+    `every Supabase org in the pool is at capacity — add another id to SUPABASE_ORG_IDS. Tried: ${tried.join(' | ')}`,
+  );
 }
 
 /** Best-effort column write — tolerates a control plane that hasn't had the
@@ -87,12 +120,13 @@ export async function provisionTenant(input: {
       console.log(`[provision] ${slug}: reusing project ${existing.data.project_ref}`);
     } else {
       const dbPassword = strongPassword();
-      const project = await platformMgmt.createProject({
-        organizationId: env.SUPABASE_ORG_ID,
-        name: `ar-${slug}`.slice(0, 56),
-        dbPass: dbPassword,
-      });
-      console.log(`[provision] ${slug}: created project ${project.id}, waiting for database…`);
+      const { project, organizationId } = await createProjectInPool(
+        `ar-${slug}`.slice(0, 56),
+        dbPassword,
+      );
+      console.log(
+        `[provision] ${slug}: created project ${project.id} in org ${organizationId}, waiting for database…`,
+      );
       await platformMgmt.waitForQueryable(project.id);
       const keys = await platformMgmt.getApiKeys(project.id);
 
@@ -106,6 +140,7 @@ export async function provisionTenant(input: {
           tenant_id: tenantId,
           project_ref: project.id,
           project_url: projectUrl,
+          organization_id: organizationId,
           anon_key: keys.anon,
           service_key: keys.service_role,
           db_password: dbPassword,

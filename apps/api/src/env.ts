@@ -19,10 +19,16 @@ const schema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
-  // Supabase Management API — platform personal access token. Used for the
-  // legacy "all tenants in our org" path and for control-plane migrations.
+  // Supabase Management API — platform personal access token. One token spans
+  // every organization the account owns, so the org pool below needs no extra
+  // credentials.
   SUPABASE_ACCESS_TOKEN: z.string().min(1, 'Management API personal access token'),
-  SUPABASE_ORG_ID: z.string().min(1, 'Supabase organization id (billing enabled)'),
+  // Single org (paid plan). Also the fallback when SUPABASE_ORG_IDS is unset.
+  SUPABASE_ORG_ID: z.string().min(1, 'Supabase organization id'),
+  // Org pool for free-tier scaling: comma-separated org ids. Provisioning tries
+  // each in order and moves on when one is at its 2-project cap. Leave blank to
+  // use just SUPABASE_ORG_ID (the right choice on a paid plan).
+  SUPABASE_ORG_IDS: z.string().trim().optional(),
   SUPABASE_REGION: z.string().min(1).default('us-east-1'),
   SUPABASE_PROJECT_PLAN: z.enum(['free', 'pro']).default('free'),
 
@@ -68,3 +74,16 @@ export const env = parsed.data;
 export const oauthConnectEnabled = Boolean(
   env.SUPABASE_OAUTH_CLIENT_ID && env.SUPABASE_OAUTH_CLIENT_SECRET,
 );
+
+/**
+ * Ordered list of Supabase organization ids to provision tenant projects into.
+ * From SUPABASE_ORG_IDS if set, else the single SUPABASE_ORG_ID. Deduped.
+ */
+export const supabaseOrgPool: string[] = (() => {
+  const raw = (env.SUPABASE_ORG_IDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const list = raw.length ? raw : [env.SUPABASE_ORG_ID];
+  return [...new Set(list)];
+})();
