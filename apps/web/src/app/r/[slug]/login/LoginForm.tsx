@@ -35,8 +35,16 @@ export function LoginForm({
       setError(error.message);
       return;
     }
-    const role = (data.user?.app_metadata as { role?: string } | undefined)?.role ?? 'owner';
-    router.push(roleHome(role, slug));
+    const meta = (data.user?.app_metadata ?? {}) as {
+      role?: string;
+      kind?: string;
+      portal_route?: string;
+    };
+    if (meta.kind === 'portal' && meta.portal_route) {
+      router.push(`/r/${slug}/portal/${meta.portal_route}`);
+    } else {
+      router.push(roleHome(meta.role ?? 'owner', slug));
+    }
     router.refresh();
   }
 

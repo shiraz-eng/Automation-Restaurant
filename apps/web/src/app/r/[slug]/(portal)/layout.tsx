@@ -20,6 +20,7 @@ const NAV: [string, string][] = [
   ['purchasing', 'Purchasing'],
   ['staff', 'Staff'],
   ['scheduling', 'Shifts'],
+  ['portals', 'Portals'],
   ['audit', 'Audit log'],
   ['billing', 'Billing'],
   ['settings/theme', 'Theme'],
