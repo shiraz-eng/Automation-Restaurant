@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from './supabase';
 import { env, supabaseOrgPool } from './env';
-import { platformMgmt, type CreatedProject } from './mgmt';
+import { platformMgmt, mgmtClient, type CreatedProject, type MgmtClient } from './mgmt';
+import { getFreshConnection } from './lib/supabaseOAuth';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
 import { PLANS, isPlanTier } from '@automation-restaurant/shared';
@@ -95,8 +96,11 @@ export async function provisionTenant(input: {
   /** Optional preset password; otherwise a random one is set and the owner
    *  chooses their real password via the welcome email's secure link. */
   ownerPassword?: string;
+  /** Model B: create the project in the owner's own Supabase org using the
+   *  OAuth grant in supabase_connections, instead of the platform org pool. */
+  connected?: boolean;
 }): Promise<void> {
-  const { tenantId, restaurantName, slug, ownerEmail, ownerName } = input;
+  const { tenantId, restaurantName, slug, ownerEmail, ownerName, connected } = input;
 
   try {
     await supabaseAdmin
@@ -120,18 +124,39 @@ export async function provisionTenant(input: {
       console.log(`[provision] ${slug}: reusing project ${existing.data.project_ref}`);
     } else {
       const dbPassword = strongPassword();
-      const { project, organizationId } = await createProjectInPool(
-        `ar-${slug}`.slice(0, 56),
-        dbPassword,
-      );
-      console.log(
-        `[provision] ${slug}: created project ${project.id} in org ${organizationId}, waiting for database…`,
-      );
-      await platformMgmt.waitForQueryable(project.id);
-      const keys = await platformMgmt.getApiKeys(project.id);
+
+      // Model B: the owner's own org via their OAuth token. Model A: the
+      // platform org pool.
+      let mgmt: MgmtClient;
+      let project: CreatedProject;
+      let organizationId: string;
+      if (connected) {
+        const conn = await getFreshConnection(tenantId);
+        mgmt = mgmtClient(conn.access_token);
+        organizationId = conn.organization_id;
+        project = await mgmt.createProject({
+          organizationId,
+          name: `ar-${slug}`.slice(0, 56),
+          dbPass: dbPassword,
+        });
+        console.log(
+          `[provision] ${slug}: created project ${project.id} in owner org ${organizationId}, waiting for database…`,
+        );
+      } else {
+        mgmt = platformMgmt;
+        const picked = await createProjectInPool(`ar-${slug}`.slice(0, 56), dbPassword);
+        project = picked.project;
+        organizationId = picked.organizationId;
+        console.log(
+          `[provision] ${slug}: created project ${project.id} in org ${organizationId}, waiting for database…`,
+        );
+      }
+
+      await mgmt.waitForQueryable(project.id);
+      const keys = await mgmt.getApiKeys(project.id);
 
       console.log(`[provision] ${slug}: applying tenant schema…`);
-      await platformMgmt.runSql(project.id, TENANT_SCHEMA_SQL);
+      await mgmt.runSql(project.id, TENANT_SCHEMA_SQL);
 
       projectUrl = `https://${project.id}.supabase.co`;
       serviceKey = keys.service_role;
@@ -264,12 +289,18 @@ export async function retryFailedProvisions(): Promise<void> {
   }>) {
     if ((t.provisioning_attempts ?? 0) >= MAX_ATTEMPTS) continue;
     console.log(`[provision] retry sweep -> ${t.slug} (attempt ${(t.provisioning_attempts ?? 0) + 1})`);
+    const { data: conn } = await supabaseAdmin
+      .from('supabase_connections')
+      .select('tenant_id')
+      .eq('tenant_id', t.id)
+      .maybeSingle();
     await provisionTenant({
       tenantId: t.id,
       restaurantName: t.restaurant_name,
       slug: t.slug,
       ownerEmail: t.owner_email,
       ownerName: t.owner_name ?? undefined,
+      connected: Boolean(conn),
     });
   }
 }

@@ -96,9 +96,18 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
     }
     const row = Array.isArray(data) ? data[0] : data;
 
+    const paymentInfo = {
+      mode: 'mock' as const,
+      reference: payment.reference,
+      amount: `$${(payment.amount_cents / 100).toFixed(2)}`,
+      card: `${payment.card_brand} •••• ${payment.card_last4}`,
+    };
+
     await supabaseAdmin
       .from('tenants')
       .update({
+        // Model B: park until the owner authorizes their own Supabase org.
+        ...(oauthConnectEnabled ? { status: 'awaiting_connection' } : {}),
         owner_name: d.owner_name ?? null,
         phone: d.phone ?? null,
         country: d.country ?? null,
@@ -107,6 +116,16 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
         table_count: d.table_count ?? null,
       })
       .eq('id', row.tenant_id);
+
+    if (oauthConnectEnabled) {
+      return res.status(202).json({
+        ok: true,
+        slug: row.slug,
+        status: 'awaiting_connection',
+        connect_url: `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(row.slug)}`,
+        payment: paymentInfo,
+      });
+    }
 
     void provisionTenant({
       tenantId: row.tenant_id,
@@ -120,12 +139,7 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
       ok: true,
       slug: row.slug,
       status: 'provisioning',
-      payment: {
-        mode: 'mock',
-        reference: payment.reference,
-        amount: `$${(payment.amount_cents / 100).toFixed(2)}`,
-        card: `${payment.card_brand} •••• ${payment.card_last4}`,
-      },
+      payment: paymentInfo,
     });
   }
 
@@ -283,6 +297,7 @@ onboardingRouter.get('/connect/callback', async (req: Request, res: Response) =>
       slug: tenant.slug,
       ownerEmail: tenant.owner_email,
       ownerName: tenant.owner_name ?? undefined,
+      connected: true,
     });
     done(tenant.slug);
   } catch (err) {

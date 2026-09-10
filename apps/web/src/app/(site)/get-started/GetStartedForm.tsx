@@ -67,6 +67,11 @@ export function GetStartedForm({
         window.location.href = body.checkout_url;
         return;
       }
+      if (body.connect_url) {
+        // Payment done; owner authorizes their own Supabase org next.
+        window.location.href = body.connect_url;
+        return;
+      }
       if (body.slug) {
         // Simulated payment accepted server-side → workspace is provisioning.
         router.push(`/onboarding/${body.slug}`);
