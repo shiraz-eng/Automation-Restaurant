@@ -6,6 +6,7 @@ import { supabaseAdmin } from './supabase';
 import { env, supabaseOrgPool } from './env';
 import { platformMgmt, mgmtClient, type CreatedProject, type MgmtClient } from './mgmt';
 import { getFreshConnection } from './lib/supabaseOAuth';
+import { tenantServiceClient } from './lib/tenantAdmin';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
 import { PLANS, isPlanTier } from '@automation-restaurant/shared';
@@ -23,6 +24,20 @@ const TENANT_SCHEMA_SQL = readFileSync(
 
 function strongPassword(): string {
   return randomBytes(24).toString('base64url');
+}
+
+/** Human-typeable temporary password for the welcome email, e.g. "Kqmx-rp29-9wab". */
+function readablePassword(): string {
+  const a = 'abcdefghjkmnpqrstuvwxyz';
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const n = '23456789';
+  const pick = (s: string, k: number) => {
+    const bytes = randomBytes(k);
+    let out = '';
+    for (let i = 0; i < k; i++) out += s.charAt((bytes[i] as number) % s.length);
+    return out;
+  };
+  return `${pick(A, 1)}${pick(a, 3)}-${pick(a, 2)}${pick(n, 2)}-${pick(n, 1)}${pick(a, 3)}`;
 }
 
 function mailStatus(r: MailResult): 'sent' | 'skipped' | 'failed' {
@@ -176,12 +191,14 @@ export async function provisionTenant(input: {
       if (regErr) throw new Error(`registry insert failed: ${regErr.message}`);
     }
 
-    // Owner account in the restaurant's own project. Random password unless one
-    // was supplied; the welcome email carries a secure set-password link.
+    // Owner account in the restaurant's own project. A readable temporary
+    // password goes in the welcome email (owner changes it after first login);
+    // the email also carries a secure set-password link.
     const tenantAdmin = createClient(projectUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const password = input.ownerPassword ?? strongPassword();
+    const tempPassword = input.ownerPassword ?? readablePassword();
+    const password = tempPassword;
     const { data: created, error: userErr } = await tenantAdmin.auth.admin.createUser({
       email: ownerEmail.toLowerCase(),
       password,
@@ -194,9 +211,16 @@ export async function provisionTenant(input: {
       if (!/already (been )?registered|already exists|email_exists/i.test(userErr?.message ?? '')) {
         throw new Error(`owner create failed: ${userErr?.message ?? 'no user'}`);
       }
+      // Re-run: reset the existing owner's password to the new temp one so the
+      // welcome email stays accurate.
       const { data: list } = await tenantAdmin.auth.admin.listUsers();
       userId = list.users.find((u) => u.email?.toLowerCase() === ownerEmail.toLowerCase())?.id;
       if (!userId) throw new Error('owner user exists but could not be resolved');
+      await tenantAdmin.auth.admin.updateUserById(userId, {
+        password,
+        email_confirm: true,
+        app_metadata: { role: 'owner' },
+      });
     }
     const { error: memErr } = await tenantAdmin.from('memberships').upsert(
       {
@@ -244,6 +268,7 @@ export async function provisionTenant(input: {
       planName,
       billingInterval: sub?.billing_interval ?? 'monthly',
       portalUrl: `${env.APP_URL}/r/${slug}/login`,
+      tempPassword: input.ownerPassword ? null : tempPassword,
       setupUrl,
     });
     await patchTenant(tenantId, {
@@ -331,6 +356,31 @@ export async function resendWelcomeEmail(tenantId: string): Promise<MailResult> 
     expires_at: new Date(Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000).toISOString(),
   });
 
+  // Reset the owner password to a fresh temp one so the resent email is usable.
+  let tempPassword: string | null = readablePassword();
+  try {
+    const svc = await tenantServiceClient(tenantId);
+    if (svc) {
+      const { data: list } = await svc.admin.auth.admin.listUsers();
+      const u = list.users.find(
+        (x) => x.email?.toLowerCase() === t.owner_email.toLowerCase(),
+      );
+      if (u) {
+        await svc.admin.auth.admin.updateUserById(u.id, {
+          password: tempPassword,
+          email_confirm: true,
+        });
+      } else {
+        tempPassword = null;
+      }
+    } else {
+      tempPassword = null;
+    }
+  } catch (e) {
+    console.error('[provision] resend: password reset failed:', e);
+    tempPassword = null;
+  }
+
   const mail = await sendWelcomeEmail({
     to: t.owner_email,
     restaurantName: t.restaurant_name,
@@ -338,6 +388,7 @@ export async function resendWelcomeEmail(tenantId: string): Promise<MailResult> 
     planName,
     billingInterval: sub?.billing_interval ?? 'monthly',
     portalUrl: `${env.APP_URL}/r/${t.slug}/login`,
+    tempPassword,
     setupUrl: `${env.APP_URL}/onboarding/claim?token=${raw}`,
   });
   await patchTenant(tenantId, {

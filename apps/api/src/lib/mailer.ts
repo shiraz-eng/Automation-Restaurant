@@ -59,12 +59,15 @@ export interface WelcomeEmailInput {
   planName: string;
   billingInterval: string;
   portalUrl: string;
-  /** Secure single-use link to set the owner password (claim link). */
+  /** Temporary password to sign in with (owner changes it after first login). */
+  tempPassword?: string | null;
+  /** Secure single-use link to set a new password (claim link). */
   setupUrl?: string | null;
 }
 
 /** Branded welcome email — restaurant name, plan, payment confirmation, portal
- *  link, password-setup link. Contains NO secrets or infrastructure detail. */
+ *  link, a temporary password, and a change-password link. No infrastructure
+ *  detail (no Supabase keys / project URLs). */
 export function sendWelcomeEmail(i: WelcomeEmailInput): Promise<MailResult> {
   const hello = i.ownerName ? `Welcome to Automation Restaurant, ${i.ownerName}.` : 'Welcome to Automation Restaurant.';
   const cycle = i.billingInterval === 'annual' ? 'Annual' : 'Monthly';
@@ -80,17 +83,18 @@ export function sendWelcomeEmail(i: WelcomeEmailInput): Promise<MailResult> {
     ``,
     `Your restaurant workspace is now ready.`,
     ``,
-    `Access your restaurant portal:`,
-    i.portalUrl,
+    `Portal:   ${i.portalUrl}`,
+    `Email:    ${i.to}`,
+    i.tempPassword ? `Password: ${i.tempPassword}   (temporary — change it after you sign in)` : ``,
     ``,
-    i.setupUrl
-      ? `Set your password with this secure link (expires soon):\n${i.setupUrl}`
-      : `Sign in with the email address you used at checkout.`,
+    i.setupUrl ? `Prefer to set your own password now? Use this secure link (expires soon):\n${i.setupUrl}` : ``,
     ``,
     `Need help? Contact ${env.SUPPORT_EMAIL}.`,
     ``,
     `Welcome to Automation Restaurant.`,
-  ].join('\n');
+  ]
+    .filter((l) => l !== undefined)
+    .join('\n');
 
   const html = `<!doctype html><html><body style="margin:0;background:#f6f7f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1c1e21">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px">
@@ -103,11 +107,16 @@ export function sendWelcomeEmail(i: WelcomeEmailInput): Promise<MailResult> {
         <tr><td style="padding:6px 0;color:#65676b">Billing</td><td style="padding:6px 0;text-align:right;font-weight:600">${cycle}</td></tr>
         <tr><td style="padding:6px 0;color:#65676b">Payment</td><td style="padding:6px 0;text-align:right;font-weight:600;color:#1a7f37">Confirmed</td></tr>
       </table>
+      <div style="background:#f6f7f9;border:1px solid #e6e8eb;border-radius:8px;padding:14px 16px;font-size:13px;margin:0 0 18px">
+        <div style="color:#65676b;margin-bottom:6px">Sign in to your portal</div>
+        <div><strong>Email:</strong> ${i.to}</div>
+        ${i.tempPassword ? `<div><strong>Temporary password:</strong> <code style="background:#fff;border:1px solid #e6e8eb;border-radius:4px;padding:1px 5px">${i.tempPassword}</code></div><div style="color:#65676b;margin-top:6px">Change it under Settings after you sign in.</div>` : ''}
+      </div>
       <a href="${i.portalUrl}" style="display:inline-block;background:#e8590c;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;border-radius:8px">Open your restaurant portal</a>
       ${
         i.setupUrl
-          ? `<p style="font-size:13px;line-height:1.6;margin:20px 0 0">First, set your password with this secure link (expires soon):<br><a href="${i.setupUrl}" style="color:#e8590c">${i.setupUrl}</a></p>`
-          : `<p style="font-size:13px;line-height:1.6;margin:20px 0 0">Sign in with the email address you used at checkout.</p>`
+          ? `<p style="font-size:13px;line-height:1.6;margin:20px 0 0">Prefer to set your own password now? <a href="${i.setupUrl}" style="color:#e8590c">Use this secure link</a> (expires soon).</p>`
+          : ''
       }
     </div>
     <p style="font-size:12px;color:#65676b;margin:20px 0 0">Need help? Contact <a href="mailto:${env.SUPPORT_EMAIL}" style="color:#65676b">${env.SUPPORT_EMAIL}</a>.</p>
