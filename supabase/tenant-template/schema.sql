@@ -198,6 +198,12 @@ begin
   end loop;
 end $$;
 
+-- Storefront menu: readable by anon so the guest QR page and the public
+-- /menu API work without any privileged key. Categories are harmless; items
+-- are limited to those on sale.
+create policy guest_read on public.menu_categories for select using (true);
+create policy guest_read on public.menu_items for select using (is_available);
+
 -- orders / order_lines: any staff reads and updates (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
 create policy staff_read on public.orders for select using (app.is_staff());

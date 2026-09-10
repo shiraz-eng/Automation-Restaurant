@@ -1,8 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { createClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../supabase';
 import { env } from '../env';
+import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
 
 export const staffRouter = express.Router();
 
@@ -29,21 +28,10 @@ const bodySchema = z.object({
   password: z.string().min(8).max(200),
 });
 
-async function tenantProject(
-  slug: string,
-): Promise<{ project_url: string; service_key: string } | null> {
-  const { data } = await supabaseAdmin
-    .from('tenant_projects')
-    .select('project_url, service_key, tenants!inner(slug)')
-    .eq('tenants.slug', slug)
-    .maybeSingle();
-  return (data as { project_url: string; service_key: string } | null) ?? null;
-}
-
 /**
  * POST /api/staff  — owner/manager creates a staff account in the restaurant's
  * own project. Caller proves identity with their tenant-project access token
- * in the Authorization header.
+ * in the Authorization header. The admin key is ephemeral (see tenantAdmin).
  */
 staffRouter.post('/', express.json(), async (req: Request, res: Response) => {
   const parsed = bodySchema.safeParse(req.body);
@@ -58,12 +46,9 @@ staffRouter.post('/', express.json(), async (req: Request, res: Response) => {
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'missing_token' });
   const callerToken = auth.slice(7);
 
-  const proj = await tenantProject(slug);
-  if (!proj) return res.status(404).json({ error: 'restaurant_not_found' });
-
-  const admin = createClient(proj.project_url, proj.service_key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const svc = await tenantServiceClientBySlug(slug);
+  if (!svc) return res.status(404).json({ error: 'restaurant_not_found' });
+  const { admin } = svc;
 
   const { data: caller } = await admin.auth.getUser(callerToken);
   const callerRole = (caller?.user?.app_metadata as { role?: string } | undefined)?.role;

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase';
 import { env, oauthConnectEnabled } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
+import { tenantServiceClient } from '../lib/tenantAdmin';
 import {
   buildAuthorizeUrl,
   createOAuthState,
@@ -289,19 +289,16 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
     supabaseAdmin.from('onboarding_tokens').update({ used_at: null }).eq('id', claimed.id);
 
   try {
-    // Resolve the restaurant's dedicated project.
-    const { data: proj, error: projErr } = await supabaseAdmin
-      .from('tenant_projects')
-      .select('project_url, service_key, tenants(slug)')
-      .eq('tenant_id', claimed.tenant_id)
+    // Ephemeral admin client for the restaurant's project (re-derived from the
+    // OAuth grant for connect-flow tenants; stored key for legacy tenants).
+    const svc = await tenantServiceClient(claimed.tenant_id);
+    if (!svc) throw new Error('tenant project not ready');
+    const tenantAdmin = svc.admin;
+    const { data: slugRow } = await supabaseAdmin
+      .from('tenants')
+      .select('slug')
+      .eq('id', claimed.tenant_id)
       .maybeSingle();
-    if (projErr || !proj) {
-      throw new Error(projErr?.message ?? 'tenant project not ready');
-    }
-
-    const tenantAdmin = createClient(proj.project_url, proj.service_key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
 
     // Create the owner, or — if provisioning already made the user and this is a
     // re-run of the claim link (e.g. forgotten password) — reset it in place.
@@ -349,8 +346,7 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
     );
     if (memErr) throw new Error(`membership upsert failed: ${memErr.message}`);
 
-    const slug = (proj as { tenants?: { slug?: string } }).tenants?.slug ?? null;
-    return res.status(200).json({ ok: true, slug });
+    return res.status(200).json({ ok: true, slug: slugRow?.slug ?? null });
   } catch (err) {
     console.error('[onboarding] account setup failed, releasing token:', err);
     await release();

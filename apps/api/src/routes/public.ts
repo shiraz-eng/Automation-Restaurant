@@ -24,7 +24,10 @@ publicRouter.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// slug -> service-role client for that restaurant's dedicated project.
+// slug -> ANON client for that restaurant's dedicated project. Public endpoints
+// (menu read, place_order, promo preview) run with the anon key only: menu rows
+// are guest-readable by RLS and the mutating calls are SECURITY DEFINER RPCs
+// granted to anon. The platform never needs the tenant's admin key here.
 const clientCache = new Map<string, SupabaseClient>();
 
 async function tenantClientForSlug(slug: string): Promise<SupabaseClient | null> {
@@ -33,16 +36,16 @@ async function tenantClientForSlug(slug: string): Promise<SupabaseClient | null>
 
   const { data } = await supabaseAdmin
     .from('tenant_projects')
-    .select('project_url, service_key, tenants!inner(slug, status)')
+    .select('project_url, anon_key, tenants!inner(slug, status)')
     .eq('tenants.slug', slug)
     .maybeSingle();
 
   const row = data as
-    | { project_url: string; service_key: string; tenants: { status: string } }
+    | { project_url: string; anon_key: string; tenants: { status: string } }
     | null;
-  if (!row || row.tenants.status !== 'active') return null;
+  if (!row || row.tenants.status !== 'active' || !row.anon_key) return null;
 
-  const client = createClient(row.project_url, row.service_key, {
+  const client = createClient(row.project_url, row.anon_key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   clientCache.set(slug, client);

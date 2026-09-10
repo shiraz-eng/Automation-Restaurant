@@ -97,8 +97,11 @@ export async function provisionTenant(input: {
       project_ref: project.id,
       project_url: projectUrl,
       anon_key: keys.anon,
-      service_key: keys.service_role,
-      db_password: dbPassword,
+      // Connect flow: do NOT persist the admin credentials. They're re-derived
+      // on demand from the OAuth refresh token for the rare admin operation.
+      // Legacy platform-org flow keeps them (no OAuth grant to fall back on).
+      service_key: connected ? null : keys.service_role,
+      db_password: connected ? null : dbPassword,
       schema_version: SCHEMA_VERSION,
     });
     if (regErr) throw new Error(`registry insert failed: ${regErr.message}`);
