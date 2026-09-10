@@ -35,6 +35,8 @@ export interface MgmtClient {
   }): Promise<CreatedProject>;
   getProject(ref: string): Promise<{ status: string }>;
   waitForActive(ref: string, timeoutMs?: number): Promise<void>;
+  /** Ready = the new database accepts a query. Doesn't need Projects:Read. */
+  waitForQueryable(ref: string, timeoutMs?: number): Promise<void>;
   getApiKeys(ref: string): Promise<{ anon: string; service_role: string }>;
   runSql(ref: string, query: string): Promise<unknown>;
 }
@@ -86,6 +88,27 @@ export function mgmtClient(token: string): MgmtClient {
         await new Promise((r) => setTimeout(r, 10_000));
       }
       throw new Error(`project ${ref} not ACTIVE_HEALTHY within ${timeoutMs}ms`);
+    },
+    async waitForQueryable(ref, timeoutMs = 8 * 60_000) {
+      const deadline = Date.now() + timeoutMs;
+      let lastErr: unknown;
+      // Fresh projects reject queries with 5xx / "not ready" for the first
+      // minute or two; a clean `select 1` means Postgres + the query API are up.
+      while (Date.now() < deadline) {
+        try {
+          await request(`/projects/${ref}/database/query`, {
+            method: 'POST',
+            body: JSON.stringify({ query: 'select 1;' }),
+          });
+          return;
+        } catch (err) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 10_000));
+        }
+      }
+      throw new Error(
+        `project ${ref} not queryable within ${timeoutMs}ms (last: ${String(lastErr)})`,
+      );
     },
     async getApiKeys(ref) {
       const keys = await request<{ name: string; api_key: string }[]>(

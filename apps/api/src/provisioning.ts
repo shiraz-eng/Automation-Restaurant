@@ -81,9 +81,11 @@ export async function provisionTenant(input: {
       name: `ar-${slug}`.slice(0, 56),
       dbPass: dbPassword,
     });
-    console.log(`[provision] ${slug}: created project ${project.id}, waiting for health…`);
+    console.log(`[provision] ${slug}: created project ${project.id}, waiting for database…`);
 
-    await mgmt.waitForActive(project.id);
+    // Readiness via a probe query rather than the project-status endpoint, so
+    // the OAuth grant only needs Projects:Write (not Read).
+    await mgmt.waitForQueryable(project.id);
     const keys = await mgmt.getApiKeys(project.id);
 
     console.log(`[provision] ${slug}: applying tenant schema…`);
