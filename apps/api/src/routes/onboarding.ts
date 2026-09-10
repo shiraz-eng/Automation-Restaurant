@@ -3,10 +3,16 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase';
-import { env } from '../env';
+import { env, oauthConnectEnabled } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
+import {
+  buildAuthorizeUrl,
+  createOAuthState,
+  consumeOAuthState,
+  exchangeAndStore,
+} from '../lib/supabaseOAuth';
 
 export const onboardingRouter = express.Router();
 
@@ -43,10 +49,13 @@ const signupSchema = z.object({
 /**
  * POST /api/onboarding/signup
  *
- * Checkout / signup: registers the tenant, stores business details, and kicks
- * off creation of its dedicated Supabase project. If `password` is supplied the
- * owner account is created directly once the project is ready; otherwise a
- * claim link is emailed.
+ * Checkout / signup: registers the tenant and stores business details.
+ *
+ * - Connect flow (SUPABASE_OAUTH_* configured): the tenant is parked at
+ *   status='awaiting_connection'. The owner then authorises our OAuth app
+ *   against their own Supabase org (GET /connect/start) and provisioning runs
+ *   from the callback.
+ * - Legacy flow: provisioning into the platform org kicks off immediately.
  */
 onboardingRouter.post('/signup', express.json(), async (req: Request, res: Response) => {
   const parsed = signupSchema.safeParse(req.body);
@@ -56,7 +65,10 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
       .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
   }
   const d = parsed.data;
+  const connect = oauthConnectEnabled;
 
+  // p_status feeds subscriptions.status (enum: trialing|active|…). The tenant
+  // row is always created as 'provisioning' by the RPC; we move it below.
   const { data, error } = await supabaseAdmin.rpc('register_tenant', {
     p_restaurant_name: d.restaurant_name,
     p_slug: slugify(d.restaurant_name),
@@ -78,6 +90,8 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
   await supabaseAdmin
     .from('tenants')
     .update({
+      // Connect flow: park here until the owner authorizes their Supabase org.
+      ...(connect ? { status: 'awaiting_connection' } : {}),
       owner_name: d.owner_name ?? null,
       phone: d.phone ?? null,
       country: d.country ?? null,
@@ -86,6 +100,17 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
       table_count: d.table_count ?? null,
     })
     .eq('id', row.tenant_id);
+
+  if (connect) {
+    // The owner sets their password via the claim link after their project is
+    // created in their own Supabase org, so no password is stored here.
+    return res.status(202).json({
+      ok: true,
+      slug: row.slug,
+      status: 'awaiting_connection',
+      connect_url: `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(row.slug)}`,
+    });
+  }
 
   void provisionTenant({
     tenantId: row.tenant_id,
@@ -97,6 +122,95 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
   });
 
   res.status(202).json({ ok: true, slug: row.slug, status: 'provisioning' });
+});
+
+/** Best-effort public origin of this API, for building the connect URL. */
+function apiOrigin(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol;
+  const host = req.headers['x-forwarded-host'] ?? req.headers.host;
+  return `${proto}://${host}`;
+}
+
+/**
+ * GET /api/onboarding/connect/start?slug=...
+ * Redirects the owner to Supabase to authorise our OAuth app against their org.
+ */
+onboardingRouter.get('/connect/start', async (req: Request, res: Response) => {
+  if (!oauthConnectEnabled) {
+    return res.status(503).send('Supabase connect is not configured on this server.');
+  }
+  const slug = String(req.query.slug ?? '');
+  const { data: tenant } = await supabaseAdmin
+    .from('tenants')
+    .select('id, slug, status')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (!tenant) return res.status(404).send('Unknown restaurant.');
+
+  if (tenant.status === 'active') {
+    return res.redirect(`${env.APP_URL}/r/${tenant.slug}/login`);
+  }
+  if (tenant.status === 'provisioning') {
+    return res.redirect(`${env.APP_URL}/onboarding/${tenant.slug}`);
+  }
+
+  try {
+    const state = await createOAuthState(tenant.id);
+    res.redirect(buildAuthorizeUrl(state));
+  } catch (err) {
+    console.error('[onboarding] connect/start failed:', err);
+    res.status(500).send('Could not start the Supabase connection.');
+  }
+});
+
+/**
+ * GET /api/onboarding/connect/callback?code=...&state=...
+ * Supabase redirects here after the owner authorises. Exchanges the code,
+ * stores the org grant, and kicks off provisioning into their org.
+ */
+onboardingRouter.get('/connect/callback', async (req: Request, res: Response) => {
+  const { code, state, error: oauthError } = req.query as Record<string, string | undefined>;
+  const done = (slug: string, q = '') => res.redirect(`${env.APP_URL}/onboarding/${slug}${q}`);
+
+  const tenantId = state ? await consumeOAuthState(state) : null;
+  if (!tenantId) {
+    return res.status(400).send('This Supabase connection link is invalid or has expired.');
+  }
+  const { data: tenant } = await supabaseAdmin
+    .from('tenants')
+    .select('id, slug, restaurant_name, owner_email, owner_name')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (!tenant) return res.status(404).send('Unknown restaurant.');
+
+  if (oauthError || !code) {
+    return done(tenant.slug, '?connect=denied');
+  }
+
+  try {
+    await exchangeAndStore(tenantId, code);
+    await supabaseAdmin
+      .from('tenants')
+      .update({ status: 'provisioning', provisioning_error: null })
+      .eq('id', tenantId);
+
+    void provisionTenant({
+      tenantId,
+      restaurantName: tenant.restaurant_name,
+      slug: tenant.slug,
+      ownerEmail: tenant.owner_email,
+      ownerName: tenant.owner_name ?? undefined,
+      connected: true,
+    });
+    done(tenant.slug);
+  } catch (err) {
+    console.error('[onboarding] connect/callback failed:', err);
+    await supabaseAdmin
+      .from('tenants')
+      .update({ provisioning_error: String((err as Error).message ?? err) })
+      .eq('id', tenantId);
+    done(tenant.slug, '?connect=error');
+  }
 });
 
 /** GET /api/onboarding/status/:slug — polled by the provisioning screen. */
@@ -112,6 +226,10 @@ onboardingRouter.get('/status/:slug', async (req: Request, res: Response) => {
     status: data.status,
     error: data.provisioning_error ?? null,
     restaurant_name: data.restaurant_name,
+    connect_url:
+      data.status === 'awaiting_connection'
+        ? `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(slug)}`
+        : null,
   });
 });
 

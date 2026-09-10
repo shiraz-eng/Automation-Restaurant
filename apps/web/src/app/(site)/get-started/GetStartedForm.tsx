@@ -39,7 +39,8 @@ export function GetStartedForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (f.password.length < 10) return setError('Password must be at least 10 characters.');
+    if (f.password && f.password.length < 10)
+      return setError('Password must be at least 10 characters.');
     if (f.password !== f.confirm) return setError('Passwords do not match.');
     if (!agree) return setError('Please accept the Terms & Conditions to continue.');
 
@@ -52,7 +53,7 @@ export function GetStartedForm({
           restaurant_name: f.restaurant_name.trim(),
           owner_name: f.owner_name.trim() || undefined,
           owner_email: f.owner_email.trim(),
-          password: f.password,
+          password: f.password || undefined,
           phone: f.phone.trim() || undefined,
           country: f.country.trim() || undefined,
           address: f.address.trim() || undefined,
@@ -110,14 +111,17 @@ export function GetStartedForm({
       <fieldset className="space-y-3">
         <legend className="font-bold text-sm mb-1">Account</legend>
         <div className="grid sm:grid-cols-2 gap-3">
-          <L label="Password">
-            <input type="password" required value={f.password} onChange={set('password')} className={inputCls} />
+          <L label="Password (optional)">
+            <input type="password" value={f.password} onChange={set('password')} className={inputCls} />
           </L>
           <L label="Confirm password">
-            <input type="password" required value={f.confirm} onChange={set('confirm')} className={inputCls} />
+            <input type="password" value={f.confirm} onChange={set('confirm')} className={inputCls} />
           </L>
         </div>
-        <p className="text-[11px] text-muted">Your sign-in is your business email + this password.</p>
+        <p className="text-[11px] text-muted">
+          Leave blank and we&rsquo;ll email you a secure link to set your password once your
+          workspace is ready. Your sign-in is always your business email.
+        </p>
       </fieldset>
 
       <label className="flex items-start gap-2 text-xs">

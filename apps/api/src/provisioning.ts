@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from './supabase';
 import { env } from './env';
-import { createProject, waitForActive, getApiKeys, runSql } from './mgmt';
+import { platformMgmt, mgmtClient, type MgmtClient } from './mgmt';
+import { getFreshConnection } from './lib/supabaseOAuth';
 import { createClaimToken } from './lib/tokens';
 import { sendOnboardingEmail } from './lib/mailer';
 
@@ -24,8 +25,12 @@ function strongPassword(): string {
 
 /**
  * Detached provisioning for one restaurant. Creates a dedicated Supabase
- * project, applies the tenant schema, records it, and emails the owner a claim
- * link. Any failure lands in tenants.provisioning_error and status='failed'.
+ * project, applies the tenant schema, records it, and either creates the owner
+ * account directly or emails a claim link. Any failure lands in
+ * tenants.provisioning_error and status='failed'.
+ *
+ * `connected: true` uses the owner's own Supabase org via the OAuth grant in
+ * supabase_connections (Model B); otherwise the platform org is used.
  *
  * NOTE: fire-and-forget. Production should run this from a durable queue so a
  * crashed server doesn't leave a half-provisioned tenant.
@@ -39,8 +44,12 @@ export async function provisionTenant(input: {
    *  no claim link is emailed. Otherwise a claim link is sent. */
   ownerPassword?: string;
   ownerName?: string;
+  /** Provision into the owner's own Supabase org (OAuth connect flow). */
+  connected?: boolean;
 }): Promise<void> {
-  const { tenantId, restaurantName, slug, ownerEmail, ownerPassword, ownerName } = input;
+  const { tenantId, restaurantName, slug, ownerEmail, ownerPassword, ownerName, connected } =
+    input;
+  void restaurantName;
   try {
     // Idempotency: skip if already provisioned.
     const existing = await supabaseAdmin
@@ -53,15 +62,32 @@ export async function provisionTenant(input: {
       return;
     }
 
+    // Pick the Management API identity + target organization.
+    let mgmt: MgmtClient;
+    let organizationId: string;
+    if (connected) {
+      const conn = await getFreshConnection(tenantId);
+      mgmt = mgmtClient(conn.access_token);
+      organizationId = conn.organization_id;
+      console.log(`[provision] ${slug}: using connected org ${organizationId}`);
+    } else {
+      mgmt = platformMgmt;
+      organizationId = env.SUPABASE_ORG_ID;
+    }
+
     const dbPassword = strongPassword();
-    const project = await createProject(`ar-${slug}`.slice(0, 56), dbPassword);
+    const project = await mgmt.createProject({
+      organizationId,
+      name: `ar-${slug}`.slice(0, 56),
+      dbPass: dbPassword,
+    });
     console.log(`[provision] ${slug}: created project ${project.id}, waiting for health…`);
 
-    await waitForActive(project.id);
-    const keys = await getApiKeys(project.id);
+    await mgmt.waitForActive(project.id);
+    const keys = await mgmt.getApiKeys(project.id);
 
     console.log(`[provision] ${slug}: applying tenant schema…`);
-    await runSql(project.id, TENANT_SCHEMA_SQL);
+    await mgmt.runSql(project.id, TENANT_SCHEMA_SQL);
 
     const projectUrl = `https://${project.id}.supabase.co`;
     const { error: regErr } = await supabaseAdmin.from('tenant_projects').insert({

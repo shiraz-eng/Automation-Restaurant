@@ -14,11 +14,23 @@ const STEPS = [
   'Portal ready',
 ];
 
+type Status = 'awaiting_connection' | 'provisioning' | 'active' | 'failed';
+
 export function OnboardingStatus({ slug }: { slug: string }) {
-  const [status, setStatus] = useState<'provisioning' | 'active' | 'failed'>('provisioning');
+  const [status, setStatus] = useState<Status>('provisioning');
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+
+  // Surface ?connect=denied / ?connect=error handed back by the OAuth callback.
+  const [connectNote, setConnectNote] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('connect');
+    if (q === 'denied') setConnectNote('Authorization was cancelled. You can try again below.');
+    else if (q === 'error')
+      setConnectNote('Something went wrong connecting Supabase. Please try again.');
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -29,10 +41,15 @@ export function OnboardingStatus({ slug }: { slug: string }) {
         const body = await res.json();
         if (!alive) return;
         setName(body.restaurant_name ?? null);
+        setConnectUrl(body.connect_url ?? null);
         if (body.status === 'active') setStatus('active');
         else if (body.status === 'failed') {
           setStatus('failed');
           setError(body.error ?? 'Provisioning failed.');
+        } else if (body.status === 'awaiting_connection') {
+          setStatus('awaiting_connection');
+        } else {
+          setStatus('provisioning');
         }
       } catch {
         /* keep polling */
@@ -49,15 +66,46 @@ export function OnboardingStatus({ slug }: { slug: string }) {
   }, [slug]);
 
   // Reveal the checklist gradually while provisioning; all done when active.
-  const revealed = status === 'active' ? STEPS.length : Math.min(STEPS.length - 1, 1 + Math.floor(elapsed / 12));
+  const revealed =
+    status === 'active' ? STEPS.length : Math.min(STEPS.length - 1, 1 + Math.floor(elapsed / 12));
 
   return (
     <div className="min-h-screen grid place-items-center px-6">
       <div className="w-full max-w-md">
-        {status === 'failed' ? (
+        {status === 'awaiting_connection' ? (
+          <>
+            <div className="text-3xl mb-3">🔌</div>
+            <h1 className="text-lg font-black">Connect your Supabase account</h1>
+            <p className="text-muted text-sm mt-2">
+              {name ?? 'Your restaurant'} gets its own dedicated database, created inside{' '}
+              <span className="font-semibold">your</span> Supabase organization. Click below to
+              sign in to Supabase and authorize access — it takes about a minute.
+            </p>
+            <ol className="mt-4 space-y-1.5 text-xs text-muted list-decimal list-inside">
+              <li>Sign in to Supabase (or create a free account)</li>
+              <li>Pick the organization to use</li>
+              <li>Approve access — we create the project for you</li>
+            </ol>
+            {connectNote && (
+              <p className="text-danger text-xs mt-3">{connectNote}</p>
+            )}
+            {connectUrl ? (
+              <a
+                href={connectUrl}
+                className="inline-block mt-6 rounded-lg bg-primary text-primary-fg font-bold px-6 py-3 text-sm"
+              >
+                Connect Supabase
+              </a>
+            ) : (
+              <p className="text-muted text-xs mt-6">Preparing…</p>
+            )}
+          </>
+        ) : status === 'failed' ? (
           <>
             <div className="text-3xl mb-3">⚠️</div>
-            <h1 className="text-lg font-black">Something went wrong setting up {name ?? 'your restaurant'}</h1>
+            <h1 className="text-lg font-black">
+              Something went wrong setting up {name ?? 'your restaurant'}
+            </h1>
             <p className="text-muted text-sm mt-2">
               Our team has been alerted. Please contact support with your restaurant name.
             </p>
