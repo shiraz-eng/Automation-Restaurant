@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { PlanTier } from '@automation-restaurant/shared';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -15,6 +16,7 @@ export function GetStartedForm({
   plan: PlanTier;
   cycle: 'monthly' | 'annual';
 }) {
+  const router = useRouter();
   const [f, setF] = useState({
     restaurant_name: '',
     owner_name: '',
@@ -56,12 +58,21 @@ export function GetStartedForm({
         }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.checkout_url) {
+      if (!res.ok) {
         setError(body.message ?? body.error ?? 'Could not start checkout.');
         return;
       }
-      // Hand off to Stripe. Provisioning happens only after the payment webhook.
-      window.location.href = body.checkout_url;
+      if (body.checkout_url) {
+        // Real payment: hand off to Stripe; provisioning runs on the webhook.
+        window.location.href = body.checkout_url;
+        return;
+      }
+      if (body.slug) {
+        // Simulated payment accepted server-side → workspace is provisioning.
+        router.push(`/onboarding/${body.slug}`);
+        return;
+      }
+      setError('Unexpected response from the server.');
     } catch {
       setError('Network error. Try again.');
     } finally {
@@ -129,11 +140,11 @@ export function GetStartedForm({
         disabled={busy}
         className="rounded-lg bg-primary text-primary-fg font-bold px-6 py-3 text-sm disabled:opacity-60"
       >
-        {busy ? 'Redirecting to checkout…' : 'Continue to payment'}
+        {busy ? 'Processing…' : 'Continue to payment'}
       </button>
       <p className="text-[11px] text-muted">
-        You&rsquo;ll be taken to our secure payment provider. Your workspace is provisioned only
-        after payment is confirmed.
+        Payment is taken securely and your workspace is provisioned only after it&rsquo;s
+        confirmed. Card details are never stored by Automation Restaurant.
       </p>
     </form>
   );

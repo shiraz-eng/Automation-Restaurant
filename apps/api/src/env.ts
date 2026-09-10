@@ -43,6 +43,9 @@ const schema = z.object({
     .url()
     .default('http://localhost:4000/api/onboarding/connect/callback'),
 
+  // 'auto' (default) uses real Stripe when it's configured, otherwise a built-in
+  // simulated payment so the flow runs with zero setup. 'stripe' / 'mock' force it.
+  PAYMENTS_MODE: z.enum(['auto', 'stripe', 'mock']).default('auto'),
   STRIPE_SECRET_KEY: z.string().min(1),
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
   // "priceId:tier:interval" comma-separated, e.g.
@@ -74,6 +77,18 @@ export const env = parsed.data;
 export const oauthConnectEnabled = Boolean(
   env.SUPABASE_OAUTH_CLIENT_ID && env.SUPABASE_OAUTH_CLIENT_SECRET,
 );
+
+/** Real Stripe is usable (secret key + at least one price mapping). */
+const stripeConfigured =
+  /^sk_(test|live)_/.test(env.STRIPE_SECRET_KEY) && env.STRIPE_PRICE_MAP.trim().length > 0;
+
+/**
+ * Effective payment mode. 'auto' picks Stripe when configured, else 'mock' — a
+ * self-contained simulated payment (random reference in payment format,
+ * verified server-side) so onboarding works end-to-end with no external setup.
+ */
+export const paymentsMode: 'stripe' | 'mock' =
+  env.PAYMENTS_MODE === 'auto' ? (stripeConfigured ? 'stripe' : 'mock') : env.PAYMENTS_MODE;
 
 /**
  * Ordered list of Supabase organization ids to provision tenant projects into.

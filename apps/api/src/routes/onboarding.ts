@@ -1,13 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
-import { env, oauthConnectEnabled } from '../env';
+import { env, oauthConnectEnabled, paymentsMode } from '../env';
+import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
+import { simulatePayment } from '../lib/payments';
 import { tenantServiceClient } from '../lib/tenantAdmin';
 import {
   stripe,
-  billingConfigured,
   priceIdFor,
   createSubscriptionCheckout,
 } from '../stripe';
@@ -52,10 +54,13 @@ const signupSchema = z.object({
 /**
  * POST /api/onboarding/signup
  *
- * Step 1 of the paid onboarding flow: creates a Stripe Checkout Session and
- * returns its URL. NOTHING is provisioned here — the tenant is created and its
- * dedicated Supabase project is built only after Stripe's webhook verifies the
- * payment server-side (see webhooks/stripe.ts -> handleCheckoutCompleted).
+ * The payment gate. Provisioning NEVER happens here directly.
+ *
+ * - Stripe mode: returns a Checkout Session URL; the tenant + its dedicated
+ *   Supabase project are created only after the signature-verified webhook
+ *   (webhooks/stripe.ts -> handleCheckoutCompleted).
+ * - Mock mode (default with no Stripe setup): a simulated payment is generated
+ *   and verified server-side, then the same register + provision path runs.
  */
 onboardingRouter.post('/signup', express.json(), async (req: Request, res: Response) => {
   const parsed = signupSchema.safeParse(req.body);
@@ -66,12 +71,65 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
   }
   const d = parsed.data;
 
-  if (!billingConfigured) {
-    return res.status(503).json({
-      error: 'billing_unavailable',
-      message: 'Online payment is not configured on this server yet.',
+  // ── Mock payment: simulate a verified charge, then register + provision ──
+  if (paymentsMode === 'mock') {
+    const payment = simulatePayment(d.plan, d.billing_interval);
+    console.log(
+      `[onboarding] MOCK payment ${payment.reference} ${payment.card_brand} •••• ${payment.card_last4} ` +
+        `$${(payment.amount_cents / 100).toFixed(2)} — treated as verified`,
+    );
+
+    const { data, error } = await supabaseAdmin.rpc('register_tenant', {
+      p_restaurant_name: d.restaurant_name,
+      p_slug: slugify(d.restaurant_name),
+      p_tier: d.plan,
+      p_billing_interval: d.billing_interval,
+      p_status: 'active',
+      p_stripe_customer_id: payment.customer_reference,
+      p_stripe_subscription_id: `mock_sub_${randomUUID()}`,
+      p_current_period_end: null,
+      p_owner_email: d.owner_email,
+      p_region: env.SUPABASE_REGION,
+    });
+    if (error) {
+      return res.status(400).json({ error: 'register_failed', message: error.message });
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+
+    await supabaseAdmin
+      .from('tenants')
+      .update({
+        owner_name: d.owner_name ?? null,
+        phone: d.phone ?? null,
+        country: d.country ?? null,
+        address: d.address ?? null,
+        branch_name: d.branch_name ?? null,
+        table_count: d.table_count ?? null,
+      })
+      .eq('id', row.tenant_id);
+
+    void provisionTenant({
+      tenantId: row.tenant_id,
+      restaurantName: d.restaurant_name,
+      slug: row.slug,
+      ownerEmail: d.owner_email,
+      ownerName: d.owner_name,
+    });
+
+    return res.status(202).json({
+      ok: true,
+      slug: row.slug,
+      status: 'provisioning',
+      payment: {
+        mode: 'mock',
+        reference: payment.reference,
+        amount: `$${(payment.amount_cents / 100).toFixed(2)}`,
+        card: `${payment.card_brand} •••• ${payment.card_last4}`,
+      },
     });
   }
+
+  // ── Real Stripe checkout ──
   const priceId = priceIdFor(d.plan, d.billing_interval);
   if (!priceId) {
     return res.status(503).json({
