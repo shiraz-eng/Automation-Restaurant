@@ -13,10 +13,15 @@ export type TenantRow = {
   owner_email: string | null;
   region: string | null;
   provisioning_error: string | null;
+  welcome_email_status: string | null;
+  welcome_email_error: string | null;
+  provisioning_attempts: number | null;
   created_at: string;
   subscriptions: { tier: string; status: string; billing_interval: string } | null;
   tenant_projects: { project_ref: string; project_url: string } | null;
 };
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const STATUS_TONE: Record<string, string> = {
   active: 'text-ok',
@@ -43,6 +48,32 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
     router.refresh();
   }
 
+  async function callAdmin(id: string, path: string, ok: string) {
+    setBusyId(id);
+    setError(null);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    try {
+      const res = await fetch(`${API}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) {
+        setError(body.message ?? body.error ?? `${ok} failed`);
+      }
+    } catch {
+      setError('Network error.');
+    } finally {
+      setBusyId(null);
+      router.refresh();
+    }
+  }
+
   if (rows.length === 0) {
     return <Card>No restaurants provisioned yet.</Card>;
   }
@@ -58,6 +89,7 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
             <th className="p-3 font-semibold">Plan</th>
             <th className="p-3 font-semibold">Project</th>
             <th className="p-3 font-semibold">Status</th>
+            <th className="p-3 font-semibold">Welcome email</th>
             <th className="p-3 font-semibold text-right">Action</th>
           </tr>
         </thead>
@@ -80,22 +112,69 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
               </td>
               <td className={`p-3 font-semibold ${STATUS_TONE[r.status] ?? ''}`}>
                 {r.status}
+                {r.provisioning_attempts ? (
+                  <span className="text-muted font-normal"> · {r.provisioning_attempts} tries</span>
+                ) : null}
                 {r.provisioning_error && (
                   <div className="text-danger font-normal max-w-[220px] truncate" title={r.provisioning_error}>
                     {r.provisioning_error}
                   </div>
                 )}
               </td>
-              <td className="p-3 text-right">
-                {r.status === 'active' ? (
-                  <button
-                    onClick={() => setStatus(r.id, 'suspended')}
-                    disabled={busyId === r.id}
-                    className="rounded border border-danger/40 text-danger px-3 py-1.5 font-semibold hover:bg-danger/10"
+              <td className="p-3">
+                <span
+                  className={
+                    r.welcome_email_status === 'sent'
+                      ? 'text-ok'
+                      : r.welcome_email_status === 'failed'
+                        ? 'text-danger'
+                        : 'text-muted'
+                  }
+                >
+                  {r.welcome_email_status ?? '—'}
+                </span>
+                {r.welcome_email_error && (
+                  <div
+                    className="text-danger max-w-[180px] truncate"
+                    title={r.welcome_email_error}
                   >
-                    Suspend
+                    {r.welcome_email_error}
+                  </div>
+                )}
+              </td>
+              <td className="p-3 text-right whitespace-nowrap">
+                {r.status === 'failed' && (
+                  <button
+                    onClick={() =>
+                      callAdmin(r.id, `/api/admin/tenants/${r.slug}/retry-provision`, 'Retry')
+                    }
+                    disabled={busyId === r.id}
+                    className="rounded bg-primary text-primary-fg px-3 py-1.5 font-semibold"
+                  >
+                    Retry provisioning
                   </button>
-                ) : r.status === 'suspended' ? (
+                )}
+                {r.status === 'active' && (
+                  <>
+                    <button
+                      onClick={() =>
+                        callAdmin(r.id, `/api/admin/tenants/${r.slug}/resend-welcome`, 'Resend')
+                      }
+                      disabled={busyId === r.id}
+                      className="rounded border border-border px-3 py-1.5 font-semibold hover:bg-main"
+                    >
+                      Resend email
+                    </button>
+                    <button
+                      onClick={() => setStatus(r.id, 'suspended')}
+                      disabled={busyId === r.id}
+                      className="ml-1.5 rounded border border-danger/40 text-danger px-3 py-1.5 font-semibold hover:bg-danger/10"
+                    >
+                      Suspend
+                    </button>
+                  </>
+                )}
+                {r.status === 'suspended' && (
                   <button
                     onClick={() => setStatus(r.id, 'active')}
                     disabled={busyId === r.id}
@@ -103,7 +182,8 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
                   >
                     Reactivate
                   </button>
-                ) : (
+                )}
+                {!['failed', 'active', 'suspended'].includes(r.status) && (
                   <span className="text-muted">—</span>
                 )}
               </td>

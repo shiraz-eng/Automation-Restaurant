@@ -39,9 +39,20 @@ const schema = z.object({
 
   STRIPE_SECRET_KEY: z.string().min(1),
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
+  // "priceId:tier:interval" comma-separated, e.g.
+  // price_123:starter:monthly,price_456:starter:annual,price_789:growth:monthly
   STRIPE_PRICE_MAP: z.string().default(''),
+  // Where Stripe returns the customer after checkout (defaults to APP_URL).
+  CHECKOUT_RETURN_URL: z.string().url().optional(),
 
   ONBOARDING_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+
+  // ── Transactional email (welcome email etc.) ──────────────────────────────
+  // Resend is used when RESEND_API_KEY is set; otherwise emails are logged to
+  // the server console and recorded as 'skipped' (never silently "sent").
+  RESEND_API_KEY: z.string().trim().optional(),
+  EMAIL_FROM: z.string().trim().default('Automation Restaurant <onboarding@automationrestaurant.app>'),
+  SUPPORT_EMAIL: z.string().trim().default('support@automationrestaurant.app'),
 });
 
 const parsed = schema.safeParse(process.env);

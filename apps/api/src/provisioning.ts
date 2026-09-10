@@ -4,14 +4,15 @@ import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from './supabase';
 import { env } from './env';
-import { platformMgmt, mgmtClient, type MgmtClient } from './mgmt';
-import { getFreshConnection } from './lib/supabaseOAuth';
+import { platformMgmt } from './mgmt';
 import { createClaimToken } from './lib/tokens';
-import { sendOnboardingEmail } from './lib/mailer';
+import { sendWelcomeEmail, type MailResult } from './lib/mailer';
+import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 
 // Bump whenever tenant-template/schema.sql changes; matches the highest applied
 // file in supabase/tenant-migrations/. v2 = promotions + purchasing + scheduling.
 const SCHEMA_VERSION = 2;
+const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
 const TENANT_SCHEMA_SQL = readFileSync(
@@ -23,141 +24,262 @@ function strongPassword(): string {
   return randomBytes(24).toString('base64url');
 }
 
+function mailStatus(r: MailResult): 'sent' | 'skipped' | 'failed' {
+  if (r.delivered) return 'sent';
+  return r.provider === 'console' ? 'skipped' : 'failed';
+}
+
+/** Best-effort column write — tolerates a control plane that hasn't had the
+ *  welcome_email_* migration (0006) applied yet. */
+async function patchTenant(tenantId: string, patch: Record<string, unknown>): Promise<void> {
+  const { error } = await supabaseAdmin.from('tenants').update(patch).eq('id', tenantId);
+  if (error && /column .* does not exist/i.test(error.message)) {
+    const { welcome_email_status, welcome_email_sent_at, welcome_email_error, provisioning_attempts, ...core } =
+      patch;
+    void welcome_email_status;
+    void welcome_email_sent_at;
+    void welcome_email_error;
+    void provisioning_attempts;
+    if (Object.keys(core).length) await supabaseAdmin.from('tenants').update(core).eq('id', tenantId);
+  }
+}
+
 /**
- * Detached provisioning for one restaurant. Creates a dedicated Supabase
- * project, applies the tenant schema, records it, and either creates the owner
- * account directly or emails a claim link. Any failure lands in
- * tenants.provisioning_error and status='failed'.
+ * Detached provisioning for one restaurant, run ONLY after a Stripe webhook has
+ * verified payment. Creates a dedicated Supabase project in the platform org,
+ * applies the tenant schema, creates the owner account + a set-password link,
+ * and sends the branded welcome email. Any failure lands in
+ * tenants.provisioning_error with status='failed' for the retry sweep.
  *
- * `connected: true` uses the owner's own Supabase org via the OAuth grant in
- * supabase_connections (Model B); otherwise the platform org is used.
- *
- * NOTE: fire-and-forget. Production should run this from a durable queue so a
- * crashed server doesn't leave a half-provisioned tenant.
+ * NOTE: fire-and-forget. Production should run this from a durable queue.
  */
 export async function provisionTenant(input: {
   tenantId: string;
   restaurantName: string;
   slug: string;
   ownerEmail: string;
-  /** If supplied (checkout flow), the owner account is created immediately and
-   *  no claim link is emailed. Otherwise a claim link is sent. */
-  ownerPassword?: string;
   ownerName?: string;
-  /** Provision into the owner's own Supabase org (OAuth connect flow). */
-  connected?: boolean;
+  /** Optional preset password; otherwise a random one is set and the owner
+   *  chooses their real password via the welcome email's secure link. */
+  ownerPassword?: string;
 }): Promise<void> {
-  const { tenantId, restaurantName, slug, ownerEmail, ownerPassword, ownerName, connected } =
-    input;
-  void restaurantName;
+  const { tenantId, restaurantName, slug, ownerEmail, ownerName } = input;
+
   try {
-    // Idempotency: skip if already provisioned.
+    await supabaseAdmin
+      .from('tenants')
+      .update({ status: 'provisioning', provisioning_error: null })
+      .eq('id', tenantId);
+
+    // Idempotency: reuse an existing project if provisioning half-completed.
     const existing = await supabaseAdmin
       .from('tenant_projects')
-      .select('project_ref')
+      .select('project_ref, project_url, service_key')
       .eq('tenant_id', tenantId)
       .maybeSingle();
-    if (existing.data) {
-      console.log(`[provision] ${slug} already has project ${existing.data.project_ref}`);
-      return;
-    }
 
-    // Pick the Management API identity + target organization.
-    let mgmt: MgmtClient;
-    let organizationId: string;
-    if (connected) {
-      const conn = await getFreshConnection(tenantId);
-      mgmt = mgmtClient(conn.access_token);
-      organizationId = conn.organization_id;
-      console.log(`[provision] ${slug}: using connected org ${organizationId}`);
+    let projectUrl: string;
+    let serviceKey: string;
+
+    if (existing.data?.service_key) {
+      projectUrl = existing.data.project_url;
+      serviceKey = existing.data.service_key;
+      console.log(`[provision] ${slug}: reusing project ${existing.data.project_ref}`);
     } else {
-      mgmt = platformMgmt;
-      organizationId = env.SUPABASE_ORG_ID;
+      const dbPassword = strongPassword();
+      const project = await platformMgmt.createProject({
+        organizationId: env.SUPABASE_ORG_ID,
+        name: `ar-${slug}`.slice(0, 56),
+        dbPass: dbPassword,
+      });
+      console.log(`[provision] ${slug}: created project ${project.id}, waiting for database…`);
+      await platformMgmt.waitForQueryable(project.id);
+      const keys = await platformMgmt.getApiKeys(project.id);
+
+      console.log(`[provision] ${slug}: applying tenant schema…`);
+      await platformMgmt.runSql(project.id, TENANT_SCHEMA_SQL);
+
+      projectUrl = `https://${project.id}.supabase.co`;
+      serviceKey = keys.service_role;
+      const { error: regErr } = await supabaseAdmin.from('tenant_projects').upsert(
+        {
+          tenant_id: tenantId,
+          project_ref: project.id,
+          project_url: projectUrl,
+          anon_key: keys.anon,
+          service_key: keys.service_role,
+          db_password: dbPassword,
+          schema_version: SCHEMA_VERSION,
+        },
+        { onConflict: 'tenant_id' },
+      );
+      if (regErr) throw new Error(`registry insert failed: ${regErr.message}`);
     }
 
-    const dbPassword = strongPassword();
-    const project = await mgmt.createProject({
-      organizationId,
-      name: `ar-${slug}`.slice(0, 56),
-      dbPass: dbPassword,
+    // Owner account in the restaurant's own project. Random password unless one
+    // was supplied; the welcome email carries a secure set-password link.
+    const tenantAdmin = createClient(projectUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-    console.log(`[provision] ${slug}: created project ${project.id}, waiting for database…`);
-
-    // Readiness via a probe query rather than the project-status endpoint, so
-    // the OAuth grant only needs Projects:Write (not Read).
-    await mgmt.waitForQueryable(project.id);
-    const keys = await mgmt.getApiKeys(project.id);
-
-    console.log(`[provision] ${slug}: applying tenant schema…`);
-    await mgmt.runSql(project.id, TENANT_SCHEMA_SQL);
-
-    const projectUrl = `https://${project.id}.supabase.co`;
-    const { error: regErr } = await supabaseAdmin.from('tenant_projects').insert({
-      tenant_id: tenantId,
-      project_ref: project.id,
-      project_url: projectUrl,
-      anon_key: keys.anon,
-      // Connect flow: do NOT persist the admin credentials. They're re-derived
-      // on demand from the OAuth refresh token for the rare admin operation.
-      // Legacy platform-org flow keeps them (no OAuth grant to fall back on).
-      service_key: connected ? null : keys.service_role,
-      db_password: connected ? null : dbPassword,
-      schema_version: SCHEMA_VERSION,
+    const password = input.ownerPassword ?? strongPassword();
+    const { data: created, error: userErr } = await tenantAdmin.auth.admin.createUser({
+      email: ownerEmail.toLowerCase(),
+      password,
+      email_confirm: true,
+      app_metadata: { role: 'owner' },
+      user_metadata: ownerName ? { full_name: ownerName } : {},
     });
-    if (regErr) throw new Error(`registry insert failed: ${regErr.message}`);
-
-    if (ownerPassword) {
-      // Checkout flow: create the owner account directly in the new project.
-      const tenantAdmin = createClient(projectUrl, keys.service_role, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      const { data: created, error: userErr } = await tenantAdmin.auth.admin.createUser({
-        email: ownerEmail.toLowerCase(),
-        password: ownerPassword,
-        email_confirm: true,
-        app_metadata: { role: 'owner' },
-        user_metadata: ownerName ? { full_name: ownerName } : {},
-      });
-      if (userErr || !created?.user) {
+    let userId = created?.user?.id;
+    if (userErr || !userId) {
+      if (!/already (been )?registered|already exists|email_exists/i.test(userErr?.message ?? '')) {
         throw new Error(`owner create failed: ${userErr?.message ?? 'no user'}`);
       }
-      const { error: memErr } = await tenantAdmin.from('memberships').insert({
-        user_id: created.user.id,
+      const { data: list } = await tenantAdmin.auth.admin.listUsers();
+      userId = list.users.find((u) => u.email?.toLowerCase() === ownerEmail.toLowerCase())?.id;
+      if (!userId) throw new Error('owner user exists but could not be resolved');
+    }
+    const { error: memErr } = await tenantAdmin.from('memberships').upsert(
+      {
+        user_id: userId,
         email: ownerEmail.toLowerCase(),
         full_name: ownerName ?? null,
         role: 'owner',
         status: 'active',
-      });
-      if (memErr) throw new Error(`owner membership failed: ${memErr.message}`);
+      },
+      { onConflict: 'email' },
+    );
+    if (memErr) throw new Error(`owner membership failed: ${memErr.message}`);
 
-      await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
-      await sendOnboardingEmail(ownerEmail, `${env.APP_URL}/r/${slug}/login`);
-      console.log(`[provision] ${slug}: done — owner account created, portal ready`);
-    } else {
-      // Stripe-webhook flow: email a single-use claim link to set the password.
+    // Secure single-use set-password link for the welcome email.
+    let setupUrl: string | null = null;
+    if (!input.ownerPassword) {
       const { raw, hash } = createClaimToken();
       const expiresAt = new Date(
         Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000,
       ).toISOString();
-      const { error: tokErr } = await supabaseAdmin.from('onboarding_tokens').insert({
+      await supabaseAdmin.from('onboarding_tokens').insert({
         tenant_id: tenantId,
         email: ownerEmail.toLowerCase(),
         token_hash: hash,
         expires_at: expiresAt,
       });
-      if (tokErr) throw new Error(`token insert failed: ${tokErr.message}`);
-
-      await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
-      await sendOnboardingEmail(ownerEmail, `${env.APP_URL}/onboarding/claim?token=${raw}`);
-      console.log(`[provision] ${slug}: done — claim link sent to ${ownerEmail}`);
+      setupUrl = `${env.APP_URL}/onboarding/claim?token=${raw}`;
     }
+
+    // Workspace is ready → activate, THEN send the welcome email.
+    await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
+
+    const { data: sub } = await supabaseAdmin
+      .from('subscriptions')
+      .select('tier, billing_interval')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    const planName =
+      sub?.tier && isPlanTier(sub.tier) ? PLANS[sub.tier].name : (sub?.tier ?? 'Subscription');
+
+    const mail = await sendWelcomeEmail({
+      to: ownerEmail,
+      restaurantName,
+      ownerName,
+      planName,
+      billingInterval: sub?.billing_interval ?? 'monthly',
+      portalUrl: `${env.APP_URL}/r/${slug}/login`,
+      setupUrl,
+    });
+    await patchTenant(tenantId, {
+      welcome_email_status: mailStatus(mail),
+      welcome_email_sent_at: new Date().toISOString(),
+      welcome_email_error: mail.delivered ? null : ('error' in mail ? mail.error : 'no provider configured'),
+    });
+    console.log(
+      `[provision] ${slug}: done — portal ready, welcome email ${mailStatus(mail)} (${mail.provider})`,
+    );
   } catch (err) {
     console.error(`[provision] ${slug}: FAILED`, err);
-    await supabaseAdmin
+    const { data: t } = await supabaseAdmin
       .from('tenants')
-      .update({ status: 'failed', provisioning_error: String((err as Error).message ?? err) })
-      .eq('id', tenantId);
+      .select('provisioning_attempts')
+      .eq('id', tenantId)
+      .maybeSingle();
+    await patchTenant(tenantId, {
+      status: 'failed',
+      provisioning_error: String((err as Error).message ?? err),
+      provisioning_attempts: ((t as { provisioning_attempts?: number } | null)?.provisioning_attempts ?? 0) + 1,
+    });
   }
+}
+
+/**
+ * Server-side retry sweep: re-attempt tenants stuck in 'failed' up to
+ * MAX_ATTEMPTS. Started from server.ts on an interval.
+ */
+export async function retryFailedProvisions(): Promise<void> {
+  const { data: rows } = await supabaseAdmin
+    .from('tenants')
+    .select('id, restaurant_name, slug, owner_email, owner_name, provisioning_attempts')
+    .eq('status', 'failed')
+    .limit(5);
+  for (const t of (rows ?? []) as Array<{
+    id: string;
+    restaurant_name: string;
+    slug: string;
+    owner_email: string;
+    owner_name: string | null;
+    provisioning_attempts: number | null;
+  }>) {
+    if ((t.provisioning_attempts ?? 0) >= MAX_ATTEMPTS) continue;
+    console.log(`[provision] retry sweep -> ${t.slug} (attempt ${(t.provisioning_attempts ?? 0) + 1})`);
+    await provisionTenant({
+      tenantId: t.id,
+      restaurantName: t.restaurant_name,
+      slug: t.slug,
+      ownerEmail: t.owner_email,
+      ownerName: t.owner_name ?? undefined,
+    });
+  }
+}
+
+/** Re-send the welcome email for an already-active tenant (admin action). */
+export async function resendWelcomeEmail(tenantId: string): Promise<MailResult> {
+  const { data: t, error } = await supabaseAdmin
+    .from('tenants')
+    .select('restaurant_name, slug, owner_email, owner_name, status')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (error || !t) throw new Error('tenant not found');
+  if (t.status !== 'active') throw new Error(`tenant is ${t.status}, not active`);
+
+  const { data: sub } = await supabaseAdmin
+    .from('subscriptions')
+    .select('tier, billing_interval')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  const planName =
+    sub?.tier && isPlanTier(sub.tier) ? PLANS[sub.tier].name : (sub?.tier ?? 'Subscription');
+
+  const { raw, hash } = createClaimToken();
+  await supabaseAdmin.from('onboarding_tokens').insert({
+    tenant_id: tenantId,
+    email: t.owner_email.toLowerCase(),
+    token_hash: hash,
+    expires_at: new Date(Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000).toISOString(),
+  });
+
+  const mail = await sendWelcomeEmail({
+    to: t.owner_email,
+    restaurantName: t.restaurant_name,
+    ownerName: t.owner_name,
+    planName,
+    billingInterval: sub?.billing_interval ?? 'monthly',
+    portalUrl: `${env.APP_URL}/r/${t.slug}/login`,
+    setupUrl: `${env.APP_URL}/onboarding/claim?token=${raw}`,
+  });
+  await patchTenant(tenantId, {
+    welcome_email_status: mailStatus(mail),
+    welcome_email_sent_at: new Date().toISOString(),
+    welcome_email_error: mail.delivered ? null : ('error' in mail ? mail.error : 'no provider configured'),
+  });
+  return mail;
 }
 
 export { SCHEMA_VERSION, TENANT_SCHEMA_SQL };

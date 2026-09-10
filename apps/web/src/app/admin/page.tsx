@@ -17,7 +17,7 @@ export default async function AdminDashboard() {
   const { data, error } = await supabase
     .from('tenants')
     .select(
-      'id, restaurant_name, slug, status, owner_email, region, provisioning_error, created_at, subscriptions(tier, status, billing_interval), tenant_projects(project_ref, project_url)',
+      'id, restaurant_name, slug, status, owner_email, region, provisioning_error, welcome_email_status, welcome_email_error, provisioning_attempts, created_at, subscriptions(tier, status, billing_interval), tenant_projects(project_ref, project_url)',
     )
     .order('created_at', { ascending: false });
 

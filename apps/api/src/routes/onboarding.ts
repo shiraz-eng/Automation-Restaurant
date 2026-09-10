@@ -1,12 +1,16 @@
-import { randomUUID } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
 import { env, oauthConnectEnabled } from '../env';
-import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
 import { tenantServiceClient } from '../lib/tenantAdmin';
+import {
+  stripe,
+  billingConfigured,
+  priceIdFor,
+  createSubscriptionCheckout,
+} from '../stripe';
 import {
   buildAuthorizeUrl,
   createOAuthState,
@@ -36,7 +40,6 @@ const signupSchema = z.object({
   restaurant_name: z.string().trim().min(2).max(120),
   owner_name: z.string().trim().max(120).optional(),
   owner_email: z.string().trim().email(),
-  password: z.string().min(10).max(200).optional(),
   phone: z.string().trim().max(40).optional(),
   country: z.string().trim().max(80).optional(),
   address: z.string().trim().max(300).optional(),
@@ -49,13 +52,10 @@ const signupSchema = z.object({
 /**
  * POST /api/onboarding/signup
  *
- * Checkout / signup: registers the tenant and stores business details.
- *
- * - Connect flow (SUPABASE_OAUTH_* configured): the tenant is parked at
- *   status='awaiting_connection'. The owner then authorises our OAuth app
- *   against their own Supabase org (GET /connect/start) and provisioning runs
- *   from the callback.
- * - Legacy flow: provisioning into the platform org kicks off immediately.
+ * Step 1 of the paid onboarding flow: creates a Stripe Checkout Session and
+ * returns its URL. NOTHING is provisioned here — the tenant is created and its
+ * dedicated Supabase project is built only after Stripe's webhook verifies the
+ * payment server-side (see webhooks/stripe.ts -> handleCheckoutCompleted).
  */
 onboardingRouter.post('/signup', express.json(), async (req: Request, res: Response) => {
   const parsed = signupSchema.safeParse(req.body);
@@ -65,63 +65,81 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
       .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
   }
   const d = parsed.data;
-  const connect = oauthConnectEnabled;
 
-  // p_status feeds subscriptions.status (enum: trialing|active|…). The tenant
-  // row is always created as 'provisioning' by the RPC; we move it below.
-  const { data, error } = await supabaseAdmin.rpc('register_tenant', {
-    p_restaurant_name: d.restaurant_name,
-    p_slug: slugify(d.restaurant_name),
-    p_tier: d.plan,
-    p_billing_interval: d.billing_interval,
-    p_status: 'active',
-    p_stripe_customer_id: null,
-    p_stripe_subscription_id: `signup_${randomUUID()}`,
-    p_current_period_end: null,
-    p_owner_email: d.owner_email,
-    p_region: env.SUPABASE_REGION,
-  });
-  if (error) {
-    return res.status(400).json({ error: 'register_failed', message: error.message });
+  if (!billingConfigured) {
+    return res.status(503).json({
+      error: 'billing_unavailable',
+      message: 'Online payment is not configured on this server yet.',
+    });
   }
-
-  const row = Array.isArray(data) ? data[0] : data;
-
-  await supabaseAdmin
-    .from('tenants')
-    .update({
-      // Connect flow: park here until the owner authorizes their Supabase org.
-      ...(connect ? { status: 'awaiting_connection' } : {}),
-      owner_name: d.owner_name ?? null,
-      phone: d.phone ?? null,
-      country: d.country ?? null,
-      address: d.address ?? null,
-      branch_name: d.branch_name ?? null,
-      table_count: d.table_count ?? null,
-    })
-    .eq('id', row.tenant_id);
-
-  if (connect) {
-    // The owner sets their password via the claim link after their project is
-    // created in their own Supabase org, so no password is stored here.
-    return res.status(202).json({
-      ok: true,
-      slug: row.slug,
-      status: 'awaiting_connection',
-      connect_url: `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(row.slug)}`,
+  const priceId = priceIdFor(d.plan, d.billing_interval);
+  if (!priceId) {
+    return res.status(503).json({
+      error: 'plan_unavailable',
+      message: `No price is configured for the ${d.plan} / ${d.billing_interval} plan.`,
     });
   }
 
-  void provisionTenant({
-    tenantId: row.tenant_id,
-    restaurantName: d.restaurant_name,
-    slug: row.slug,
-    ownerEmail: d.owner_email,
-    ownerPassword: d.password,
-    ownerName: d.owner_name,
-  });
+  const base = env.CHECKOUT_RETURN_URL ?? env.APP_URL;
+  try {
+    const session = await createSubscriptionCheckout({
+      priceId,
+      customerEmail: d.owner_email,
+      successUrl: `${base}/onboarding/pending?cs={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${base}/get-started?plan=${d.plan}&cycle=${d.billing_interval}&canceled=1`,
+      metadata: {
+        restaurant_name: d.restaurant_name,
+        owner_name: d.owner_name ?? '',
+        owner_email: d.owner_email,
+        plan: d.plan,
+        billing_interval: d.billing_interval,
+        phone: d.phone ?? '',
+        country: d.country ?? '',
+        address: d.address ?? '',
+        branch_name: d.branch_name ?? '',
+        table_count: d.table_count ? String(d.table_count) : '',
+      },
+    });
+    return res.status(200).json({ ok: true, checkout_url: session.url });
+  } catch (err) {
+    console.error('[onboarding] checkout session create failed:', err);
+    return res.status(502).json({ error: 'checkout_failed' });
+  }
+});
 
-  res.status(202).json({ ok: true, slug: row.slug, status: 'provisioning' });
+/**
+ * GET /api/onboarding/session/:cs — polled by the post-payment "pending" page.
+ * Reports whether Stripe marked the session paid and, once the webhook has
+ * created the tenant, the slug + provisioning status.
+ */
+onboardingRouter.get('/session/:cs', async (req: Request, res: Response) => {
+  const cs = req.params.cs ?? '';
+  let paid = false;
+  let subscriptionId: string | null = null;
+  try {
+    const s = await stripe.checkout.sessions.retrieve(cs);
+    paid = s.payment_status === 'paid';
+    subscriptionId =
+      typeof s.subscription === 'string' ? s.subscription : (s.subscription?.id ?? null);
+  } catch {
+    return res.status(404).json({ error: 'unknown_session' });
+  }
+
+  let slug: string | null = null;
+  let status: string | null = null;
+  if (subscriptionId) {
+    const { data } = await supabaseAdmin
+      .from('subscriptions')
+      .select('tenants(slug, status)')
+      .eq('stripe_subscription_id', subscriptionId)
+      .maybeSingle();
+    const t = (data as { tenants?: { slug?: string; status?: string } | { slug?: string; status?: string }[] } | null)
+      ?.tenants;
+    const tt = Array.isArray(t) ? t[0] : t;
+    slug = tt?.slug ?? null;
+    status = tt?.status ?? null;
+  }
+  res.json({ paid, slug, status });
 });
 
 /** Best-effort public origin of this API, for building the connect URL. */
@@ -207,7 +225,6 @@ onboardingRouter.get('/connect/callback', async (req: Request, res: Response) =>
       slug: tenant.slug,
       ownerEmail: tenant.owner_email,
       ownerName: tenant.owner_name ?? undefined,
-      connected: true,
     });
     done(tenant.slug);
   } catch (err) {

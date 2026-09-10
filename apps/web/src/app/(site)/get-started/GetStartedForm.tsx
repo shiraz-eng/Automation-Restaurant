@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import type { PlanTier } from '@automation-restaurant/shared';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -16,7 +15,6 @@ export function GetStartedForm({
   plan: PlanTier;
   cycle: 'monthly' | 'annual';
 }) {
-  const router = useRouter();
   const [f, setF] = useState({
     restaurant_name: '',
     owner_name: '',
@@ -26,8 +24,6 @@ export function GetStartedForm({
     address: '',
     branch_name: 'Main',
     table_count: '',
-    password: '',
-    confirm: '',
   });
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -39,9 +35,6 @@ export function GetStartedForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (f.password && f.password.length < 10)
-      return setError('Password must be at least 10 characters.');
-    if (f.password !== f.confirm) return setError('Passwords do not match.');
     if (!agree) return setError('Please accept the Terms & Conditions to continue.');
 
     setBusy(true);
@@ -53,7 +46,6 @@ export function GetStartedForm({
           restaurant_name: f.restaurant_name.trim(),
           owner_name: f.owner_name.trim() || undefined,
           owner_email: f.owner_email.trim(),
-          password: f.password || undefined,
           phone: f.phone.trim() || undefined,
           country: f.country.trim() || undefined,
           address: f.address.trim() || undefined,
@@ -64,11 +56,12 @@ export function GetStartedForm({
         }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.slug) {
-        setError(body.message ?? body.error ?? 'Could not start provisioning.');
+      if (!res.ok || !body.checkout_url) {
+        setError(body.message ?? body.error ?? 'Could not start checkout.');
         return;
       }
-      router.push(`/onboarding/${body.slug}`);
+      // Hand off to Stripe. Provisioning happens only after the payment webhook.
+      window.location.href = body.checkout_url;
     } catch {
       setError('Network error. Try again.');
     } finally {
@@ -108,21 +101,11 @@ export function GetStartedForm({
         </div>
       </fieldset>
 
-      <fieldset className="space-y-3">
-        <legend className="font-bold text-sm mb-1">Account</legend>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <L label="Password (optional)">
-            <input type="password" value={f.password} onChange={set('password')} className={inputCls} />
-          </L>
-          <L label="Confirm password">
-            <input type="password" value={f.confirm} onChange={set('confirm')} className={inputCls} />
-          </L>
-        </div>
-        <p className="text-[11px] text-muted">
-          Leave blank and we&rsquo;ll email you a secure link to set your password once your
-          workspace is ready. Your sign-in is always your business email.
-        </p>
-      </fieldset>
+      <p className="text-[11px] text-muted">
+        After payment we&rsquo;ll build your workspace and email{' '}
+        <span className="font-semibold">{f.owner_email || 'your address'}</span> a secure link to
+        set your password and open your portal. Your sign-in is always your business email.
+      </p>
 
       <label className="flex items-start gap-2 text-xs">
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5" />
@@ -146,11 +129,11 @@ export function GetStartedForm({
         disabled={busy}
         className="rounded-lg bg-primary text-primary-fg font-bold px-6 py-3 text-sm disabled:opacity-60"
       >
-        {busy ? 'Starting…' : 'Complete Subscription'}
+        {busy ? 'Redirecting to checkout…' : 'Continue to payment'}
       </button>
       <p className="text-[11px] text-muted">
-        Payment integration is a configuration step; this build provisions the workspace directly
-        so the flow can be exercised end to end.
+        You&rsquo;ll be taken to our secure payment provider. Your workspace is provisioned only
+        after payment is confirmed.
       </p>
     </form>
   );

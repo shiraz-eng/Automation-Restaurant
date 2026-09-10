@@ -138,9 +138,32 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   const tenantId: string = row.tenant_id;
   const slug: string = row.slug;
 
+  // 1b. Persist the business details captured at checkout (metadata only —
+  //     never operational restaurant data).
+  const m = session.metadata ?? {};
+  const ownerName = m.owner_name?.trim() || null;
+  await supabaseAdmin
+    .from('tenants')
+    .update({
+      owner_name: ownerName,
+      phone: m.phone?.trim() || null,
+      country: m.country?.trim() || null,
+      address: m.address?.trim() || null,
+      branch_name: m.branch_name?.trim() || null,
+      table_count: m.table_count ? Number(m.table_count) || null : null,
+    })
+    .eq('id', tenantId);
+
   // 2. Kick off project provisioning (minutes long) detached, so Stripe gets a
-  //    fast 200. Progress/failure is tracked on the tenants row.
-  void provisionTenant({ tenantId, restaurantName, slug, ownerEmail: email });
+  //    fast 200. Progress/failure is tracked on the tenants row; the welcome
+  //    email is sent by provisionTenant only after the workspace is ready.
+  void provisionTenant({
+    tenantId,
+    restaurantName,
+    slug,
+    ownerEmail: email,
+    ownerName: ownerName ?? undefined,
+  });
 
   console.log(`[stripe] registered tenant ${tenantId} (${slug}); provisioning project…`);
 }
