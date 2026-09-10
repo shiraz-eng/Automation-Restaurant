@@ -28,6 +28,10 @@ export function OnboardingStatus({ slug }: { slug: string }) {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get('connect');
     if (q === 'denied') setConnectNote('Authorization was cancelled. You can try again below.');
+    else if (q === 'own_org')
+      setConnectNote(
+        'That Supabase organization belongs to Automation Restaurant. Sign in with your own Supabase account (or create a free one) and authorize your own organization — your database lives there.',
+      );
     else if (q === 'error')
       setConnectNote('Something went wrong connecting Supabase. Please try again.');
   }, []);
@@ -82,10 +86,14 @@ export function OnboardingStatus({ slug }: { slug: string }) {
               sign in to Supabase and authorize access — it takes about a minute.
             </p>
             <ol className="mt-4 space-y-1.5 text-xs text-muted list-decimal list-inside">
-              <li>Sign in to Supabase (or create a free account)</li>
-              <li>Pick the organization to use</li>
+              <li>Sign in to Supabase with your own account (or create a free one)</li>
+              <li>Pick or create <span className="font-semibold">your</span> organization</li>
               <li>Approve access — we create the project for you</li>
             </ol>
+            <p className="text-[11px] text-muted mt-2">
+              The database is created in the organization you choose here, and it&rsquo;s billed
+              to that account (free tier is plenty for one restaurant).
+            </p>
             {connectNote && (
               <p className="text-danger text-xs mt-3">{connectNote}</p>
             )}

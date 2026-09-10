@@ -29,6 +29,9 @@ const schema = z.object({
   // each in order and moves on when one is at its 2-project cap. Leave blank to
   // use just SUPABASE_ORG_ID (the right choice on a paid plan).
   SUPABASE_ORG_IDS: z.string().trim().optional(),
+  // Extra org ids that belong to us — a restaurant owner may not authorize
+  // these in the connect flow. SUPABASE_ORG_ID + the pool are always included.
+  SUPABASE_RESERVED_ORG_IDS: z.string().trim().optional(),
   SUPABASE_REGION: z.string().min(1).default('us-east-1'),
   SUPABASE_PROJECT_PLAN: z.enum(['free', 'pro']).default('free'),
 
@@ -102,3 +105,17 @@ export const supabaseOrgPool: string[] = (() => {
   const list = raw.length ? raw : [env.SUPABASE_ORG_ID];
   return [...new Set(list)];
 })();
+
+/**
+ * Organizations that belong to Automation Restaurant. In the "Connect your
+ * Supabase" flow a restaurant owner must NOT authorize one of these — their
+ * database has to live in their own org, never in ours.
+ */
+export const reservedOrgIds = new Set<string>([
+  env.SUPABASE_ORG_ID,
+  ...supabaseOrgPool,
+  ...(env.SUPABASE_RESERVED_ORG_IDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+]);

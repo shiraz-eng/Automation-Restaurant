@@ -24,6 +24,7 @@ import {
   createOAuthState,
   consumeOAuthState,
   exchangeAndStore,
+  ReservedOrgError,
 } from '../lib/supabaseOAuth';
 
 export const onboardingRouter = express.Router();
@@ -353,6 +354,18 @@ onboardingRouter.get('/connect/callback', async (req: Request, res: Response) =>
     done(tenant.slug);
   } catch (err) {
     console.error('[onboarding] connect/callback failed:', err);
+    if (err instanceof ReservedOrgError) {
+      // Owner picked one of OUR orgs — keep them at the connect step to retry
+      // with a different Supabase account.
+      await supabaseAdmin
+        .from('tenants')
+        .update({
+          status: 'awaiting_connection',
+          provisioning_error: `"${err.orgName}" belongs to Automation Restaurant — authorize your own Supabase organization instead.`,
+        })
+        .eq('id', tenantId);
+      return done(tenant.slug, '?connect=own_org');
+    }
     await supabaseAdmin
       .from('tenants')
       .update({ provisioning_error: String((err as Error).message ?? err) })

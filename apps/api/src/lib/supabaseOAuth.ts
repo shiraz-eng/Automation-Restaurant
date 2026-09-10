@@ -1,7 +1,15 @@
 import { randomBytes, createHash } from 'node:crypto';
-import { env } from '../env';
+import { env, reservedOrgIds } from '../env';
 import { supabaseAdmin } from '../supabase';
 import { mgmtClient, type Organization } from '../mgmt';
+
+/** Thrown when the owner authorized an org that belongs to Automation Restaurant. */
+export class ReservedOrgError extends Error {
+  constructor(readonly orgName: string) {
+    super('reserved_org');
+    this.name = 'ReservedOrgError';
+  }
+}
 
 /**
  * "Connect your Supabase" — OAuth2 authorization-code flow against the Supabase
@@ -128,6 +136,11 @@ export async function exchangeAndStore(
     console.error('[oauth] listOrganizations failed:', e);
   }
   if (!org) throw new Error('could not resolve the authorized Supabase organization');
+
+  // The database must live in the OWNER's org, never one of ours.
+  if (reservedOrgIds.has(org.id)) {
+    throw new ReservedOrgError(org.name ?? org.id);
+  }
 
   const row = {
     tenant_id: tenantId,
