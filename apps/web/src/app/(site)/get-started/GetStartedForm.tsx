@@ -67,6 +67,11 @@ export function GetStartedForm({
         window.location.href = body.checkout_url;
         return;
       }
+      if (body.pay_url) {
+        // Mock mode: our own card page confirms the charge.
+        window.location.href = body.pay_url;
+        return;
+      }
       if (body.connect_url) {
         // Payment done; owner authorizes their own Supabase org next.
         window.location.href = body.connect_url;

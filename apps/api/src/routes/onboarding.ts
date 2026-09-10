@@ -6,7 +6,13 @@ import { env, oauthConnectEnabled, paymentsMode } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
-import { simulatePayment } from '../lib/payments';
+import {
+  simulatePayment,
+  amountForPlan,
+  validateCard,
+  signCheckoutIntent,
+  verifyCheckoutIntent,
+} from '../lib/payments';
 import { tenantServiceClient } from '../lib/tenantAdmin';
 import {
   stripe,
@@ -71,75 +77,13 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
   }
   const d = parsed.data;
 
-  // ── Mock payment: simulate a verified charge, then register + provision ──
+  // ── Mock mode: send them to our own card page; the charge is confirmed there ──
   if (paymentsMode === 'mock') {
-    const payment = simulatePayment(d.plan, d.billing_interval);
-    console.log(
-      `[onboarding] MOCK payment ${payment.reference} ${payment.card_brand} •••• ${payment.card_last4} ` +
-        `$${(payment.amount_cents / 100).toFixed(2)} — treated as verified`,
-    );
-
-    const { data, error } = await supabaseAdmin.rpc('register_tenant', {
-      p_restaurant_name: d.restaurant_name,
-      p_slug: slugify(d.restaurant_name),
-      p_tier: d.plan,
-      p_billing_interval: d.billing_interval,
-      p_status: 'active',
-      p_stripe_customer_id: payment.customer_reference,
-      p_stripe_subscription_id: `mock_sub_${randomUUID()}`,
-      p_current_period_end: null,
-      p_owner_email: d.owner_email,
-      p_region: env.SUPABASE_REGION,
-    });
-    if (error) {
-      return res.status(400).json({ error: 'register_failed', message: error.message });
-    }
-    const row = Array.isArray(data) ? data[0] : data;
-
-    const paymentInfo = {
-      mode: 'mock' as const,
-      reference: payment.reference,
-      amount: `$${(payment.amount_cents / 100).toFixed(2)}`,
-      card: `${payment.card_brand} •••• ${payment.card_last4}`,
-    };
-
-    await supabaseAdmin
-      .from('tenants')
-      .update({
-        // Model B: park until the owner authorizes their own Supabase org.
-        ...(oauthConnectEnabled ? { status: 'awaiting_connection' } : {}),
-        owner_name: d.owner_name ?? null,
-        phone: d.phone ?? null,
-        country: d.country ?? null,
-        address: d.address ?? null,
-        branch_name: d.branch_name ?? null,
-        table_count: d.table_count ?? null,
-      })
-      .eq('id', row.tenant_id);
-
-    if (oauthConnectEnabled) {
-      return res.status(202).json({
-        ok: true,
-        slug: row.slug,
-        status: 'awaiting_connection',
-        connect_url: `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(row.slug)}`,
-        payment: paymentInfo,
-      });
-    }
-
-    void provisionTenant({
-      tenantId: row.tenant_id,
-      restaurantName: d.restaurant_name,
-      slug: row.slug,
-      ownerEmail: d.owner_email,
-      ownerName: d.owner_name,
-    });
-
-    return res.status(202).json({
+    const intent = signCheckoutIntent(d);
+    return res.status(200).json({
       ok: true,
-      slug: row.slug,
-      status: 'provisioning',
-      payment: paymentInfo,
+      pay_url: `${env.APP_URL}/onboarding/pay?i=${encodeURIComponent(intent)}`,
+      amount_cents: amountForPlan(d.plan, d.billing_interval),
     });
   }
 
@@ -177,6 +121,113 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
     console.error('[onboarding] checkout session create failed:', err);
     return res.status(502).json({ error: 'checkout_failed' });
   }
+});
+
+/** GET /api/onboarding/pay/intent?i=<token> — the card page reads the amount
+ *  and restaurant name from the signed intent (client can't tamper with them). */
+onboardingRouter.get('/pay/intent', (req: Request, res: Response) => {
+  const intent = verifyCheckoutIntent(String(req.query.i ?? ''));
+  if (!intent) return res.status(400).json({ error: 'invalid_or_expired' });
+  res.json({
+    restaurant_name: intent.restaurant_name,
+    owner_email: intent.owner_email,
+    plan: intent.plan,
+    billing_interval: intent.billing_interval,
+    amount_cents: amountForPlan(intent.plan, intent.billing_interval),
+  });
+});
+
+const payConfirmSchema = z.object({
+  intent: z.string().min(20),
+  card: z.object({
+    number: z.string().min(12).max(24),
+    exp_month: z.coerce.number().int().min(1).max(12),
+    exp_year: z.coerce.number().int().min(2024).max(2099),
+    cvc: z.string().min(3).max(4),
+  }),
+});
+
+/**
+ * POST /api/onboarding/pay/confirm — the mock card page submits here. Validates
+ * the card format (never stored), records a simulated charge, then registers
+ * the tenant and either parks it for the Supabase connect step or provisions.
+ */
+onboardingRouter.post('/pay/confirm', express.json(), async (req: Request, res: Response) => {
+  const parsed = payConfirmSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(422).json({ error: 'invalid_request' });
+  }
+  const d = verifyCheckoutIntent(parsed.data.intent);
+  if (!d) return res.status(400).json({ error: 'invalid_or_expired', message: 'This checkout link has expired. Please start again.' });
+
+  const check = validateCard(parsed.data.card);
+  if (!check.ok) {
+    return res.status(402).json({ error: 'card_declined', message: check.reason });
+  }
+
+  const payment = simulatePayment(d.plan, d.billing_interval, {
+    brand: check.brand,
+    last4: check.last4,
+  });
+  console.log(
+    `[onboarding] MOCK payment ${payment.reference} ${payment.card_brand} •••• ${payment.card_last4} ` +
+      `$${(payment.amount_cents / 100).toFixed(2)} — verified`,
+  );
+
+  const { data, error } = await supabaseAdmin.rpc('register_tenant', {
+    p_restaurant_name: d.restaurant_name,
+    p_slug: slugify(d.restaurant_name),
+    p_tier: d.plan,
+    p_billing_interval: d.billing_interval,
+    p_status: 'active',
+    p_stripe_customer_id: payment.customer_reference,
+    p_stripe_subscription_id: `mock_sub_${randomUUID()}`,
+    p_current_period_end: null,
+    p_owner_email: d.owner_email,
+    p_region: env.SUPABASE_REGION,
+  });
+  if (error) {
+    return res.status(400).json({ error: 'register_failed', message: error.message });
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+
+  await supabaseAdmin
+    .from('tenants')
+    .update({
+      ...(oauthConnectEnabled ? { status: 'awaiting_connection' } : {}),
+      owner_name: d.owner_name ?? null,
+      phone: d.phone ?? null,
+      country: d.country ?? null,
+      address: d.address ?? null,
+      branch_name: d.branch_name ?? null,
+      table_count: d.table_count ?? null,
+    })
+    .eq('id', row.tenant_id);
+
+  const paymentInfo = {
+    reference: payment.reference,
+    amount: `$${(payment.amount_cents / 100).toFixed(2)}`,
+    card: `${payment.card_brand} •••• ${payment.card_last4}`,
+  };
+
+  if (oauthConnectEnabled) {
+    return res.status(202).json({
+      ok: true,
+      slug: row.slug,
+      status: 'awaiting_connection',
+      connect_url: `${apiOrigin(req)}/api/onboarding/connect/start?slug=${encodeURIComponent(row.slug)}`,
+      payment: paymentInfo,
+    });
+  }
+
+  void provisionTenant({
+    tenantId: row.tenant_id,
+    restaurantName: d.restaurant_name,
+    slug: row.slug,
+    ownerEmail: d.owner_email,
+    ownerName: d.owner_name,
+  });
+  return res.status(202).json({ ok: true, slug: row.slug, status: 'provisioning', payment: paymentInfo });
 });
 
 /**
