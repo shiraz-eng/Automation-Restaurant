@@ -60,8 +60,12 @@ const schema = z.object({
   ONBOARDING_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 
   // ── Transactional email (welcome email etc.) ──────────────────────────────
-  // Resend is used when RESEND_API_KEY is set; otherwise emails are logged to
-  // the server console and recorded as 'skipped' (never silently "sent").
+  // Priority: SMTP (e.g. Gmail — delivers to anyone) -> Resend -> console.
+  // Console just logs and records 'skipped' (never a false "sent").
+  SMTP_HOST: z.string().trim().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().trim().optional(),
+  SMTP_PASS: z.string().optional(),
   RESEND_API_KEY: z.string().trim().optional(),
   EMAIL_FROM: z.string().trim().default('Automation Restaurant <onboarding@automationrestaurant.app>'),
   SUPPORT_EMAIL: z.string().trim().default('support@automationrestaurant.app'),

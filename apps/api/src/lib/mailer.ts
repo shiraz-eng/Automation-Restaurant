@@ -1,17 +1,19 @@
+import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from '../env';
 
 /**
- * Server-side transactional email. Uses Resend when RESEND_API_KEY is set;
- * otherwise the message is logged to the server console and reported as
- * delivered:false / provider:'console' — the caller records that honestly and
- * never tells the customer an email went out when it did not.
- *
- * No provider key is ever exposed to the frontend — this module is API-only.
+ * Server-side transactional email. Provider priority:
+ *   1. SMTP (e.g. a Gmail account + app password) — delivers to any address
+ *   2. Resend (RESEND_API_KEY)
+ *   3. console — just logs, reported as delivered:false / provider:'console'
+ * The caller records the result honestly and never tells the customer an email
+ * went out when it did not. No provider secret ever reaches the frontend.
  */
+export type MailProvider = 'smtp' | 'resend' | 'console';
 export type MailResult =
-  | { delivered: true; provider: 'resend'; id: string }
+  | { delivered: true; provider: 'smtp' | 'resend'; id: string }
   | { delivered: false; provider: 'console' }
-  | { delivered: false; provider: 'resend'; error: string };
+  | { delivered: false; provider: 'smtp' | 'resend'; error: string };
 
 interface Mail {
   to: string;
@@ -20,13 +22,37 @@ interface Mail {
   text: string;
 }
 
-export async function sendEmail(mail: Mail): Promise<MailResult> {
-  if (!env.RESEND_API_KEY) {
-    console.log(
-      `[mailer:console] to=${mail.to}\n  subject: ${mail.subject}\n  ${mail.text.replace(/\n/g, '\n  ')}`,
-    );
-    return { delivered: false, provider: 'console' };
+const smtpEnabled = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
+
+let _transport: Transporter | null = null;
+function transport(): Transporter {
+  if (!_transport) {
+    _transport = nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_PORT === 465,
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    });
   }
+  return _transport;
+}
+
+async function sendViaSmtp(mail: Mail): Promise<MailResult> {
+  try {
+    const info = await transport().sendMail({
+      from: env.EMAIL_FROM,
+      to: mail.to,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
+    });
+    return { delivered: true, provider: 'smtp', id: info.messageId };
+  } catch (err) {
+    return { delivered: false, provider: 'smtp', error: String((err as Error).message ?? err) };
+  }
+}
+
+async function sendViaResend(mail: Mail): Promise<MailResult> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -50,6 +76,15 @@ export async function sendEmail(mail: Mail): Promise<MailResult> {
   } catch (err) {
     return { delivered: false, provider: 'resend', error: String((err as Error).message ?? err) };
   }
+}
+
+export async function sendEmail(mail: Mail): Promise<MailResult> {
+  if (smtpEnabled) return sendViaSmtp(mail);
+  if (env.RESEND_API_KEY) return sendViaResend(mail);
+  console.log(
+    `[mailer:console] to=${mail.to}\n  subject: ${mail.subject}\n  ${mail.text.replace(/\n/g, '\n  ')}`,
+  );
+  return { delivered: false, provider: 'console' };
 }
 
 export interface WelcomeEmailInput {
