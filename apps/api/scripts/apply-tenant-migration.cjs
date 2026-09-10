@@ -11,11 +11,11 @@ const CP = 'https://ckxxpyzxsbhhynlboyid.supabase.co';
 const CP_SVC =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk1NTQzNCwiZXhwIjoyMTA0NTMxNDM0fQ.8Pf3AAJ0MNn9LdcyWxvRARFx6EunjNWEBHj68JBKuP0';
 
-async function runSql(ref, query) {
+async function runSql(ref, query, token) {
   const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token || ACCESS_TOKEN}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ query }),
@@ -42,11 +42,20 @@ async function runSql(ref, query) {
     console.log('no tenant projects to migrate');
     return;
   }
+  const { data: conns } = await cp
+    .from('supabase_connections')
+    .select('tenant_id, access_token');
+  const tokenByTenant = new Map((conns || []).map((c) => [c.tenant_id, c.access_token]));
 
   for (const p of projects) {
-    process.stdout.write(`→ ${p.project_ref} (v${p.schema_version} → v${version}) ... `);
+    // Owner-org tenants (Model B) aren't reachable with the platform token —
+    // use their OAuth access token (Database:Write scope covers /database/query).
+    const token = tokenByTenant.get(p.tenant_id) || null;
+    process.stdout.write(
+      `→ ${p.project_ref} (v${p.schema_version} → v${version})${token ? ' [oauth]' : ''} ... `,
+    );
     try {
-      await runSql(p.project_ref, sql);
+      await runSql(p.project_ref, sql, token);
       const { error: upErr } = await cp
         .from('tenant_projects')
         .update({ schema_version: version })

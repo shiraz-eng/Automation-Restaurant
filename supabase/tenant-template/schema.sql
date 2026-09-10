@@ -26,6 +26,82 @@ returns boolean language sql stable as $$
   select app.current_member_role() in ('owner', 'manager')
 $$;
 
+-- ── Permission system (Phase 1) ───────────────────────────────────────────
+-- Every portal / staff JWT carries app_metadata.permissions: a text[] of keys
+-- like 'orders.view', 'payments.accept', 'stock.update'. '*' means all.
+-- Authorization decisions use app.has_perm(), never a portal/role name.
+-- is_staff()/can_write() are kept for backward compatibility during migration.
+
+create or replace function app.jwt_permissions()
+returns text[] language sql stable as $$
+  select coalesce(
+    array(
+      select jsonb_array_elements_text(
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb #> '{app_metadata,permissions}'
+      )
+    ),
+    '{}'::text[]
+  )
+$$;
+
+create or replace function app.has_perm(p_perm text)
+returns boolean language sql stable as $$
+  select
+    -- service_role bypasses RLS entirely; this covers authenticated portals.
+    coalesce(current_setting('request.jwt.claim.role', true), '') = 'service_role'
+    or '*' = any(app.jwt_permissions())
+    or p_perm = any(app.jwt_permissions())
+    -- transitional: an owner/manager with no explicit permissions still writes.
+    or (app.jwt_permissions() = '{}'::text[] and app.can_write())
+$$;
+
+-- Reference catalogue of permission keys (documentation + future admin UI).
+-- Not enforced by FK — JWT arrays are free-form — but the app validates against it.
+-- In public so the portal UI can read it through PostgREST.
+create table if not exists public.permission_catalog (
+  key   text primary key,
+  grp   text not null,
+  label text not null
+);
+insert into public.permission_catalog (key, grp, label) values
+  ('orders.view','Orders','View orders'),
+  ('orders.create','Orders','Create orders'),
+  ('orders.update','Orders','Update orders'),
+  ('orders.cancel','Orders','Cancel orders'),
+  ('payments.view','Payments','View payments'),
+  ('payments.accept','Payments','Accept payment'),
+  ('payments.refund','Payments','Refund payment'),
+  ('kitchen.view','Kitchen','View kitchen queue'),
+  ('kitchen.update_status','Kitchen','Update order/prep status'),
+  ('menu.view','Menu','View menu'),
+  ('menu.create','Menu','Create menu items'),
+  ('menu.update','Menu','Update menu items'),
+  ('menu.delete','Menu','Delete menu items'),
+  ('stock.view','Stock','View food availability'),
+  ('stock.update','Stock','Update food availability'),
+  ('attendance.view','Attendance','View attendance'),
+  ('attendance.mark','Attendance','Mark attendance'),
+  ('staff.view','Staff','View staff'),
+  ('staff.create','Staff','Create staff'),
+  ('staff.update','Staff','Update staff'),
+  ('staff.delete','Staff','Delete staff'),
+  ('reviews.view','Reviews','View customer reviews'),
+  ('reviews.analytics','Reviews','View review analytics'),
+  ('reviews.respond','Reviews','Respond to reviews'),
+  ('reviews.moderate','Reviews','Moderate reviews'),
+  ('reports.view','Reports','View reports'),
+  ('settings.view','Settings','View settings'),
+  ('settings.update','Settings','Update settings'),
+  ('portals.view','Portal Management','View portals'),
+  ('portals.create','Portal Management','Create portals'),
+  ('portals.update','Portal Management','Update portals'),
+  ('portals.disable','Portal Management','Enable/disable portals'),
+  ('portals.credentials','Portal Management','Manage portal credentials')
+on conflict (key) do update set grp = excluded.grp, label = excluded.label;
+
+alter table public.permission_catalog enable row level security;
+create policy staff_read on public.permission_catalog for select using (app.is_staff());
+
 -- ── Enums ──────────────────────────────────────────────────────────────────
 create type app.member_role         as enum ('owner', 'manager', 'cashier', 'chef', 'waiter', 'host', 'hr', 'accountant', 'delivery');
 create type app.member_status       as enum ('pending', 'active', 'disabled');

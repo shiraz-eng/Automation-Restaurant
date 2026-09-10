@@ -13,7 +13,7 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 
 // Bump whenever tenant-template/schema.sql changes; matches the highest applied
 // file in supabase/tenant-migrations/. v2 = promotions + purchasing + scheduling.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
@@ -203,7 +203,7 @@ export async function provisionTenant(input: {
       email: ownerEmail.toLowerCase(),
       password,
       email_confirm: true,
-      app_metadata: { role: 'owner' },
+      app_metadata: { role: 'owner', permissions: ['*'] },
       user_metadata: ownerName ? { full_name: ownerName } : {},
     });
     let userId = created?.user?.id;
@@ -219,7 +219,7 @@ export async function provisionTenant(input: {
       await tenantAdmin.auth.admin.updateUserById(userId, {
         password,
         email_confirm: true,
-        app_metadata: { role: 'owner' },
+        app_metadata: { role: 'owner', permissions: ['*'] },
       });
     }
     const { error: memErr } = await tenantAdmin.from('memberships').upsert(

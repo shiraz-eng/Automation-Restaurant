@@ -460,7 +460,7 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
       email: claimed.email,
       password,
       email_confirm: true,
-      app_metadata: { role: 'owner' }, // the project IS the tenant; only role matters
+      app_metadata: { role: 'owner', permissions: ['*'] }, // the project IS the tenant; only role matters
       user_metadata: fullName ? { full_name: fullName } : {},
     });
 
@@ -482,7 +482,7 @@ onboardingRouter.post('/claim', express.json(), async (req: Request, res: Respon
       const { error: updErr } = await tenantAdmin.auth.admin.updateUserById(userId, {
         password,
         email_confirm: true,
-        app_metadata: { ...(existing.app_metadata ?? {}), role: 'owner' },
+        app_metadata: { ...(existing.app_metadata ?? {}), role: 'owner', permissions: ['*'] },
         ...(fullName ? { user_metadata: { ...(existing.user_metadata ?? {}), full_name: fullName } } : {}),
       });
       if (updErr) throw new Error(`password reset failed: ${updErr.message}`);
