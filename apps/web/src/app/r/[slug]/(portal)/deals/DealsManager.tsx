@@ -13,6 +13,23 @@ type Component = {
   qty: number;
   sort_order: number;
 };
+type OptionItem = {
+  id: string;
+  menu_item_id: string | null;
+  variant_id: string | null;
+  qty: number;
+  price_adjustment_cents: number;
+  is_default: boolean;
+  sort_order: number;
+};
+type OptionGroup = {
+  id: string;
+  name: string;
+  min_select: number;
+  max_select: number | null;
+  sort_order: number;
+  deal_option_items: OptionItem[];
+};
 export type Deal = {
   id: string;
   name: string;
@@ -26,6 +43,7 @@ export type Deal = {
   ends_at: string | null;
   sort_order: number;
   deal_components: Component[];
+  deal_option_groups: OptionGroup[];
 };
 export type MenuOption = {
   id: string;
@@ -53,6 +71,12 @@ export function DealsManager({
   const [pick, setPick] = useState<Record<string, { item: string; variant: string; qty: string }>>(
     {},
   );
+  // per-deal "new Build-Your-Own group" draft
+  const [groupDraft, setGroupDraft] = useState<Record<string, { name: string; min: string; max: string }>>({});
+  // per-group "new option item" draft, keyed by group id
+  const [optDraft, setOptDraft] = useState<
+    Record<string, { item: string; variant: string; qty: string; price: string; isDefault: boolean }>
+  >({});
 
   async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
     setBusy(true);
@@ -210,7 +234,225 @@ export function DealsManager({
                       Add component
                     </Button>
                   </div>
+                </>
+              )}
 
+              <div className="mt-4 pt-3 border-t border-border">
+                <div className="flex items-baseline justify-between mb-1">
+                  <span className="font-bold text-xs">Build Your Own (optional)</span>
+                  <span className="text-[11px] text-muted">
+                    Selectable groups on top of the fixed price above — e.g. &quot;Choose Size&quot;, &quot;Choose Side&quot;
+                  </span>
+                </div>
+                {d.deal_option_groups.length === 0 ? (
+                  <p className="text-muted text-xs">No option groups — this stays a plain fixed combo.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {d.deal_option_groups.map((g) => {
+                      const od = optDraft[g.id] ?? { item: '', variant: '', qty: '1', price: '0', isDefault: false };
+                      const odVariants = menu.find((m) => m.id === od.item)?.menu_variants ?? [];
+                      return (
+                        <div key={g.id} className="rounded border border-border p-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold">
+                              {g.name}{' '}
+                              <span className="text-muted font-normal">
+                                (pick {g.min_select}
+                                {g.max_select != null && g.max_select !== g.min_select ? `–${g.max_select}` : ''}
+                                {g.max_select == null ? '+' : ''})
+                              </span>
+                            </span>
+                            {canEdit && (
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Delete group "${g.name}"?`))
+                                    run(() => supabase.from('deal_option_groups').delete().eq('id', g.id));
+                                }}
+                                className="text-danger underline"
+                              >
+                                remove group
+                              </button>
+                            )}
+                          </div>
+                          <div className="mt-1.5 space-y-1">
+                            {g.deal_option_items.length === 0 ? (
+                              <p className="text-muted text-[11px]">No options yet — add at least {g.min_select || 1}.</p>
+                            ) : (
+                              g.deal_option_items.map((oi) => (
+                                <div key={oi.id} className="flex items-center justify-between text-[11px]">
+                                  <span>
+                                    {oi.qty}× {itemName(oi.menu_item_id)}
+                                    {variantName(oi.menu_item_id, oi.variant_id)
+                                      ? ` · ${variantName(oi.menu_item_id, oi.variant_id)}`
+                                      : ''}
+                                    {oi.price_adjustment_cents > 0 ? ` (+${formatCents(oi.price_adjustment_cents)})` : ''}
+                                    {oi.is_default ? ' · default' : ''}
+                                  </span>
+                                  {canEdit && (
+                                    <button
+                                      onClick={() =>
+                                        run(() => supabase.from('deal_option_items').delete().eq('id', oi.id))
+                                      }
+                                      className="text-danger underline"
+                                    >
+                                      remove
+                                    </button>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          {canEdit && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 items-end">
+                              <Select
+                                value={od.item}
+                                onChange={(e) =>
+                                  setOptDraft((s) => ({
+                                    ...s,
+                                    [g.id]: { ...od, item: e.target.value, variant: '' },
+                                  }))
+                                }
+                                className="text-[11px]"
+                              >
+                                <option value="">Item…</option>
+                                {menu.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Select
+                                value={od.variant}
+                                onChange={(e) =>
+                                  setOptDraft((s) => ({ ...s, [g.id]: { ...od, variant: e.target.value } }))
+                                }
+                                className="text-[11px]"
+                              >
+                                <option value="">Default variant</option>
+                                {odVariants.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    {v.name}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Input
+                                type="number"
+                                min="1"
+                                value={od.qty}
+                                onChange={(e) => setOptDraft((s) => ({ ...s, [g.id]: { ...od, qty: e.target.value } }))}
+                                className="w-14 text-[11px]"
+                                title="Qty"
+                              />
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={od.price}
+                                onChange={(e) => setOptDraft((s) => ({ ...s, [g.id]: { ...od, price: e.target.value } }))}
+                                className="w-20 text-[11px]"
+                                title="Upcharge"
+                              />
+                              <label className="flex items-center gap-1 text-[11px]">
+                                <input
+                                  type="checkbox"
+                                  checked={od.isDefault}
+                                  onChange={(e) =>
+                                    setOptDraft((s) => ({ ...s, [g.id]: { ...od, isDefault: e.target.checked } }))
+                                  }
+                                />
+                                default
+                              </label>
+                              <Button
+                                variant="ghost"
+                                disabled={busy || !od.item}
+                                onClick={() => {
+                                  const cents = Math.round(parseFloat(od.price || '0') * 100);
+                                  run(() =>
+                                    supabase.from('deal_option_items').insert({
+                                      group_id: g.id,
+                                      menu_item_id: od.item,
+                                      variant_id: od.variant || null,
+                                      qty: Math.max(1, parseInt(od.qty, 10) || 1),
+                                      price_adjustment_cents: Math.max(0, cents),
+                                      is_default: od.isDefault,
+                                    }),
+                                  );
+                                  setOptDraft((s) => ({ ...s, [g.id]: { item: '', variant: '', qty: '1', price: '0', isDefault: false } }));
+                                }}
+                              >
+                                Add option
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {canEdit && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 items-end">
+                    <Input
+                      placeholder="Group name (e.g. Choose Size)"
+                      value={(groupDraft[d.id] ?? { name: '', min: '1', max: '1' }).name}
+                      onChange={(e) =>
+                        setGroupDraft((s) => ({
+                          ...s,
+                          [d.id]: { ...(s[d.id] ?? { name: '', min: '1', max: '1' }), name: e.target.value },
+                        }))
+                      }
+                      className="text-xs w-48"
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={(groupDraft[d.id] ?? { name: '', min: '1', max: '1' }).min}
+                      onChange={(e) =>
+                        setGroupDraft((s) => ({
+                          ...s,
+                          [d.id]: { ...(s[d.id] ?? { name: '', min: '1', max: '1' }), min: e.target.value },
+                        }))
+                      }
+                      className="w-14 text-xs"
+                      title="Min select"
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={(groupDraft[d.id] ?? { name: '', min: '1', max: '1' }).max}
+                      onChange={(e) =>
+                        setGroupDraft((s) => ({
+                          ...s,
+                          [d.id]: { ...(s[d.id] ?? { name: '', min: '1', max: '1' }), max: e.target.value },
+                        }))
+                      }
+                      className="w-14 text-xs"
+                      title="Max select (blank = unlimited)"
+                    />
+                    <Button
+                      variant="ghost"
+                      disabled={busy || !(groupDraft[d.id]?.name ?? '').trim()}
+                      onClick={() => {
+                        const gd = groupDraft[d.id] ?? { name: '', min: '1', max: '1' };
+                        run(() =>
+                          supabase.from('deal_option_groups').insert({
+                            deal_id: d.id,
+                            name: gd.name.trim(),
+                            min_select: Math.max(0, parseInt(gd.min, 10) || 0),
+                            max_select: gd.max.trim() === '' ? null : Math.max(0, parseInt(gd.max, 10) || 0),
+                          }),
+                        );
+                        setGroupDraft((s) => ({ ...s, [d.id]: { name: '', min: '1', max: '1' } }));
+                      }}
+                    >
+                      Add group
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {canEdit && (
+                <>
                   <div className="mt-3 flex gap-2 text-xs">
                     <button
                       onClick={() =>

@@ -502,6 +502,47 @@ create table public.deal_components (
 );
 create index deal_components_deal_idx on public.deal_components(deal_id, sort_order);
 
+-- Build-Your-Own-Combo (spec §8-10): a group of selectable options on top of
+-- the deal's fixed components/price ("Choose 1 Main", "Choose 1 Drink").
+-- Selecting a premium item can upcharge the deal price; the base fixed
+-- price already covers a normal/default selection, matching how a
+-- modifier group works for a plain item — this reuses that exact mental
+-- model rather than inventing a second one.
+create table public.deal_option_groups (
+  id         uuid primary key default gen_random_uuid(),
+  deal_id    uuid not null references public.deals(id) on delete cascade,
+  name       text not null,
+  min_select int not null default 1 check (min_select >= 0),
+  max_select int check (max_select is null or max_select >= min_select),
+  sort_order int not null default 0
+);
+create index deal_option_groups_deal_idx on public.deal_option_groups(deal_id, sort_order);
+
+create table public.deal_option_items (
+  id                     uuid primary key default gen_random_uuid(),
+  group_id               uuid not null references public.deal_option_groups(id) on delete cascade,
+  menu_item_id           uuid references public.menu_items(id) on delete cascade,
+  variant_id             uuid references public.menu_variants(id) on delete cascade,
+  qty                    int not null default 1 check (qty > 0),
+  -- Upcharges only (never negative) — order_lines.unit_price_cents/
+  -- line_total_cents are check(>= 0) everywhere else in this schema, and
+  -- the spec's own worked examples are all "+PKR 150" premium upcharges;
+  -- a per-option discount is a deferred nuance, not this pass's scope.
+  price_adjustment_cents int not null default 0 check (price_adjustment_cents >= 0),
+  is_default             boolean not null default false,
+  sort_order             int not null default 0
+);
+create index deal_option_items_group_idx on public.deal_option_items(group_id, sort_order);
+
+alter table public.deal_option_groups enable row level security;
+alter table public.deal_option_items enable row level security;
+create policy staff_read on public.deal_option_groups for select using (app.has_perm('deals.view') or app.is_staff());
+create policy mgr_write  on public.deal_option_groups for all using (app.has_perm('deals.update') or app.can_write()) with check (app.has_perm('deals.update') or app.can_write());
+create policy guest_read on public.deal_option_groups for select using (true);
+create policy staff_read on public.deal_option_items for select using (app.has_perm('deals.view') or app.is_staff());
+create policy mgr_write  on public.deal_option_items for all using (app.has_perm('deals.update') or app.can_write()) with check (app.has_perm('deals.update') or app.can_write());
+create policy guest_read on public.deal_option_items for select using (true);
+
 alter table public.deals enable row level security;
 alter table public.deal_components enable row level security;
 create policy staff_read on public.deals for select using (app.has_perm('deals.view') or app.is_staff());
@@ -995,6 +1036,99 @@ begin
         end loop;
         update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
       end loop;
+
+      -- Build-Your-Own selections (spec §7-10): the client sends only
+      -- deal_option_items IDs, never a price — re-priced/re-validated here
+      -- exactly like item modifiers are, one group at a time (min/max
+      -- enforced), before any of it can affect the total. A deal with no
+      -- option groups (the plain fixed-price case) simply finds nothing to
+      -- loop over here — fully backward compatible.
+      declare
+        v_deal_opt_ids uuid[] := array(
+          select (x)::uuid from jsonb_array_elements_text(coalesce(v_line->'deal_option_ids', '[]'::jsonb)) as x
+        );
+        v_grp record;
+        v_grp_selected int;
+        v_oi record;
+      begin
+        for v_grp in select id, name, min_select, max_select from public.deal_option_groups where deal_id = v_deal_id loop
+          select count(*) into v_grp_selected
+            from public.deal_option_items doi
+           where doi.group_id = v_grp.id and doi.id = any(v_deal_opt_ids);
+          if v_grp_selected < v_grp.min_select then
+            raise exception 'deal_option_required: %', v_grp.name using errcode = 'check_violation';
+          end if;
+          if v_grp.max_select is not null and v_grp_selected > v_grp.max_select then
+            raise exception 'deal_option_too_many: %', v_grp.name using errcode = 'check_violation';
+          end if;
+        end loop;
+
+        for v_oi in
+          select doi.id, doi.menu_item_id, doi.variant_id, doi.qty, doi.price_adjustment_cents
+            from public.deal_option_items doi
+            join public.deal_option_groups dog on dog.id = doi.group_id
+           where dog.deal_id = v_deal_id and doi.id = any(v_deal_opt_ids)
+        loop
+          if v_oi.variant_id is not null then
+            select v.id, v.menu_item_id, i.name, v.name, v.track_availability, (v.is_available and i.is_available)
+              into v_variant_id, v_item_id, v_item_name, v_variant_name, v_track, v_avail
+              from public.menu_variants v join public.menu_items i on i.id = v.menu_item_id
+             where v.id = v_oi.variant_id;
+          else
+            v_item_id := v_oi.menu_item_id;
+            select i.name, i.is_available into v_item_name, v_avail
+              from public.menu_items i where i.id = v_item_id;
+            select v.id, v.name, v.track_availability, (v.is_available and v_avail)
+              into v_variant_id, v_variant_name, v_track, v_avail
+              from public.menu_variants v where v.menu_item_id = v_item_id
+             order by v.sort_order, v.created_at limit 1;
+          end if;
+          if not coalesce(v_avail, false) then
+            raise exception 'deal_item_unavailable: %', coalesce(v_item_name, '?') using errcode = 'check_violation';
+          end if;
+
+          v_lt := v_oi.price_adjustment_cents * v_oi.qty * v_qty;
+          v_sub := v_sub + v_lt;
+          insert into public.order_lines
+            (order_id, deal_id, menu_item_id, variant_id, name_snapshot, variant_name_snapshot,
+             unit_price_cents, qty, line_total_cents, modifiers)
+          values
+            (v_order_id, v_deal_id, v_item_id, v_variant_id,
+             v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
+             v_variant_name, v_oi.price_adjustment_cents, v_oi.qty * v_qty, v_lt, '[]'::jsonb)
+          returning id into v_line_id;
+
+          if v_variant_id is not null then
+            update public.menu_variants set available_qty = available_qty - v_oi.qty * v_qty
+             where id = v_variant_id and track_availability and available_qty >= v_oi.qty * v_qty;
+            get diagnostics v_upd = row_count;
+            if v_track and v_upd = 0 then
+              raise exception 'deal_item_unavailable: %', coalesce(v_item_name, '?') using errcode = 'check_violation';
+            end if;
+          end if;
+
+          v_recipe_cost := 0;
+          for v_comp in
+            select inventory_item_id, qty_per_unit from public.recipe_components
+             where menu_item_id = v_item_id
+               and variant_id is not distinct from (
+                 case when exists(
+                   select 1 from public.recipe_components where menu_item_id = v_item_id and variant_id = v_variant_id
+                 ) then v_variant_id else null end)
+          loop
+            v_need := v_comp.qty_per_unit * v_oi.qty * v_qty;
+            select cost_cents_per_base_unit into v_cost_per_base from public.inventory_items where id = v_comp.inventory_item_id;
+            v_recipe_cost := v_recipe_cost + round(v_need * coalesce(v_cost_per_base, 0));
+            update public.inventory_items set stock_qty = stock_qty - v_need
+             where id = v_comp.inventory_item_id and stock_qty >= v_need;
+            get diagnostics v_upd = row_count;
+            if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
+            insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id, unit_cost_cents_base)
+            values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id, v_cost_per_base);
+          end loop;
+          update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
+        end loop;
+      end;
 
     else
     v_variant_id := nullif(v_line->>'variant_id', '')::uuid;

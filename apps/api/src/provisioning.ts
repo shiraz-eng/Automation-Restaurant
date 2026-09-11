@@ -48,7 +48,12 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v25 AI Management's first automation: low_stock_events (deterministic
 //       trigger, open/resolve, one-open-per-item), supplier_communications
 //       log, pending_low_stock_reorders() eligibility RPC
-const SCHEMA_VERSION = 25;
+//   v26 Deals: Build-Your-Own-Combo — deal_option_groups/deal_option_items
+//       (min/max-select option groups with upcharges) layered on top of
+//       existing fixed-price deals; place_order() validates/prices/
+//       inserts selections and explodes their recipes exactly like plain
+//       menu items
+const SCHEMA_VERSION = 26;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

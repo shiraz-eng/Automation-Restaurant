@@ -69,7 +69,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     tenant
       .from('deals')
       .select(
-        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents), menu_variants(name, price_cents))',
+        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents), menu_variants(name, price_cents)), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order, menu_items(name, is_available), menu_variants(name, is_available, track_availability, available_qty)))',
       )
       .eq('is_available', true)
       .order('sort_order'),
@@ -97,7 +97,54 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     }))
     .filter((it) => (it.menu_variants as unknown[]).length > 0);
 
-  res.json({ categories: categories ?? [], items: cleaned, deals: deals ?? [] });
+  // Supabase embeds a to-one relation as an object (or an array of one on
+  // some join shapes) — normalize to a single object/null either way.
+  const one = <T>(x: T | T[] | null | undefined): T | null =>
+    Array.isArray(x) ? (x[0] ?? null) : (x ?? null);
+
+  // Deals: drop Build-Your-Own option items whose underlying menu item/
+  // variant is no longer available (mirrors the modifier-option cleaning
+  // above), then drop any group left with zero selectable options — a
+  // required group with nothing to pick would strand the customer.
+  const cleanedDeals = (deals ?? []).map((d: Record<string, unknown>) => ({
+    ...d,
+    deal_option_groups: ((d.deal_option_groups as Array<Record<string, unknown>>) ?? [])
+      .map((g): Record<string, unknown> => ({
+        ...g,
+        deal_option_items: ((g.deal_option_items as Array<Record<string, unknown>>) ?? [])
+          .filter((oi) => {
+            const variant = one(oi.menu_variants as Record<string, unknown> | Record<string, unknown>[] | null);
+            const item = one(oi.menu_items as Record<string, unknown> | Record<string, unknown>[] | null);
+            if (oi.variant_id) {
+              return (
+                !!variant &&
+                variant.is_available &&
+                (!variant.track_availability || (variant.available_qty as number) > 0)
+              );
+            }
+            return !!item && item.is_available;
+          })
+          // Keep just the display name from each embed — the storefront
+          // needs "Chicken Burger · Large" the same way deal_components does
+          // above; availability flags already did their job in the filter.
+          .map((oi): Record<string, unknown> => ({
+            ...oi,
+            menu_items: (() => {
+              const it = one(oi.menu_items as Record<string, unknown> | Record<string, unknown>[] | null);
+              return it ? { name: it.name } : null;
+            })(),
+            menu_variants: (() => {
+              const v = one(oi.menu_variants as Record<string, unknown> | Record<string, unknown>[] | null);
+              return v ? { name: v.name } : null;
+            })(),
+          }))
+          .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+      }))
+      .filter((g) => (g.deal_option_items as unknown[]).length > 0)
+      .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+  }));
+
+  res.json({ categories: categories ?? [], items: cleaned, deals: cleanedDeals });
 });
 
 // Storefront promo-code preview: validate a code against a subtotal without
@@ -139,6 +186,9 @@ const orderSchema = z.object({
         // Option IDs only — place_order() re-prices and re-validates every
         // one of them server-side. Never trust a client-supplied price/name.
         modifier_option_ids: z.array(z.string().uuid()).max(20).optional(),
+        // Build-Your-Own-Combo selections (deal_option_items IDs) — same
+        // re-price/re-validate-server-side contract as modifier_option_ids.
+        deal_option_ids: z.array(z.string().uuid()).max(20).optional(),
       }),
     )
     .min(1)

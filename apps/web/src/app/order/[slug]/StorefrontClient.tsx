@@ -57,6 +57,28 @@ type BrowseItem = {
 
 type NamedRef = { name: string } | { name: string }[] | null;
 type PricedRef = ({ name: string; price_cents: number } | { name: string; price_cents: number }[]) | null;
+/** One selectable choice inside a Build-Your-Own option group (spec §7-10).
+ *  Carries only a name for display — the server re-prices and re-validates
+ *  every selection on submit, exactly like modifier options. */
+type DealOptionItem = {
+  id: string;
+  menu_item_id: string | null;
+  variant_id: string | null;
+  qty: number;
+  price_adjustment_cents: number;
+  is_default: boolean;
+  sort_order: number;
+  menu_items: NamedRef;
+  menu_variants: NamedRef;
+};
+type DealOptionGroup = {
+  id: string;
+  name: string;
+  min_select: number;
+  max_select: number | null;
+  sort_order: number;
+  deal_option_items: DealOptionItem[];
+};
 export type DealLite = {
   id: string;
   name: string;
@@ -70,6 +92,7 @@ export type DealLite = {
     menu_items: PricedRef;
     menu_variants: PricedRef;
   }[];
+  deal_option_groups?: DealOptionGroup[];
 };
 function one<T>(x: T | T[] | null): T | null {
   if (!x) return null;
@@ -131,6 +154,23 @@ type CartLine = {
   modifierIds: string[];
   modifierSnapshot: ModOption[]; // resolved at add-time, for display only — server re-resolves on submit
 };
+
+/** A deal with a different Build-Your-Own selection is a different cart
+ *  line, same identity rule as CartLine's modifiers (spec §15). A deal with
+ *  no option groups keeps the plain deal-id key, so existing simple combos
+ *  behave exactly as before. */
+type DealCartLine = {
+  deal: DealLite;
+  qty: number;
+  optionIds: string[];
+  optionsSnapshot: DealOptionItem[]; // resolved at add-time, for display/price only — server re-resolves on submit
+};
+function dealLineUnitPrice(d: DealCartLine): number {
+  return d.deal.price_cents + d.optionsSnapshot.reduce((s, o) => s + o.price_adjustment_cents * o.qty, 0);
+}
+function dealOptionLabel(o: DealOptionItem): string {
+  return refName(o.menu_variants) || refName(o.menu_items) || 'option';
+}
 
 /**
  * Smart cart / deal recognition (AI spec §14-16, §63, §89). Deterministic —
@@ -246,11 +286,12 @@ export function StorefrontClient({
 
   const [activeCat, setActiveCat] = useState('all');
   const [cart, setCart] = useState<Record<string, CartLine>>({});
-  const [dealCart, setDealCart] = useState<Record<string, { deal: DealLite; qty: number }>>({});
+  const [dealCart, setDealCart] = useState<Record<string, DealCartLine>>({});
   const [orderNote, setOrderNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configuring, setConfiguring] = useState<BrowseItem | null>(null);
+  const [configuringDeal, setConfiguringDeal] = useState<DealLite | null>(null);
 
   const [promo, setPromo] = useState('');
   const [promoState, setPromoState] = useState<
@@ -270,7 +311,7 @@ export function StorefrontClient({
   const subtotal = useMemo(
     () =>
       lines.reduce((s, l) => s + lineUnitPrice(l) * l.qty, 0) +
-      dealLines.reduce((s, d) => s + d.deal.price_cents * d.qty, 0),
+      dealLines.reduce((s, d) => s + dealLineUnitPrice(d) * d.qty, 0),
     [lines, dealLines],
   );
   const discount = promoState.status === 'ok' ? Math.min(promoState.discount, subtotal) : 0;
@@ -279,6 +320,7 @@ export function StorefrontClient({
   const count =
     lines.reduce((s, l) => s + l.qty, 0) + dealLines.reduce((s, d) => s + d.qty, 0);
 
+  /** Simple deal, no option groups: instant add/remove, same as before. */
   function bumpDeal(deal: DealLite, delta: number) {
     setError(null);
     setPromoState((s) => (s.status === 'ok' || s.status === 'bad' ? { status: 'idle' } : s));
@@ -286,7 +328,35 @@ export function StorefrontClient({
       const next = { ...c };
       const qty = (next[deal.id]?.qty ?? 0) + delta;
       if (qty <= 0) delete next[deal.id];
-      else next[deal.id] = { deal, qty };
+      else next[deal.id] = { deal, qty, optionIds: [], optionsSnapshot: [] };
+      return next;
+    });
+  }
+
+  /** Build-Your-Own deal: add exactly the configured selection (called from the deal sheet). */
+  function addConfiguredDeal(deal: DealLite, optionIds: string[], optionsSnapshot: DealOptionItem[]) {
+    setError(null);
+    setPromoState((s) => (s.status === 'ok' || s.status === 'bad' ? { status: 'idle' } : s));
+    const key = cartKey(deal.id, optionIds);
+    setDealCart((c) => ({
+      ...c,
+      [key]: { deal, qty: (c[key]?.qty ?? 0) + 1, optionIds, optionsSnapshot },
+    }));
+    setConfiguringDeal(null);
+  }
+
+  function removeDealLine(key: string) {
+    setDealCart((c) => {
+      const next = { ...c };
+      delete next[key];
+      return next;
+    });
+  }
+  function setDealLineQty(key: string, qty: number) {
+    setDealCart((c) => {
+      const next = { ...c };
+      if (qty <= 0) delete next[key];
+      else if (next[key]) next[key] = { ...next[key], qty };
       return next;
     });
   }
@@ -412,7 +482,11 @@ export function StorefrontClient({
               qty: l.qty,
               ...(l.modifierIds.length ? { modifier_option_ids: l.modifierIds } : {}),
             })),
-            ...dealLines.map((d) => ({ deal_id: d.deal.id, qty: d.qty })),
+            ...dealLines.map((d) => ({
+              deal_id: d.deal.id,
+              qty: d.qty,
+              ...(d.optionIds.length ? { deal_option_ids: d.optionIds } : {}),
+            })),
           ],
         }),
       });
@@ -542,6 +616,12 @@ export function StorefrontClient({
         <div className="p-4 pb-0 space-y-2">
           <h2 className="font-black text-sm">Deals</h2>
           {deals.map((d) => {
+            // A Build-Your-Own deal (has option groups) opens the sheet,
+            // same "a choice to make → sheet, nothing to choose → instant
+            // add" rule as items below (spec §5, §7-10) — each distinct
+            // selection becomes its own cart line, so no single inline
+            // stepper on the card would make sense.
+            const hasOptions = (d.deal_option_groups?.length ?? 0) > 0;
             const qty = dealCart[d.id]?.qty ?? 0;
             return (
               <div
@@ -563,15 +643,24 @@ export function StorefrontClient({
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm">{d.name}</div>
                   <div className="text-[11px] text-muted truncate">
-                    {d.deal_components
-                      .map((c) => `${c.qty}× ${refName(c.menu_variants) || refName(c.menu_items)}`)
-                      .join(' + ')}
+                    {hasOptions
+                      ? d.deal_option_groups!.map((g) => g.name).join(' + ')
+                      : d.deal_components
+                          .map((c) => `${c.qty}× ${refName(c.menu_variants) || refName(c.menu_items)}`)
+                          .join(' + ')}
                   </div>
                   <div className="text-primary font-bold text-sm mt-0.5">
-                    {formatCents(d.price_cents)}
+                    {hasOptions ? `from ${formatCents(d.price_cents)}` : formatCents(d.price_cents)}
                   </div>
                 </div>
-                {qty === 0 ? (
+                {hasOptions ? (
+                  <button
+                    onClick={() => setConfiguringDeal(d)}
+                    className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs shrink-0"
+                  >
+                    Choose options
+                  </button>
+                ) : qty === 0 ? (
                   <button
                     onClick={() => bumpDeal(d, 1)}
                     className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs shrink-0"
@@ -704,6 +793,39 @@ export function StorefrontClient({
         </div>
       )}
 
+      {dealLines.some((d) => d.optionIds.length > 0) && (
+        <div className="px-4 pb-2 space-y-1.5">
+          <h2 className="font-black text-sm mb-1">Your combos</h2>
+          {Object.entries(dealCart)
+            .filter(([, d]) => d.optionIds.length > 0)
+            .map(([key, d]) => (
+              <div key={key} className="rounded-lg border border-border bg-surface p-2.5 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold truncate">{d.deal.name}</div>
+                  {d.optionsSnapshot.length > 0 && (
+                    <div className="text-[11px] text-muted truncate">
+                      {d.optionsSnapshot.map(dealOptionLabel).join(', ')}
+                    </div>
+                  )}
+                  <div className="text-[11px] text-primary font-semibold">{formatCents(dealLineUnitPrice(d))} each</div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => setDealLineQty(key, d.qty - 1)} className="w-6 h-6 rounded border border-border font-bold text-xs">
+                    −
+                  </button>
+                  <span className="w-4 text-center text-xs font-semibold">{d.qty}</span>
+                  <button onClick={() => setDealLineQty(key, d.qty + 1)} className="w-6 h-6 rounded border border-border font-bold text-xs">
+                    +
+                  </button>
+                  <button onClick={() => removeDealLine(key)} className="text-danger text-[11px] font-semibold ml-1">
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+
       {error && <p className="px-4 text-danger text-xs">{error}</p>}
 
       {configuring && (
@@ -711,6 +833,14 @@ export function StorefrontClient({
           item={configuring}
           onClose={() => setConfiguring(null)}
           onAdd={addConfigured}
+        />
+      )}
+
+      {configuringDeal && (
+        <DealSheet
+          deal={configuringDeal}
+          onClose={() => setConfiguringDeal(null)}
+          onAdd={addConfiguredDeal}
         />
       )}
 
@@ -926,6 +1056,118 @@ function ItemSheet({
           className="w-full mt-6 rounded bg-primary text-primary-fg font-bold py-3 text-sm disabled:opacity-50"
         >
           Add — {formatCents((variant?.price_cents ?? 0) + addonTotal)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Build-Your-Own-Combo sheet (spec §7-10) — one consistent picker per
+ * option group, same idiom as ItemSheet's modifier groups: a max-1 group
+ * behaves like a required radio choice, anything wider is a capped
+ * multi-select. Displayed price is provisional; place_order() always
+ * re-prices and re-validates every selection on submit.
+ */
+function DealSheet({
+  deal,
+  onClose,
+  onAdd,
+}: {
+  deal: DealLite;
+  onClose: () => void;
+  onAdd: (deal: DealLite, optionIds: string[], snapshot: DealOptionItem[]) => void;
+}) {
+  const groups = deal.deal_option_groups ?? [];
+  const [selected, setSelected] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(
+      groups.map((g) => [g.id, g.deal_option_items.filter((o) => o.is_default).slice(0, g.max_select ?? 1).map((o) => o.id)]),
+    ),
+  );
+
+  function toggle(group: DealOptionGroup, optionId: string) {
+    setSelected((s) => {
+      const cur = s[group.id] ?? [];
+      if (group.max_select === 1) {
+        return { ...s, [group.id]: cur[0] === optionId ? [] : [optionId] };
+      }
+      const has = cur.includes(optionId);
+      if (has) return { ...s, [group.id]: cur.filter((id) => id !== optionId) };
+      if (group.max_select != null && cur.length >= group.max_select) return s; // at the cap
+      return { ...s, [group.id]: [...cur, optionId] };
+    });
+  }
+
+  const allOptions = new Map(groups.flatMap((g) => g.deal_option_items.map((o) => [o.id, o])));
+  const chosenIds = Object.values(selected).flat();
+  const chosenOptions = chosenIds.map((id) => allOptions.get(id)).filter((o): o is DealOptionItem => !!o);
+  const addonTotal = chosenOptions.reduce((s, o) => s + o.price_adjustment_cents * o.qty, 0);
+  const requiredUnmet = groups.some((g) => (selected[g.id]?.length ?? 0) < g.min_select);
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-sm bg-surface rounded-t-2xl sm:rounded-2xl max-h-[85vh] overflow-y-auto p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="font-black text-base">{deal.name}</h2>
+          <button onClick={onClose} className="text-muted text-lg leading-none">
+            ✕
+          </button>
+        </div>
+        <p className="text-primary font-bold text-sm mb-4">{formatCents(deal.price_cents)}</p>
+
+        <div className="space-y-5">
+          {groups.map((g) => (
+            <div key={g.id}>
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="font-bold text-sm">{g.name}</h3>
+                <span className="text-[11px] text-muted">
+                  {g.min_select > 0
+                    ? 'Required'
+                    : g.max_select && g.max_select > 1
+                      ? `Up to ${g.max_select}`
+                      : 'Optional'}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {g.deal_option_items.map((o) => {
+                  const checked = (selected[g.id] ?? []).includes(o.id);
+                  const addon = o.price_adjustment_cents * o.qty;
+                  return (
+                    <button
+                      key={o.id}
+                      onClick={() => toggle(g, o.id)}
+                      className={`w-full flex items-center justify-between rounded border px-3 py-2 text-xs text-left ${
+                        checked ? 'border-primary bg-primary/5' : 'border-border'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`w-4 h-4 grid place-items-center rounded-${g.max_select === 1 ? 'full' : 'sm'} border ${
+                            checked ? 'bg-primary border-primary text-primary-fg' : 'border-border'
+                          }`}
+                        >
+                          {checked ? '✓' : ''}
+                        </span>
+                        {dealOptionLabel(o)}
+                      </span>
+                      <span className="text-muted">{addon > 0 ? `+${formatCents(addon)}` : 'free'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => onAdd(deal, chosenIds, chosenOptions)}
+          disabled={requiredUnmet}
+          className="w-full mt-6 rounded bg-primary text-primary-fg font-bold py-3 text-sm disabled:opacity-50"
+        >
+          Add — {formatCents(deal.price_cents + addonTotal)}
         </button>
       </div>
     </div>
