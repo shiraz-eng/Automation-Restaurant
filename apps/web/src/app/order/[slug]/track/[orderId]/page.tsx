@@ -26,11 +26,11 @@ export default async function TrackPage({
     anon
       .from('orders')
       .select(
-        'id, order_number, table_label, customer_name, status, subtotal_cents, tax_cents, total_cents, created_at, order_lines(name_snapshot, qty, line_total_cents)',
+        'id, order_number, table_label, customer_name, status, subtotal_cents, tax_cents, total_cents, created_at, pickup_counter_portal_id, order_lines(name_snapshot, qty, line_total_cents)',
       )
       .eq('id', orderId)
       .maybeSingle(),
-    anon.from('portals').select('name').eq('type', 'checkout').eq('status', 'active').order('name'),
+    anon.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name'),
   ]);
 
   if (!order) {
@@ -48,7 +48,8 @@ export default async function TrackPage({
       supabaseUrl={config.url}
       supabaseAnonKey={config.anonKey}
       initial={order as TrackedOrder}
-      counters={(counters ?? []).map((c) => c.name)}
+      counters={counters ?? []}
+      initialCounterId={order.pickup_counter_portal_id}
     />
   );
 }

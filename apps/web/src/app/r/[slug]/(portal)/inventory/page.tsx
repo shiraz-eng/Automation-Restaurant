@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { InventoryManager } from './InventoryManager';
 import { Card } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
@@ -16,12 +16,12 @@ export default async function InventoryPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'stock.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'stock.view');
 
   const [{ data: items, error }, { data: ledgerRaw }] = await Promise.all([
     t.client
       .from('inventory_items')
-      .select('id, name, unit, stock_qty, min_threshold, supplier_name')
+      .select('id, name, unit, stock_qty, min_threshold, supplier_name, cost_cents_per_base_unit')
       .order('name'),
     t.client
       .from('stock_ledger')
@@ -54,7 +54,7 @@ export default async function InventoryPage({
           {error.message}
         </div>
       ) : (
-        <InventoryManager items={items ?? []} />
+        <InventoryManager items={items ?? []} canViewCost={can(perms, role, 'inventory.view_cost')} />
       )}
 
       <Card>

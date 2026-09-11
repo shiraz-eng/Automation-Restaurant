@@ -21,8 +21,10 @@ export type KOrder = {
   status: string;
   customer_note: string | null;
   created_at: string;
+  pickup_counter_portal_id: string | null;
   order_lines: Line[];
 };
+export type Counter = { id: string; name: string };
 export type KVariant = {
   id: string;
   name: string;
@@ -52,11 +54,13 @@ function mins(iso: string) {
 export function KitchenPortalBoard({
   initialOrders,
   initialVariants,
+  counters,
   canAvailability,
   canWaste,
 }: {
   initialOrders: KOrder[];
   initialVariants: KVariant[];
+  counters: Counter[];
   canAvailability: boolean;
   canWaste: boolean;
 }) {
@@ -73,7 +77,7 @@ export function KitchenPortalBoard({
     const { data } = await supabase
       .from('orders')
       .select(
-        'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
+        'id, order_number, table_label, channel, status, customer_note, created_at, pickup_counter_portal_id, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
       )
       .in('status', ACTIVE)
       .order('created_at', { ascending: true });
@@ -190,6 +194,25 @@ export function KitchenPortalBoard({
                             </li>
                           ))}
                         </ul>
+                        {counters.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-2">
+                            {counters.map((c) => (
+                              <button
+                                key={c.id}
+                                onClick={() =>
+                                  act(() => supabase.rpc('kitchen_set_pickup_counter', { p_order_id: o.id, p_portal_id: c.id }))
+                                }
+                                className={`rounded px-2 py-1 text-[11px] font-semibold border ${
+                                  o.pickup_counter_portal_id === c.id
+                                    ? 'bg-primary text-primary-fg border-primary'
+                                    : 'border-border text-muted'
+                                }`}
+                              >
+                                {c.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <button
                           onClick={() => act(() => lane.rpc(o.id))}
                           className="w-full rounded bg-primary text-primary-fg font-bold py-2.5 text-sm"

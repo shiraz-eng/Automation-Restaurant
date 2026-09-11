@@ -12,14 +12,15 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
 
   await gatePortalPage(t.client, slug, 'menu.view');
 
-  const [{ data: categories }, { data: items, error }] = await Promise.all([
+  const [{ data: categories }, { data: items, error }, { data: ingredients }] = await Promise.all([
     t.client.from('menu_categories').select('id, name').order('sort_order'),
     t.client
       .from('menu_items')
       .select(
-        'id, name, price_cents, is_available, category_id, image_url, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order))',
+        'id, name, price_cents, is_available, category_id, image_url, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order)), recipe_components(id, inventory_item_id, qty_per_unit, variant_id, inventory_items(name, unit))',
       )
       .order('name'),
+    t.client.from('inventory_items').select('id, name, unit').order('name'),
   ]);
 
   return (
@@ -30,7 +31,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
           {error.message}
         </div>
       ) : (
-        <MenuManager categories={categories ?? []} items={items ?? []} />
+        <MenuManager categories={categories ?? []} items={items ?? []} ingredients={ingredients ?? []} />
       )}
     </div>
   );

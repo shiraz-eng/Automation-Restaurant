@@ -39,6 +39,13 @@ const KIND_LABEL: Record<ModifierKind, string> = {
   optional_single: 'Optional · pick 1',
   multi: 'Optional · pick several',
 };
+type RecipeRow = {
+  id: string;
+  inventory_item_id: string;
+  qty_per_unit: number;
+  variant_id: string | null;
+  inventory_items: { name: string; unit: string } | { name: string; unit: string }[] | null;
+};
 type Item = {
   id: string;
   name: string;
@@ -48,12 +55,25 @@ type Item = {
   image_url: string | null;
   menu_variants: Variant[];
   modifier_groups: ModifierGroup[];
+  recipe_components: RecipeRow[];
 };
+type Ingredient = { id: string; name: string; unit: string };
+function ingredientRef(x: RecipeRow['inventory_items']): { name: string; unit: string } | null {
+  return Array.isArray(x) ? (x[0] ?? null) : x;
+}
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-export function MenuManager({ categories, items }: { categories: Category[]; items: Item[] }) {
+export function MenuManager({
+  categories,
+  items,
+  ingredients,
+}: {
+  categories: Category[];
+  items: Item[];
+  ingredients: Ingredient[];
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +92,30 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
   // per-group "add option" draft
   const [moDraft, setMoDraft] = useState<Record<string, { name: string; price: string }>>({});
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  // per-item "add recipe ingredient" draft — item-level recipes only (no
+  // per-variant override UI yet; the schema/RPC support it, this form doesn't).
+  const [rcDraft, setRcDraft] = useState<Record<string, { ingredientId: string; qty: string }>>({});
+
+  async function addRecipeIngredient(itemId: string, existing: RecipeRow[]) {
+    const d = rcDraft[itemId] ?? { ingredientId: '', qty: '' };
+    const qty = parseFloat(d.qty);
+    if (!d.ingredientId || Number.isNaN(qty) || qty <= 0) {
+      setError('Choose an ingredient and a quantity greater than 0.');
+      return;
+    }
+    // Update in place if this ingredient's already on the recipe — a NULL
+    // variant_id can't be relied on for an ON CONFLICT upsert (NULLs never
+    // match each other in a unique constraint), so check client-side instead.
+    const already = existing.find((r) => r.variant_id === null && r.inventory_item_id === d.ingredientId);
+    const ok = await run(() =>
+      already
+        ? supabase.from('recipe_components').update({ qty_per_unit: qty }).eq('id', already.id)
+        : supabase
+            .from('recipe_components')
+            .insert({ menu_item_id: itemId, variant_id: null, inventory_item_id: d.ingredientId, qty_per_unit: qty }),
+    );
+    if (ok) setRcDraft((s) => ({ ...s, [itemId]: { ingredientId: '', qty: '' } }));
+  }
 
   async function uploadImage(itemId: string, file: File) {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
@@ -588,6 +632,78 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
                     </div>
                   );
                 })()}
+              </div>
+
+              <div className="border-t border-border p-2.5 space-y-2">
+                <h3 className="font-bold text-xs text-muted">
+                  Recipe — what this item consumes from inventory per order
+                </h3>
+                {it.recipe_components.filter((r) => r.variant_id === null).length > 0 && (
+                  <table className="w-full text-left text-xs">
+                    <tbody>
+                      {it.recipe_components
+                        .filter((r) => r.variant_id === null)
+                        .map((r) => {
+                          const ing = ingredientRef(r.inventory_items);
+                          return (
+                            <tr key={r.id} className="border-b border-border/40 last:border-0">
+                              <td className="py-1.5 font-semibold">{ing?.name ?? '—'}</td>
+                              <td className="py-1.5 font-mono">
+                                {r.qty_per_unit} {ing?.unit ?? ''}
+                              </td>
+                              <td className="py-1.5 text-right">
+                                <Button
+                                  variant="danger"
+                                  disabled={busy}
+                                  onClick={() => run(() => supabase.from('recipe_components').delete().eq('id', r.id))}
+                                >
+                                  ✕
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )}
+                {(() => {
+                  const d = rcDraft[it.id] ?? { ingredientId: '', qty: '' };
+                  const setD = (patch: Partial<typeof d>) => setRcDraft((s) => ({ ...s, [it.id]: { ...d, ...patch } }));
+                  return (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <Field label="Ingredient">
+                        <Select value={d.ingredientId} onChange={(e) => setD({ ingredientId: e.target.value })}>
+                          <option value="">— choose —</option>
+                          {ingredients.map((ing) => (
+                            <option key={ing.id} value={ing.id}>
+                              {ing.name} ({ing.unit})
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Qty per order">
+                        <Input
+                          className="w-24"
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          value={d.qty}
+                          onChange={(e) => setD({ qty: e.target.value })}
+                        />
+                      </Field>
+                      <Button
+                        variant="ghost"
+                        disabled={busy || ingredients.length === 0}
+                        onClick={() => addRecipeIngredient(it.id, it.recipe_components)}
+                      >
+                        + Add ingredient
+                      </Button>
+                    </div>
+                  );
+                })()}
+                {ingredients.length === 0 && (
+                  <p className="text-[11px] text-muted">Add ingredients on the Inventory page first.</p>
+                )}
               </div>
             </Card>
           );

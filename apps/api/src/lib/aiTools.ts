@@ -242,6 +242,202 @@ export const AI_TOOLS: AiTool[] = [
     },
   },
   {
+    name: 'get_inventory_value',
+    description:
+      'Total inventory value at current weighted-average cost, and which ingredients are driving it. Includes cost — not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: { type: 'object', properties: {} },
+    async run(admin) {
+      const { data } = await admin
+        .from('inventory_items')
+        .select('name, unit, stock_qty, min_threshold, cost_cents_per_base_unit')
+        .order('name');
+      const rows = (data ?? []) as {
+        name: string;
+        unit: string;
+        stock_qty: number;
+        min_threshold: number;
+        cost_cents_per_base_unit: number;
+      }[];
+      const valued = rows.map((r) => ({
+        name: r.name,
+        on_hand: `${r.stock_qty} ${r.unit}`,
+        cost_cents_per_unit: Math.round(Number(r.cost_cents_per_base_unit)),
+        value_cents: Math.round(Number(r.stock_qty) * Number(r.cost_cents_per_base_unit)),
+        low_stock: Number(r.stock_qty) <= Number(r.min_threshold),
+      }));
+      return {
+        total_value_cents: valued.reduce((s, r) => s + r.value_cents, 0),
+        items: valued.sort((a, b) => b.value_cents - a.value_cents).slice(0, 25),
+      };
+    },
+  },
+  {
+    name: 'get_recipe_cost',
+    description:
+      'The ingredient (recipe) cost of a menu item, computed from current ingredient costs, with the estimated margin against its selling price. Clearly an operational estimate, not formal accounting. Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: { item_name: { type: 'string', description: 'Menu item name, partial match OK' } },
+      required: ['item_name'],
+    },
+    async run(admin, args) {
+      const { data: items } = await admin
+        .from('menu_items')
+        .select('id, name, price_cents, menu_variants(id, name, price_cents)')
+        .ilike('name', `%${String(args.item_name ?? '').trim()}%`)
+        .limit(5);
+      if (!items || items.length === 0) return { error: 'no_matching_item' };
+      const out = [];
+      for (const it of items as { id: string; name: string; price_cents: number; menu_variants: { id: string; name: string; price_cents: number }[] }[]) {
+        for (const v of it.menu_variants) {
+          // A variant-specific recipe fully replaces the base recipe when
+          // one exists for this variant — same override rule place_order()
+          // uses, never both added together.
+          const { data: variantRows } = await admin
+            .from('recipe_components')
+            .select('qty_per_unit, inventory_items(name, cost_cents_per_base_unit, unit)')
+            .eq('menu_item_id', it.id)
+            .eq('variant_id', v.id);
+          let rows = variantRows;
+          if (!rows || rows.length === 0) {
+            const { data: baseRows } = await admin
+              .from('recipe_components')
+              .select('qty_per_unit, inventory_items(name, cost_cents_per_base_unit, unit)')
+              .eq('menu_item_id', it.id)
+              .is('variant_id', null);
+            rows = baseRows;
+          }
+          const lines = (rows ?? []) as { qty_per_unit: number; inventory_items: { name: string; cost_cents_per_base_unit: number; unit: string } | { name: string; cost_cents_per_base_unit: number; unit: string }[] | null }[];
+          const ingredients = lines.map((l) => {
+            const ii = Array.isArray(l.inventory_items) ? l.inventory_items[0] : l.inventory_items;
+            const cost = Math.round(l.qty_per_unit * (ii?.cost_cents_per_base_unit ?? 0));
+            return { ingredient: ii?.name ?? '—', qty: l.qty_per_unit, unit: ii?.unit ?? '', cost_cents: cost };
+          });
+          const recipeCost = ingredients.reduce((s, i) => s + i.cost_cents, 0);
+          const sellPrice = v.price_cents;
+          out.push({
+            item: v.name === 'Regular' ? it.name : `${it.name} · ${v.name}`,
+            sell_price_cents: sellPrice,
+            recipe_cost_cents: recipeCost,
+            estimated_margin_pct: sellPrice > 0 ? Math.round(((sellPrice - recipeCost) / sellPrice) * 1000) / 10 : null,
+            ingredients: recipeCost > 0 ? ingredients : [],
+            note: ingredients.length === 0 ? 'No recipe configured for this item yet.' : undefined,
+          });
+        }
+      }
+      return { results: out };
+    },
+  },
+  {
+    name: 'get_food_cost_summary',
+    description:
+      "Food cost over a period: total ingredient cost consumed (from each order line's recorded recipe cost) vs. revenue, as a percentage. Estimated/operational, not formal accounting. Not visible to roles without inventory.view_cost.",
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: { days: { type: 'integer', description: '1-90, default 30' } },
+    },
+    async run(admin, args) {
+      const days = clampInt(args.days, 30, 90);
+      const { data } = await admin
+        .from('order_lines')
+        .select('recipe_cost_cents, line_total_cents, orders!inner(paid_at, status)')
+        .not('orders.paid_at', 'is', null)
+        .gte('orders.paid_at', daysAgo(days));
+      const rows = (data ?? []) as { recipe_cost_cents: number | null; line_total_cents: number }[];
+      const revenue = rows.reduce((s, r) => s + (r.line_total_cents ?? 0), 0);
+      const knownCost = rows.filter((r) => r.recipe_cost_cents != null);
+      const foodCost = knownCost.reduce((s, r) => s + (r.recipe_cost_cents ?? 0), 0);
+      return {
+        window_days: days,
+        revenue_cents: revenue,
+        food_cost_cents: foodCost,
+        food_cost_pct: revenue > 0 ? Math.round((foodCost / revenue) * 1000) / 10 : null,
+        lines_with_recipe_cost: knownCost.length,
+        lines_total: rows.length,
+        note:
+          knownCost.length < rows.length
+            ? `${rows.length - knownCost.length} line(s) have no recipe configured, so this understates true food cost.`
+            : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_wastage_summary',
+    description: 'Ingredient waste recorded over a period, valued at current cost, by ingredient.',
+    needs: 'stock.history',
+    input_schema: {
+      type: 'object',
+      properties: { days: { type: 'integer', description: '1-90, default 30' } },
+    },
+    async run(admin, args) {
+      const days = clampInt(args.days, 30, 90);
+      const { data } = await admin
+        .from('stock_ledger')
+        .select('delta_qty, note, created_at, inventory_items(name, unit, cost_cents_per_base_unit)')
+        .eq('reason', 'spoilage')
+        .gte('created_at', daysAgo(days))
+        .order('created_at', { ascending: false });
+      const rows = (data ?? []) as {
+        delta_qty: number;
+        note: string | null;
+        created_at: string;
+        inventory_items: { name: string; unit: string; cost_cents_per_base_unit: number } | { name: string; unit: string; cost_cents_per_base_unit: number }[] | null;
+      }[];
+      const byItem: Record<string, { qty: number; unit: string; cost_cents: number }> = {};
+      for (const r of rows) {
+        const ii = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+        const name = ii?.name ?? '—';
+        byItem[name] = byItem[name] ?? { qty: 0, unit: ii?.unit ?? '', cost_cents: 0 };
+        byItem[name].qty += Math.abs(r.delta_qty);
+        byItem[name].cost_cents += Math.round(Math.abs(r.delta_qty) * (ii?.cost_cents_per_base_unit ?? 0));
+      }
+      const items = Object.entries(byItem)
+        .map(([name, v]) => ({ ingredient: name, qty_wasted: v.qty, unit: v.unit, cost_cents: v.cost_cents }))
+        .sort((a, b) => b.cost_cents - a.cost_cents);
+      return {
+        window_days: days,
+        total_waste_cost_cents: items.reduce((s, i) => s + i.cost_cents, 0),
+        events: rows.length,
+        by_ingredient: items,
+      };
+    },
+  },
+  {
+    name: 'get_ingredient_usage',
+    description: 'Which menu items use a given ingredient — for "if chicken runs out, what does it affect?" questions.',
+    needs: 'stock.view',
+    input_schema: {
+      type: 'object',
+      properties: { ingredient_name: { type: 'string' } },
+      required: ['ingredient_name'],
+    },
+    async run(admin, args) {
+      const { data: ing } = await admin
+        .from('inventory_items')
+        .select('id, name, stock_qty, unit')
+        .ilike('name', `%${String(args.ingredient_name ?? '').trim()}%`)
+        .limit(1)
+        .maybeSingle();
+      if (!ing) return { error: 'no_matching_ingredient' };
+      const { data: rows } = await admin
+        .from('recipe_components')
+        .select('qty_per_unit, menu_items(name), menu_variants(name)')
+        .eq('inventory_item_id', ing.id);
+      const uses = ((rows ?? []) as { qty_per_unit: number; menu_items: { name: string } | { name: string }[] | null; menu_variants: { name: string } | { name: string }[] | null }[]).map((r) => {
+        const item = Array.isArray(r.menu_items) ? r.menu_items[0] : r.menu_items;
+        const variant = Array.isArray(r.menu_variants) ? r.menu_variants[0] : r.menu_variants;
+        return {
+          menu_item: variant?.name && variant.name !== 'Regular' ? `${item?.name} · ${variant.name}` : (item?.name ?? '—'),
+          qty_per_order: r.qty_per_unit,
+        };
+      });
+      return { ingredient: ing.name, on_hand: `${ing.stock_qty} ${ing.unit}`, used_by: uses };
+    },
+  },
+  {
     name: 'get_menu',
     description: "The menu: categories, items, and each item's variants with price and availability.",
     needs: 'menu.view',

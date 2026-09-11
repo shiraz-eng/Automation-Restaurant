@@ -5,6 +5,7 @@ import {
   KitchenPortalBoard,
   type KOrder,
   type KVariant,
+  type Counter,
 } from './KitchenPortalBoard';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { CheckoutClient, type Bill } from '../../(portal)/checkout/CheckoutClient';
@@ -41,11 +42,11 @@ export default async function PortalHome({
   const has = (k: string) => perms.includes('*') || perms.includes(k);
 
   if (portal.type === 'kitchen') {
-    const [{ data: orders }, { data: variants }] = await Promise.all([
+    const [{ data: orders }, { data: variants }, { data: counters }] = await Promise.all([
       t.client
         .from('orders')
         .select(
-          'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
+          'id, order_number, table_label, channel, status, customer_note, created_at, pickup_counter_portal_id, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
         )
         .in('status', ACTIVE)
         .order('created_at', { ascending: true }),
@@ -53,6 +54,7 @@ export default async function PortalHome({
         .from('menu_variants')
         .select('id, name, is_available, track_availability, available_qty, menu_items(name)')
         .order('name'),
+      t.client.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name'),
     ]);
     return (
       <div className="space-y-4">
@@ -60,6 +62,7 @@ export default async function PortalHome({
         <KitchenPortalBoard
           initialOrders={(orders ?? []) as KOrder[]}
           initialVariants={(variants ?? []) as unknown as KVariant[]}
+          counters={(counters ?? []) as Counter[]}
           canAvailability={has('kitchen.manage_availability') || has('availability.update')}
           canWaste={has('kitchen.record_waste')}
         />

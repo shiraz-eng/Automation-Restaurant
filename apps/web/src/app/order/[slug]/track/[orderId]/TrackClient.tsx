@@ -86,22 +86,25 @@ export function TrackClient({
   supabaseAnonKey,
   initial,
   counters,
+  initialCounterId,
 }: {
   slug: string;
   restaurantName: string;
   supabaseUrl: string;
   supabaseAnonKey: string;
   initial: TrackedOrder;
-  counters: string[];
+  counters: { id: string; name: string }[];
+  initialCounterId: string | null;
 }) {
   const supabase = useMemo(
     () => createTenantBrowserClient(supabaseUrl, supabaseAnonKey),
     [supabaseUrl, supabaseAnonKey],
   );
   const [status, setStatus] = useState(initial.status);
+  const [counterId, setCounterId] = useState(initialCounterId);
   const current = stepIndex(status);
 
-  // Live: react to this order's status changes with no refresh.
+  // Live: react to this order's status/counter-assignment changes with no refresh.
   useEffect(() => {
     const channel = supabase
       .channel(`order-${initial.id}`)
@@ -109,8 +112,9 @@ export function TrackClient({
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${initial.id}` },
         (payload) => {
-          const next = (payload.new as { status?: string }).status;
-          if (next) setStatus(next);
+          const row = payload.new as { status?: string; pickup_counter_portal_id?: string | null };
+          if (row.status) setStatus(row.status);
+          if ('pickup_counter_portal_id' in row) setCounterId(row.pickup_counter_portal_id ?? null);
         },
       )
       .subscribe();
@@ -158,7 +162,8 @@ export function TrackClient({
     setFbDone(true);
   }
 
-  const readyForCounter = status === 'ready' && counters.length > 0;
+  const assignedCounterName = counters.find((c) => c.id === counterId)?.name ?? null;
+  const readyForCounter = status === 'ready' && (assignedCounterName != null || counters.length > 0);
 
   return (
     <div className="min-h-screen px-6 py-8 max-w-md mx-auto">
@@ -200,9 +205,14 @@ export function TrackClient({
           <p className="font-bold text-sm">Your order is ready! 🎉</p>
           <p className="text-xs text-muted mt-1">
             Please collect it and pay at{' '}
-            {counters.length === 1
-              ? counters[0]
-              : `${counters.slice(0, -1).join(', ')} or ${counters[counters.length - 1]}`}
+            {assignedCounterName
+              ? assignedCounterName
+              : counters.length === 1
+                ? counters[0].name
+                : `${counters
+                    .slice(0, -1)
+                    .map((c) => c.name)
+                    .join(', ')} or ${counters[counters.length - 1].name}`}
             .
           </p>
         </div>

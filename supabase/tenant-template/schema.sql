@@ -161,6 +161,11 @@ insert into public.permission_catalog (key, grp, label) values
   ('supplier.manage','Suppliers','Manage suppliers'),
   ('stock.adjust','Stock','Adjust stock'),
   ('stock.history','Stock','View stock history'),
+  ('stock.count','Stock','Perform stock counts'),
+  ('purchases.receive','Purchases','Receive purchase deliveries'),
+  ('inventory.manage_waste','Inventory','Record ingredient waste'),
+  ('inventory.manage_recipes','Inventory','Manage recipes'),
+  ('inventory.view_cost','Inventory','View ingredient & recipe cost'),
   ('finance.view','Finance','View finance'),
   ('finance.create_expense','Finance','Create expense'),
   ('finance.update_expense','Finance','Update expense'),
@@ -263,11 +268,12 @@ begin
       'variants.view','variants.create','variants.update','variants.archive',
       'deals.view','deals.create','deals.update','deals.archive',
       'availability.view','availability.update',
-      'stock.update','stock.adjust','stock.history',
+      'stock.update','stock.adjust','stock.history','stock.count',
+      'inventory.manage_waste','inventory.manage_recipes','inventory.view_cost',
       'tables.create','tables.update',
       'customers.view','customers.create','customers.update',
       'supplier.view','supplier.create','supplier.update','supplier.manage',
-      'purchases.view','purchases.create','purchases.update',
+      'purchases.view','purchases.create','purchases.update','purchases.receive',
       'staff.view','staff.create','staff.update','staff.disable','roles.view',
       'attendance.view','attendance.mark','attendance.view_dashboard',
       'attendance.view_reports','attendance.view_employee_reports',
@@ -498,23 +504,54 @@ create policy mgr_write  on public.deal_components for all using (app.has_perm('
 create policy guest_read on public.deal_components for select using (true);
 alter publication supabase_realtime add table public.deals;
 
+-- stock_qty and every recipe/consumption quantity are always in this item's
+-- BASE unit (e.g. grams for a weight item, ml for volume, piece for count) —
+-- the smallest unit the kitchen actually measures in. Purchasing can happen
+-- in a bigger purchase_unit_label (e.g. "KG bag"); purchase_unit_to_base is
+-- how many base units one purchase unit converts to, so "10 KG for Rs.5,000"
+-- and "150g per burger" resolve on the same footing (spec §6-7) without a
+-- general-purpose unit-conversion table. cost_cents_per_base_unit is a
+-- weighted average across receipts (spec §8) — the one costing method used
+-- everywhere ingredient cost is read, including historical recipe-cost
+-- snapshots on order_lines.
 create table public.inventory_items (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   sku text unique,
-  unit text not null default 'unit',
+  unit text not null default 'unit',                       -- display label for the base unit (g, ml, piece, ...)
+  unit_kind text not null default 'count' check (unit_kind in ('weight', 'volume', 'count')),
+  purchase_unit_label text,                                 -- e.g. "KG bag", null = purchased in the base unit directly
+  purchase_unit_to_base numeric(14,4) not null default 1 check (purchase_unit_to_base > 0),
+  cost_cents_per_base_unit numeric(14,4) not null default 0 check (cost_cents_per_base_unit >= 0),
   stock_qty numeric(14,3) not null default 0,
   min_threshold numeric(14,3) not null default 0,
   supplier_name text,
   created_at timestamptz not null default now()
 );
 
+-- A recipe row applies to a specific variant when variant_id is set (spec
+-- §11 — Large can need more chicken than Regular); when null it's the
+-- item's base recipe, used for any variant that has no override of its own.
+-- place_order() picks the variant-specific set if one exists, else falls
+-- back to the base set — never both.
 create table public.recipe_components (
   id uuid primary key default gen_random_uuid(),
   menu_item_id uuid not null references public.menu_items(id) on delete cascade,
+  variant_id uuid references public.menu_variants(id) on delete cascade,
   inventory_item_id uuid not null references public.inventory_items(id) on delete restrict,
   qty_per_unit numeric(14,3) not null check (qty_per_unit > 0),
-  unique (menu_item_id, inventory_item_id)
+  unique (menu_item_id, variant_id, inventory_item_id)
+);
+
+-- A modifier option can carry its own ingredient consumption on top of the
+-- item/variant's base recipe (spec §12 — Extra Cheese consumes one more
+-- cheese slice; Extra Patty consumes another 150g of chicken).
+create table public.modifier_recipe_components (
+  id                  uuid primary key default gen_random_uuid(),
+  modifier_option_id  uuid not null references public.modifier_options(id) on delete cascade,
+  inventory_item_id   uuid not null references public.inventory_items(id) on delete restrict,
+  qty_base            numeric(14,3) not null check (qty_base > 0),
+  unique (modifier_option_id, inventory_item_id)
 );
 
 -- ── Orders ─────────────────────────────────────────────────────────────────
@@ -551,6 +588,7 @@ create table public.orders (
   refunded_cents integer not null default 0 check (refunded_cents >= 0),
   payment_method text,
   paid_at timestamptz,
+  pickup_counter_portal_id uuid,                    -- which checkout counter Kitchen assigned this order to
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -571,6 +609,13 @@ create table public.order_lines (
   customer_note text,                               -- per-item guest instruction, untrusted
   deal_id uuid references public.deals(id) on delete set null,   -- set on a deal's header + component lines
   kds_status app.line_status not null default 'queued',
+  -- Ingredient cost consumed for this line, computed from each inventory
+  -- item's cost_cents_per_base_unit AT THE MOMENT the order was placed and
+  -- never recalculated — historical food-cost integrity (spec §10, §51):
+  -- if ingredient costs or the recipe change later, old orders keep the
+  -- cost that actually applied. Null when the line has no recipe (e.g. a
+  -- deal header row, or an item with no ingredients configured).
+  recipe_cost_cents int,
   created_at timestamptz not null default now()
 );
 create index order_lines_order_idx on public.order_lines(order_id);
@@ -640,6 +685,7 @@ begin
     ('modifier_options',  'menu.view',   'menu.update'),
     ('inventory_items',   'stock.view',  'stock.update'),
     ('recipe_components', 'menu.view',   'menu.update'),
+    ('modifier_recipe_components', 'menu.view', 'menu.update'),
     ('reservations',      'tables.view', 'tables.update'),
     ('restaurant_tables', 'tables.view', 'tables.update')
   ) as t(tbl, rk, wk) loop
@@ -722,13 +768,21 @@ create policy guest_insert on public.feedback for insert with check (true);
 create policy staff_read on public.feedback for select using (app.has_perm('reviews.view') or app.is_staff());
 
 -- ── Functions ────────────────────────────────────────────────────────────
+-- Generic stock-ledger writer. Never lets stock go negative (spec §44 —
+-- "strict stock" is the explicit, auditable policy chosen here) except
+-- through an insufficient_stock rejection at order time, which is its own
+-- atomic guard elsewhere. Any ledger reason is accepted; the two RPCs below
+-- are thin, permission-scoped, UI-named wrappers over this same writer so a
+-- stock count and a wastage entry are recorded as what they actually are
+-- (spec §17-18), not both as an anonymous "adjustment".
 create or replace function public.adjust_stock(
   p_inventory_item_id uuid, p_delta numeric, p_reason text, p_note text default null
 ) returns numeric
 language plpgsql security definer set search_path = public, app as $$
 declare v_new numeric;
 begin
-  if not app.can_write() and app.current_member_role() is not null then
+  if not (app.has_perm('stock.adjust') or app.has_perm('inventory.manage')
+          or (app.can_write() and app.current_member_role() is not null)) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   update public.inventory_items set stock_qty = stock_qty + p_delta
@@ -741,6 +795,54 @@ begin
 end $$;
 revoke all on function public.adjust_stock(uuid, numeric, text, text) from public;
 grant execute on function public.adjust_stock(uuid, numeric, text, text) to authenticated, service_role;
+
+-- Wastage: always reason='spoilage', always requires a note (spec §17 —
+-- "record: item, quantity, reason ... notes").
+create or replace function public.record_ingredient_waste(
+  p_inventory_item_id uuid, p_qty numeric, p_note text
+) returns numeric
+language plpgsql security definer set search_path = public, app as $$
+declare v_new numeric;
+begin
+  if not (app.has_perm('inventory.manage_waste') or app.has_perm('stock.adjust') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(p_qty, 0) <= 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
+  if coalesce(trim(p_note), '') = '' then raise exception 'reason_required' using errcode = 'check_violation'; end if;
+  update public.inventory_items set stock_qty = stock_qty - p_qty
+   where id = p_inventory_item_id and stock_qty >= p_qty
+   returning stock_qty into v_new;
+  if not found then raise exception 'insufficient_stock: %', p_inventory_item_id using errcode = 'check_violation'; end if;
+  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
+  values (p_inventory_item_id, -p_qty, 'spoilage', p_note);
+  return v_new;
+end $$;
+revoke all on function public.record_ingredient_waste(uuid, numeric, text) from public;
+grant execute on function public.record_ingredient_waste(uuid, numeric, text) to authenticated, service_role;
+
+-- Stock count: staff enters the physical count; this records the variance
+-- as an auditable adjustment against whatever the system currently shows,
+-- never a silent overwrite (spec §19).
+create or replace function public.submit_stock_count(
+  p_inventory_item_id uuid, p_counted_qty numeric, p_note text default null
+) returns jsonb
+language plpgsql security definer set search_path = public, app as $$
+declare v_before numeric; v_delta numeric;
+begin
+  if not (app.has_perm('stock.count') or app.has_perm('stock.adjust') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_counted_qty < 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
+  select stock_qty into v_before from public.inventory_items where id = p_inventory_item_id;
+  if not found then raise exception 'inventory_item_not_found' using errcode = 'foreign_key_violation'; end if;
+  v_delta := p_counted_qty - v_before;
+  update public.inventory_items set stock_qty = p_counted_qty where id = p_inventory_item_id;
+  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
+  values (p_inventory_item_id, v_delta, 'stock_take', coalesce(nullif(trim(p_note), ''), 'stock count'));
+  return jsonb_build_object('before', v_before, 'counted', p_counted_qty, 'variance', v_delta);
+end $$;
+revoke all on function public.submit_stock_count(uuid, numeric, text) from public;
+grant execute on function public.submit_stock_count(uuid, numeric, text) to authenticated, service_role;
 
 create or replace function public.place_order(
   p_channel text, p_table_label text, p_customer_name text,
@@ -756,6 +858,7 @@ declare
   v_variant_id uuid; v_item_id uuid; v_item_name text; v_variant_name text;
   v_price int; v_avail boolean; v_track boolean;
   v_deal_id uuid; v_dc record;
+  v_line_id uuid; v_recipe_cost int; v_cost_per_base numeric;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'no_lines' using errcode = 'check_violation';
@@ -838,7 +941,8 @@ begin
         values
           (v_order_id, v_deal_id, v_item_id, v_variant_id,
            v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
-           v_variant_name, 0, v_dc.qty * v_qty, 0, '[]'::jsonb);
+           v_variant_name, 0, v_dc.qty * v_qty, 0, '[]'::jsonb)
+        returning id into v_line_id;
         if v_variant_id is not null then
           update public.menu_variants set available_qty = available_qty - v_dc.qty * v_qty
            where id = v_variant_id and track_availability and available_qty >= v_dc.qty * v_qty;
@@ -847,8 +951,22 @@ begin
             raise exception 'deal_item_unavailable: %', coalesce(v_item_name, '?') using errcode = 'check_violation';
           end if;
         end if;
-        for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_item_id loop
+        -- Recipe explosion, variant-aware exactly like the plain-order path
+        -- below (spec §11, §13): a variant-specific recipe fully replaces
+        -- the item's base recipe when the component pinned a variant that
+        -- has one of its own.
+        v_recipe_cost := 0;
+        for v_comp in
+          select inventory_item_id, qty_per_unit from public.recipe_components
+           where menu_item_id = v_item_id
+             and variant_id is not distinct from (
+               case when exists(
+                 select 1 from public.recipe_components where menu_item_id = v_item_id and variant_id = v_variant_id
+               ) then v_variant_id else null end)
+        loop
           v_need := v_comp.qty_per_unit * v_dc.qty * v_qty;
+          select cost_cents_per_base_unit into v_cost_per_base from public.inventory_items where id = v_comp.inventory_item_id;
+          v_recipe_cost := v_recipe_cost + round(v_need * coalesce(v_cost_per_base, 0));
           update public.inventory_items set stock_qty = stock_qty - v_need
            where id = v_comp.inventory_item_id and stock_qty >= v_need;
           get diagnostics v_upd = row_count;
@@ -856,6 +974,7 @@ begin
           insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
           values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
         end loop;
+        update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
       end loop;
 
     else
@@ -894,13 +1013,16 @@ begin
       );
       v_mod_total int;
       v_mod_snapshot jsonb;
+      v_valid_mod_ids uuid[];
       v_grp record;
       v_grp_selected int;
+      v_has_variant_recipe boolean;
     begin
       select coalesce(sum(mo.price_cents), 0),
              coalesce(jsonb_agg(jsonb_build_object('id', mo.id, 'name', mo.name, 'price_cents', mo.price_cents)
-                                 order by mo.sort_order), '[]'::jsonb)
-        into v_mod_total, v_mod_snapshot
+                                 order by mo.sort_order), '[]'::jsonb),
+             coalesce(array_agg(mo.id), '{}')
+        into v_mod_total, v_mod_snapshot, v_valid_mod_ids
         from public.modifier_options mo
         join public.modifier_groups mg on mg.id = mo.group_id
        where mo.id = any(v_mod_ids) and mo.is_available and mg.menu_item_id = v_item_id;
@@ -928,7 +1050,54 @@ begin
         (v_order_id, v_item_id, v_variant_id,
          v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
          v_variant_name, v_price + v_mod_total, v_qty, v_lt, v_mod_snapshot,
-         nullif(left(coalesce(v_line->>'note', ''), 500), ''));
+         nullif(left(coalesce(v_line->>'note', ''), 500), ''))
+      returning id into v_line_id;
+
+      -- Recipe explosion (spec §9-11): a recipe row scoped to THIS variant
+      -- fully replaces the item's base recipe when one exists; otherwise the
+      -- base recipe (variant_id is null) applies. Never both, never a naive
+      -- "same recipe regardless of size" assumption.
+      v_recipe_cost := 0;
+      select exists(
+        select 1 from public.recipe_components where menu_item_id = v_item_id and variant_id = v_variant_id
+      ) into v_has_variant_recipe;
+      for v_comp in
+        select inventory_item_id, qty_per_unit from public.recipe_components
+         where menu_item_id = v_item_id
+           and variant_id is not distinct from (case when v_has_variant_recipe then v_variant_id else null end)
+      loop
+        v_need := v_comp.qty_per_unit * v_qty;
+        select cost_cents_per_base_unit into v_cost_per_base from public.inventory_items where id = v_comp.inventory_item_id;
+        v_recipe_cost := v_recipe_cost + round(v_need * coalesce(v_cost_per_base, 0));
+        update public.inventory_items set stock_qty = stock_qty - v_need
+         where id = v_comp.inventory_item_id and stock_qty >= v_need;
+        get diagnostics v_upd = row_count;
+        if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
+        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
+        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
+      end loop;
+
+      -- Modifier-linked consumption (spec §12): e.g. Extra Cheese consumes
+      -- one more cheese slice, Extra Patty another 150g of chicken — on top
+      -- of, not instead of, the base/variant recipe above.
+      for v_comp in
+        select inventory_item_id, sum(qty_base) as qty_per_unit
+          from public.modifier_recipe_components
+         where modifier_option_id = any(v_valid_mod_ids)
+         group by inventory_item_id
+      loop
+        v_need := v_comp.qty_per_unit * v_qty;
+        select cost_cents_per_base_unit into v_cost_per_base from public.inventory_items where id = v_comp.inventory_item_id;
+        v_recipe_cost := v_recipe_cost + round(v_need * coalesce(v_cost_per_base, 0));
+        update public.inventory_items set stock_qty = stock_qty - v_need
+         where id = v_comp.inventory_item_id and stock_qty >= v_need;
+        get diagnostics v_upd = row_count;
+        if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
+        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
+        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
+      end loop;
+
+      update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
     end;
 
     -- Variant availability counter — atomic, concurrency-safe (see the deal
@@ -943,16 +1112,6 @@ begin
         raise exception 'item_unavailable: %', coalesce(v_item_name, v_item_id::text) using errcode = 'check_violation';
       end if;
     end if;
-
-    for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_item_id loop
-      v_need := v_comp.qty_per_unit * v_qty;
-      update public.inventory_items set stock_qty = stock_qty - v_need
-       where id = v_comp.inventory_item_id and stock_qty >= v_need;
-      get diagnostics v_upd = row_count;
-      if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
-      insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
-      values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
-    end loop;
     end if;
   end loop;
 
@@ -1306,6 +1465,28 @@ end $fn$;
 revoke all on function public.kitchen_mark_ready(uuid) from public;
 grant execute on function public.kitchen_mark_ready(uuid) to authenticated, service_role;
 
+-- Kitchen picks which counter this order goes to (e.g. Counter 1 vs Counter
+-- 2) — the assignment the customer's tracking page then shows by name
+-- instead of listing every active checkout counter.
+create or replace function public.kitchen_set_pickup_counter(p_order_id uuid, p_portal_id uuid)
+returns void language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if not app.has_perm('kitchen.update_status') then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (
+    select 1 from public.portals where id = p_portal_id and type = 'checkout' and status = 'active'
+  ) then
+    raise exception 'invalid_counter' using errcode = 'check_violation';
+  end if;
+  update public.orders set pickup_counter_portal_id = p_portal_id, updated_at = now()
+   where id = p_order_id;
+  if not found then raise exception 'order_not_found' using errcode = 'no_data_found'; end if;
+  perform app.log_action('kitchen.pickup_counter', 'orders', p_order_id::text, null, jsonb_build_object('portal_id', p_portal_id));
+end $fn$;
+revoke all on function public.kitchen_set_pickup_counter(uuid, uuid) from public;
+grant execute on function public.kitchen_set_pickup_counter(uuid, uuid) to authenticated, service_role;
+
 create or replace function public.kitchen_complete_order(p_order_id uuid)
 returns void language plpgsql security definer set search_path = public, app as $fn$
 declare v_status app.order_status;
@@ -1552,29 +1733,93 @@ begin
 end $fn$;
 grant execute on function public.next_po_number() to authenticated, service_role;
 
--- Receive a PO: add each line's outstanding qty to inventory + ledger, mark received.
+-- Receive a PO in full: every outstanding line goes to fully received.
+-- purchase_order_lines.qty/received_qty are in the item's PURCHASE unit
+-- (e.g. "10 KG bags"); purchase_unit_to_base converts that to the base unit
+-- stock_qty is kept in (spec §6-7). Cost updates by weighted average across
+-- the existing balance and this receipt (spec §8) — the one costing method
+-- used everywhere, including the recipe-cost snapshot on order_lines.
 create or replace function public.receive_purchase_order(p_po_id uuid) returns void
 language plpgsql security definer set search_path = public, app as $fn$
-declare r record;
+declare r record; v_factor numeric; v_old_stock numeric; v_old_cost numeric;
+  v_recv_base numeric; v_receipt_cost_per_base numeric; v_new_cost numeric;
 begin
-  if not app.can_write() and app.current_member_role() is not null then
+  if not (app.has_perm('purchases.receive') or app.has_perm('inventory.manage_purchases') or app.can_write()) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   for r in
-    select id, inventory_item_id, qty, received_qty from public.purchase_order_lines
+    select id, inventory_item_id, qty, received_qty, unit_cost_cents from public.purchase_order_lines
     where purchase_order_id = p_po_id
   loop
     if r.inventory_item_id is not null and r.qty > r.received_qty then
-      update public.inventory_items set stock_qty = stock_qty + (r.qty - r.received_qty)
+      select purchase_unit_to_base, stock_qty, cost_cents_per_base_unit
+        into v_factor, v_old_stock, v_old_cost
+        from public.inventory_items where id = r.inventory_item_id;
+      v_recv_base := (r.qty - r.received_qty) * coalesce(v_factor, 1);
+      v_receipt_cost_per_base := r.unit_cost_cents / greatest(coalesce(v_factor, 1), 0.0001);
+      v_new_cost := case when (coalesce(v_old_stock, 0) + v_recv_base) > 0
+        then (coalesce(v_old_stock, 0) * coalesce(v_old_cost, 0) + v_recv_base * v_receipt_cost_per_base)
+             / (coalesce(v_old_stock, 0) + v_recv_base)
+        else coalesce(v_old_cost, 0) end;
+      update public.inventory_items
+         set stock_qty = stock_qty + v_recv_base, cost_cents_per_base_unit = v_new_cost
        where id = r.inventory_item_id;
       insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-      values (r.inventory_item_id, r.qty - r.received_qty, 'restock', 'PO receipt');
+      values (r.inventory_item_id, v_recv_base, 'restock', 'PO receipt');
     end if;
     update public.purchase_order_lines set received_qty = qty where id = r.id;
   end loop;
   update public.purchase_orders set status = 'received', received_at = now() where id = p_po_id;
 end $fn$;
 grant execute on function public.receive_purchase_order(uuid) to authenticated, service_role;
+
+-- Partial receiving (spec §22): receive a specific quantity against ONE
+-- line, up to whatever's still outstanding — never marks the rest of the PO
+-- received. Same weighted-average costing as the full receive above.
+create or replace function public.receive_purchase_order_line(p_line_id uuid, p_qty numeric) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare
+  r record; v_factor numeric; v_old_stock numeric; v_old_cost numeric;
+  v_take numeric; v_recv_base numeric; v_receipt_cost_per_base numeric; v_new_cost numeric;
+  v_remaining_lines int;
+begin
+  if not (app.has_perm('purchases.receive') or app.has_perm('inventory.manage_purchases') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(p_qty, 0) <= 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
+  select id, purchase_order_id, inventory_item_id, qty, received_qty, unit_cost_cents
+    into r from public.purchase_order_lines where id = p_line_id;
+  if not found then raise exception 'line_not_found' using errcode = 'foreign_key_violation'; end if;
+  v_take := least(p_qty, r.qty - r.received_qty);
+  if v_take <= 0 then raise exception 'nothing_outstanding' using errcode = 'check_violation'; end if;
+
+  if r.inventory_item_id is not null then
+    select purchase_unit_to_base, stock_qty, cost_cents_per_base_unit
+      into v_factor, v_old_stock, v_old_cost
+      from public.inventory_items where id = r.inventory_item_id;
+    v_recv_base := v_take * coalesce(v_factor, 1);
+    v_receipt_cost_per_base := r.unit_cost_cents / greatest(coalesce(v_factor, 1), 0.0001);
+    v_new_cost := case when (coalesce(v_old_stock, 0) + v_recv_base) > 0
+      then (coalesce(v_old_stock, 0) * coalesce(v_old_cost, 0) + v_recv_base * v_receipt_cost_per_base)
+           / (coalesce(v_old_stock, 0) + v_recv_base)
+      else coalesce(v_old_cost, 0) end;
+    update public.inventory_items
+       set stock_qty = stock_qty + v_recv_base, cost_cents_per_base_unit = v_new_cost
+     where id = r.inventory_item_id;
+    insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
+    values (r.inventory_item_id, v_recv_base, 'restock', 'PO partial receipt');
+  end if;
+  update public.purchase_order_lines set received_qty = received_qty + v_take where id = p_line_id;
+
+  select count(*) into v_remaining_lines from public.purchase_order_lines
+   where purchase_order_id = r.purchase_order_id and received_qty < qty;
+  update public.purchase_orders
+     set status = case when v_remaining_lines = 0 then 'received' else 'partial' end,
+         received_at = case when v_remaining_lines = 0 then now() else received_at end
+   where id = r.purchase_order_id;
+end $fn$;
+revoke all on function public.receive_purchase_order_line(uuid, numeric) from public;
+grant execute on function public.receive_purchase_order_line(uuid, numeric) to authenticated, service_role;
 
 -- ── Shifts & attendance ──────────────────────────────────────────────────
 create table public.shifts (
@@ -2082,7 +2327,7 @@ declare tbl text;
 begin
   foreach tbl in array array[
     'menu_categories','menu_items','menu_variants','modifier_groups','modifier_options','deals','deal_components',
-    'inventory_items','recipe_components',
+    'inventory_items','recipe_components','modifier_recipe_components',
     'memberships','restaurant_tables','reservations',
     'promotions','suppliers','purchase_orders','shifts','attendance',
     'portals','portal_staff','roles','business_settings','attendance_settings',
