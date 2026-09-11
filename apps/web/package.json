@@ -12,6 +12,8 @@
     "@automation-restaurant/shared": "*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.10",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "next": "^15.1.6",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
+import { generateReportPdf } from '@/lib/generateReport';
 import {
   ResponsiveContainer,
   BarChart,
@@ -17,7 +18,7 @@ import {
   type TooltipProps,
 } from 'recharts';
 
-type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
@@ -26,8 +27,9 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: 'this_month', label: 'This month' },
   { key: 'last_month', label: 'Last month' },
 ];
+const PERIOD_LABEL: Record<Period, string> = Object.fromEntries(PERIODS.map((p) => [p.key, p.label])) as Record<Period, string>;
 
-function periodRange(period: Period) {
+export function periodRange(period: Period) {
   const startOfDay = (d: Date) => {
     const x = new Date(d);
     x.setHours(0, 0, 0, 0);
@@ -140,9 +142,18 @@ function Kpi({ label, value, delta }: { label: string; value: string; delta?: Re
  * role without finance permission — the backend enforces this, not a
  * frontend hide), and the existing attendance/feedback systems.
  */
-export function PerformancePanel() {
+export function PerformancePanel({
+  restaurantName,
+  period,
+  onPeriodChange,
+  aiSummary,
+}: {
+  restaurantName: string;
+  period: Period;
+  onPeriodChange: (p: Period) => void;
+  aiSummary?: string | null;
+}) {
   const supabase = usePortalSupabase();
-  const [period, setPeriod] = useState<Period>('today');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -157,6 +168,7 @@ export function PerformancePanel() {
   const [topSort, setTopSort] = useState<'revenue_cents' | 'qty_sold'>('revenue_cents');
   const [feedback, setFeedback] = useState<FeedbackRow | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
+  const [dailyRows, setDailyRows] = useState<{ business_date: string; net_sales_cents: number }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,13 +176,17 @@ export function PerformancePanel() {
     setError(null);
     const { from, to, prevFrom, prevTo } = periodRange(period);
 
-    async function sumDays(from: Date, to: Date): Promise<DaySum> {
+    async function fetchDays(from: Date, to: Date) {
       const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: asDate(from), p_to: asDate(to) });
       if (err) throw err;
-      const rows = (data as { net_sales_cents: number; orders_count: number }[]) ?? [];
+      return (data as { business_date: string; net_sales_cents: number; orders_count: number }[]) ?? [];
+    }
+    async function sumDays(from: Date, to: Date): Promise<DaySum & { rows: { business_date: string; net_sales_cents: number }[] }> {
+      const rows = await fetchDays(from, to);
       return {
         net_sales_cents: rows.reduce((s, r) => s + r.net_sales_cents, 0),
         orders_count: rows.reduce((s, r) => s + r.orders_count, 0),
+        rows: rows.map((r) => ({ business_date: r.business_date, net_sales_cents: r.net_sales_cents })),
       };
     }
 
@@ -180,6 +196,7 @@ export function PerformancePanel() {
         if (cancelled) return;
         setSales(curr);
         setPrevSales(prev);
+        setDailyRows(curr.rows);
 
         const profitRes = await supabase.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() });
         if (profitRes.error) {
@@ -262,6 +279,28 @@ export function PerformancePanel() {
     value: topSort === 'revenue_cents' ? i.revenue_cents / 100 : i.qty_sold,
   }));
 
+  function handleGenerateReport() {
+    generateReportPdf({
+      restaurantName,
+      periodLabel: PERIOD_LABEL[period],
+      kpis: {
+        net_sales_cents: sales?.net_sales_cents ?? 0,
+        orders_count: sales?.orders_count ?? 0,
+        aov_cents: aov,
+        gross_profit_cents: canSeeProfit && profit ? profit.gross_profit_cents : null,
+        food_cost_pct: canSeeProfit && profit ? profit.food_cost_pct : null,
+        avg_rating: feedback?.avg_overall ?? null,
+      },
+      dailySales: dailyRows,
+      topProducts: topItemsSorted.map((i) => ({ name: i.name, qty_sold: i.qty_sold, revenue_cents: i.revenue_cents })),
+      categoryMix: categoryMix.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
+      paymentMix: paymentMixData.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
+      feedback,
+      attendance: attendance ? attendance.map((a) => ({ full_name: a.full_name, status: a.status })) : null,
+      aiSummary: aiSummary ?? null,
+    });
+  }
+
   const attCounts = useMemo(() => {
     const rows = attendance ?? [];
     const c = (s: string) => rows.filter((r) => r.status === s).length;
@@ -279,18 +318,27 @@ export function PerformancePanel() {
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-bold">Restaurant performance</h2>
-        <div className="flex gap-1 rounded-lg border border-border bg-main p-1">
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
-                period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 rounded-lg border border-border bg-main p-1">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => onPeriodChange(p.key)}
+                className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                  period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleGenerateReport}
+            disabled={loading}
+            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+          >
+            Generate Report
+          </button>
         </div>
       </div>
 
