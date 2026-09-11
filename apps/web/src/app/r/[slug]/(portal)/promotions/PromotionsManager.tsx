@@ -22,6 +22,7 @@ export type Promo = {
   end_time: string | null;
   usage_limit_total: number | null;
   usage_count: number;
+  auto_apply: boolean;
   created_at: string;
 };
 export type PromoPerformance = {
@@ -66,6 +67,7 @@ export function PromotionsManager({ promos, performance = [] }: { promos: Promo[
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [usageLimit, setUsageLimit] = useState('');
+  const [autoApply, setAutoApply] = useState(false);
 
   function toggleDay(d: number) {
     setDays((s) => {
@@ -113,6 +115,7 @@ export function PromotionsManager({ promos, performance = [] }: { promos: Promo[
       start_time: startTime || null,
       end_time: endTime || null,
       usage_limit_total: limit,
+      auto_apply: autoApply,
     };
     const ok = await run(() => supabase.from('promotions').insert(row));
     if (ok) {
@@ -124,6 +127,7 @@ export function PromotionsManager({ promos, performance = [] }: { promos: Promo[
       setStartTime('');
       setEndTime('');
       setUsageLimit('');
+      setAutoApply(false);
     }
   }
 
@@ -214,6 +218,10 @@ export function PromotionsManager({ promos, performance = [] }: { promos: Promo[
                 className="w-24"
               />
             </Field>
+            <label className="flex items-center gap-1.5 text-xs pb-2">
+              <input type="checkbox" checked={autoApply} onChange={(e) => setAutoApply(e.target.checked)} />
+              Auto-apply (no code needed)
+            </label>
           </div>
         </div>
       </Card>
@@ -245,7 +253,14 @@ export function PromotionsManager({ promos, performance = [] }: { promos: Promo[
                 const perf = perfByPromo.get(p.id);
                 return (
                 <tr key={p.id} className="border-b border-border/60 last:border-0">
-                  <td className="p-3 font-semibold">{p.name}</td>
+                  <td className="p-3 font-semibold">
+                    {p.name}
+                    {p.auto_apply && (
+                      <span className="ml-1.5 rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[10px] font-bold align-middle">
+                        AUTO
+                      </span>
+                    )}
+                  </td>
                   <td className="p-3">{describeValue(p)}</td>
                   <td className="p-3 font-mono">{p.code ?? '—'}</td>
                   <td className="p-3 text-right text-muted">

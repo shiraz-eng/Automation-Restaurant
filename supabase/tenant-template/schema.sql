@@ -1294,10 +1294,41 @@ begin
       end if;
     end if;
   end if;
+
+  -- Auto-apply (spec: automatic happy-hour/time-based discounts that need
+  -- no code): if nothing above already discounted this order — no code
+  -- entered, or the one entered didn't validate — try the single best
+  -- currently-eligible auto_apply promotion instead. A manual staff
+  -- discount (p_discount_cents, already in v_disc at this point if no
+  -- code path fired) still takes precedence, same as an explicit code.
+  if v_disc = 0 then
+    select ap.id, ap.discount_cents into v_promo_id, v_disc from public.best_auto_promotion(v_sub) ap;
+    if v_promo_id is not null and v_disc > 0 then
+      update public.promotions set usage_count = usage_count + 1
+       where id = v_promo_id and (usage_limit_total is null or usage_count < usage_limit_total)
+      returning id into v_promo_id;
+      if v_promo_id is null then
+        v_disc := 0; -- lost the race against the usage cap between validation and now
+      else
+        insert into public.promotion_redemptions (promotion_id, order_id, discount_cents)
+        values (v_promo_id, v_order_id, v_disc);
+      end if;
+    else
+      v_disc := 0;
+    end if;
+  end if;
   v_disc := least(greatest(v_disc, 0), v_sub);
   v_tax := round((v_sub - v_disc)::numeric * coalesce(p_tax_rate_bps,0) / 10000)::int;
   v_total := v_sub - v_disc + v_tax;
-  update public.orders set subtotal_cents = v_sub, discount_cents = v_disc, promo_code = nullif(p_promo_code, ''),
+  -- promo_code on the order shows whichever code actually produced the
+  -- discount (the typed one, or an auto_apply promo's own code if that's
+  -- what fired) — falling back to the raw typed text so an invalid code
+  -- the customer entered is still recorded even though it discounted nothing.
+  update public.orders set subtotal_cents = v_sub, discount_cents = v_disc,
+    promo_code = case
+      when v_disc > 0 and v_promo_id is not null then (select code from public.promotions where id = v_promo_id)
+      else nullif(p_promo_code, '')
+    end,
     tax_cents = v_tax, total_cents = v_total, tax_rate_bps = coalesce(p_tax_rate_bps, 0),
     customer_note = nullif(left(coalesce(p_customer_note, ''), 500), ''),
     status = 'in_kitchen', updated_at = now() where id = v_order_id;
@@ -1826,6 +1857,12 @@ create table public.promotions (
   -- is nothing stable to key a per-customer count on yet.
   usage_limit_total int check (usage_limit_total is null or usage_limit_total > 0),
   usage_count       int not null default 0,
+  -- Auto-apply (spec: automatic happy-hour/time-based discounts that need
+  -- no code): place_order() applies the best eligible auto_apply promotion
+  -- itself when no code was entered (or the entered one didn't discount
+  -- anything) — see best_auto_promotion() below. A code-bearing promo may
+  -- ALSO be auto_apply; the two are independent.
+  auto_apply        boolean not null default false,
   created_at        timestamptz not null default now()
 );
 
@@ -1862,6 +1899,39 @@ returns int language sql stable security definer set search_path = public, app a
   ), 0);
 $fn$;
 grant execute on function public.promo_discount(text, int) to authenticated, service_role, anon;
+
+-- The single best currently-eligible auto_apply promotion for a subtotal
+-- (same validity checks as promo_discount, minus the code match — instead
+-- filtered to auto_apply promotions, ranked by whichever discounts the
+-- most). place_order() calls this when no explicit code produced a
+-- discount, so a scheduled happy-hour promo actually fires on its own —
+-- the gap a code-only design would otherwise leave.
+create or replace function public.best_auto_promotion(p_subtotal_cents int)
+returns table (id uuid, discount_cents int)
+language sql stable security definer set search_path = public, app as $fn$
+  select p.id,
+         case
+           when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
+           else least(coalesce(p.value_cents, 0), p_subtotal_cents)
+         end as discount_cents
+    from public.promotions p
+   where p.auto_apply
+     and p.active
+     and p_subtotal_cents >= p.min_subtotal_cents
+     and (p.starts_at is null or p.starts_at <= now())
+     and (p.ends_at is null or p.ends_at >= now())
+     and (p.usage_limit_total is null or p.usage_count < p.usage_limit_total)
+     and (p.days_of_week is null or extract(
+            dow from (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))
+          )::smallint = any(p.days_of_week))
+     and (p.start_time is null or
+          (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time >= p.start_time)
+     and (p.end_time is null or
+          (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time <= p.end_time)
+   order by discount_cents desc
+   limit 1;
+$fn$;
+grant execute on function public.best_auto_promotion(int) to authenticated, service_role;
 
 alter table public.promotions enable row level security;
 create policy staff_read on public.promotions for select using (app.has_perm('menu.view') or app.is_staff());

@@ -57,7 +57,12 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       end_time), usage_limit_total with an atomic usage_count redemption
 //       guard, promotion_redemptions log, and promotion_performance() —
 //       one authoritative calc layer for the Promotions page + AI
-const SCHEMA_VERSION = 27;
+//   v28 Auto-apply promotions: promotions.auto_apply +
+//       best_auto_promotion() — place_order() applies the single best
+//       eligible auto_apply promotion itself when no code was entered (or
+//       the one entered didn't validate), so a scheduled happy-hour promo
+//       actually fires on its own instead of needing a typed code
+const SCHEMA_VERSION = 28;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

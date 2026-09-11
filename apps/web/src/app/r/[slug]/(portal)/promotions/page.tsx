@@ -20,7 +20,7 @@ export default async function PromotionsPage({
     t.client
       .from('promotions')
       .select(
-        'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, created_at',
+        'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, auto_apply, created_at',
       )
       .order('created_at', { ascending: false }),
     t.client.rpc('promotion_performance'),
@@ -32,8 +32,9 @@ export default async function PromotionsPage({
         <h1 className="text-xl font-black">Promotions</h1>
         <p className="text-muted text-xs mt-1">
           Discount rules for the counter and the guest QR storefront. A promo with a code is
-          applied when a guest enters it; a promo without one is available for staff to apply
-          at the till.
+          applied when a guest enters it; mark one &quot;Auto-apply&quot; to have it fire on its
+          own (no code needed) whenever an order is eligible; a promo with neither is just a rate
+          card for staff to key in manually at the till.
         </p>
       </div>
       {error ? (
