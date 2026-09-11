@@ -17,7 +17,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
     t.client
       .from('menu_items')
       .select(
-        'id, name, price_cents, is_available, category_id, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty)',
+        'id, name, price_cents, is_available, category_id, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order))',
       )
       .order('name'),
   ]);

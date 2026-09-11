@@ -6,7 +6,14 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Card, Select } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
 
-const STATUSES = ['pending', 'in_kitchen', 'ready', 'served', 'paid', 'void'] as const;
+// Kitchen-stage progression only. "paid" is reached exclusively through
+// record_payment (Checkout) so it always carries a real payment and a
+// paid_at timestamp; "void" goes through cancel_order below, which is
+// audited and refuses to cancel an already-paid order. Editing either
+// directly here used to let staff mark an order "paid" with $0 collected —
+// see the Cancel button for the replacement void path.
+const EDITABLE_STATUSES = ['pending', 'in_kitchen', 'ready', 'served'] as const;
+const TERMINAL_LABEL: Record<string, string> = { paid: 'Paid', void: 'Void' };
 
 type Line = { name_snapshot: string; qty: number; line_total_cents: number; kds_status: string };
 type Order = {
@@ -23,7 +30,7 @@ type Order = {
   order_lines: Line[];
 };
 
-export function OrdersClient({ orders }: { orders: Order[] }) {
+export function OrdersClient({ orders, canCancel }: { orders: Order[]; canCancel: boolean }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -34,6 +41,20 @@ export function OrdersClient({ orders }: { orders: Order[] }) {
     setSavingId(id);
     setError(null);
     const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+    setSavingId(null);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function cancel(order: Order) {
+    const reason = window.prompt(`Cancel order #${order.order_number}. Reason:`);
+    if (!reason) return;
+    setSavingId(order.id);
+    setError(null);
+    const { error } = await supabase.rpc('cancel_order', { p_order_id: order.id, p_reason: reason });
     setSavingId(null);
     if (error) {
       setError(error.message);
@@ -59,7 +80,9 @@ export function OrdersClient({ orders }: { orders: Order[] }) {
           </tr>
         </thead>
         <tbody>
-          {orders.map((o) => (
+          {orders.map((o) => {
+            const isTerminal = o.status === 'paid' || o.status === 'void';
+            return (
             <Fragment key={o.id}>
               <tr
                 className="border-b border-border/60 hover:bg-main/50 cursor-pointer"
@@ -73,17 +96,38 @@ export function OrdersClient({ orders }: { orders: Order[] }) {
                 <td className="p-3 text-muted">{o.order_lines?.length ?? 0}</td>
                 <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
                 <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                  <Select
-                    value={o.status}
-                    disabled={savingId === o.id}
-                    onChange={(e) => setStatus(o.id, e.target.value)}
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace('_', ' ')}
-                      </option>
-                    ))}
-                  </Select>
+                  {isTerminal ? (
+                    <span
+                      className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
+                        o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+                      }`}
+                    >
+                      {TERMINAL_LABEL[o.status] ?? o.status}
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Select
+                        value={o.status}
+                        disabled={savingId === o.id}
+                        onChange={(e) => setStatus(o.id, e.target.value)}
+                      >
+                        {EDITABLE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s.replace('_', ' ')}
+                          </option>
+                        ))}
+                      </Select>
+                      {canCancel && (
+                        <button
+                          onClick={() => cancel(o)}
+                          disabled={savingId === o.id}
+                          className="text-danger text-xs underline shrink-0 disabled:opacity-50"
+                        >
+                          cancel
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td className="p-3 text-right text-muted">{formatDateTime(o.created_at)}</td>
               </tr>
@@ -110,7 +154,8 @@ export function OrdersClient({ orders }: { orders: Order[] }) {
                 </tr>
               )}
             </Fragment>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </Card>

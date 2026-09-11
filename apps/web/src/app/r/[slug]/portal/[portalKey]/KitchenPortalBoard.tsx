@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 
+type ModSnapshot = { id: string; name: string; price_cents: number };
 type Line = {
   id: string;
   name_snapshot: string;
   qty: number;
   kds_status: 'queued' | 'preparing' | 'ready' | 'served';
+  modifiers: ModSnapshot[] | null;
   customer_note: string | null;
 };
 export type KOrder = {
@@ -71,7 +73,7 @@ export function KitchenPortalBoard({
     const { data } = await supabase
       .from('orders')
       .select(
-        'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, customer_note)',
+        'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
       )
       .in('status', ACTIVE)
       .order('created_at', { ascending: true });
@@ -177,6 +179,11 @@ export function KitchenPortalBoard({
                               <span className="font-semibold">
                                 {l.qty}× {l.name_snapshot}
                               </span>
+                              {l.modifiers && l.modifiers.length > 0 && (
+                                <span className="block text-xs text-muted">
+                                  {l.modifiers.map((m) => m.name).join(', ')}
+                                </span>
+                              )}
                               {l.customer_note && (
                                 <span className="block text-xs text-warn">⚠ {l.customer_note}</span>
                               )}

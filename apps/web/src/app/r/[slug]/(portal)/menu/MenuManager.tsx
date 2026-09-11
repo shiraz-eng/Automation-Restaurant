@@ -17,6 +17,28 @@ type Variant = {
   track_availability: boolean;
   available_qty: number;
 };
+type ModifierKind = 'required_single' | 'optional_single' | 'multi';
+type ModifierOption = {
+  id: string;
+  name: string;
+  price_cents: number;
+  is_available: boolean;
+  sort_order: number;
+};
+type ModifierGroup = {
+  id: string;
+  name: string;
+  kind: ModifierKind;
+  min_select: number;
+  max_select: number | null;
+  sort_order: number;
+  modifier_options: ModifierOption[];
+};
+const KIND_LABEL: Record<ModifierKind, string> = {
+  required_single: 'Required · pick 1',
+  optional_single: 'Optional · pick 1',
+  multi: 'Optional · pick several',
+};
 type Item = {
   id: string;
   name: string;
@@ -24,6 +46,7 @@ type Item = {
   is_available: boolean;
   category_id: string | null;
   menu_variants: Variant[];
+  modifier_groups: ModifierGroup[];
 };
 
 export function MenuManager({ categories, items }: { categories: Category[]; items: Item[] }) {
@@ -38,6 +61,12 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
 
   // per-item "add variant" draft
   const [vDraft, setVDraft] = useState<Record<string, { name: string; price: string; sku: string }>>({});
+  // per-item "add modifier group" draft
+  const [mgDraft, setMgDraft] = useState<
+    Record<string, { name: string; kind: ModifierKind; min: string; max: string }>
+  >({});
+  // per-group "add option" draft
+  const [moDraft, setMoDraft] = useState<Record<string, { name: string; price: string }>>({});
 
   async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
     setBusy(true);
@@ -102,6 +131,40 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
       }),
     );
     if (ok) setVDraft((s) => ({ ...s, [itemId]: { name: '', price: '', sku: '' } }));
+  }
+
+  async function addModifierGroup(itemId: string) {
+    const d = mgDraft[itemId] ?? { name: '', kind: 'multi' as ModifierKind, min: '', max: '' };
+    if (!d.name.trim()) {
+      setError('Modifier group needs a name.');
+      return;
+    }
+    const min = d.kind === 'required_single' ? 1 : Math.max(0, Number.parseInt(d.min, 10) || 0);
+    const max = d.max.trim() ? Math.max(min, Number.parseInt(d.max, 10) || min) : d.kind === 'multi' ? null : 1;
+    const ok = await run(() =>
+      supabase.from('modifier_groups').insert({
+        menu_item_id: itemId,
+        name: d.name.trim(),
+        kind: d.kind,
+        min_select: min,
+        max_select: max,
+        sort_order: 99,
+      }),
+    );
+    if (ok) setMgDraft((s) => ({ ...s, [itemId]: { name: '', kind: 'multi', min: '', max: '' } }));
+  }
+
+  async function addModifierOption(groupId: string) {
+    const d = moDraft[groupId] ?? { name: '', price: '' };
+    const cents = d.price.trim() ? Math.round(parseFloat(d.price) * 100) : 0;
+    if (!d.name.trim() || Number.isNaN(cents) || cents < 0) {
+      setError('Option needs a name and a valid price (0 is fine).');
+      return;
+    }
+    const ok = await run(() =>
+      supabase.from('modifier_options').insert({ group_id: groupId, name: d.name.trim(), price_cents: cents, sort_order: 99 }),
+    );
+    if (ok) setMoDraft((s) => ({ ...s, [groupId]: { name: '', price: '' } }));
   }
 
   return (
@@ -300,6 +363,148 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
                 <Button variant="ghost" disabled={busy} onClick={() => addVariant(it.id)}>
                   + Add variant
                 </Button>
+              </div>
+
+              <div className="border-t border-border p-2.5 space-y-2.5">
+                <h3 className="font-bold text-xs text-muted">Modifiers &amp; add-ons</h3>
+                {it.modifier_groups
+                  .slice()
+                  .sort((a, b) => a.sort_order - b.sort_order)
+                  .map((g) => {
+                    const od = moDraft[g.id] ?? { name: '', price: '' };
+                    const setOd = (patch: Partial<typeof od>) =>
+                      setMoDraft((s) => ({ ...s, [g.id]: { ...od, ...patch } }));
+                    return (
+                      <div key={g.id} className="rounded border border-border p-2.5 bg-main/30">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold">
+                            {g.name}{' '}
+                            <span className="font-normal text-muted">
+                              ({KIND_LABEL[g.kind]}
+                              {g.kind !== 'required_single' && g.max_select ? `, up to ${g.max_select}` : ''})
+                            </span>
+                          </span>
+                          <Button
+                            variant="danger"
+                            disabled={busy}
+                            onClick={() => run(() => supabase.from('modifier_groups').delete().eq('id', g.id))}
+                          >
+                            Delete group
+                          </Button>
+                        </div>
+                        {g.modifier_options.length > 0 && (
+                          <table className="w-full text-left text-xs mb-2">
+                            <tbody>
+                              {g.modifier_options
+                                .slice()
+                                .sort((a, b) => a.sort_order - b.sort_order)
+                                .map((o) => (
+                                  <tr key={o.id} className="border-b border-border/40 last:border-0">
+                                    <td className="py-1.5 font-semibold">{o.name}</td>
+                                    <td className="py-1.5 font-mono">
+                                      {o.price_cents > 0 ? `+${formatCents(o.price_cents)}` : 'free'}
+                                    </td>
+                                    <td className="py-1.5">
+                                      <span className={o.is_available ? 'text-ok' : 'text-muted'}>
+                                        {o.is_available ? 'on' : 'off'}
+                                      </span>
+                                    </td>
+                                    <td className="py-1.5 text-right whitespace-nowrap">
+                                      <Button
+                                        variant="ghost"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          run(() =>
+                                            supabase
+                                              .from('modifier_options')
+                                              .update({ is_available: !o.is_available })
+                                              .eq('id', o.id),
+                                          )
+                                        }
+                                      >
+                                        {o.is_available ? 'Off' : 'On'}
+                                      </Button>
+                                      <Button
+                                        variant="danger"
+                                        className="ml-1"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          run(() => supabase.from('modifier_options').delete().eq('id', o.id))
+                                        }
+                                      >
+                                        ✕
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        )}
+                        <div className="flex flex-wrap items-end gap-2">
+                          <Field label="Option name">
+                            <Input
+                              className="w-32"
+                              value={od.name}
+                              onChange={(e) => setOd({ name: e.target.value })}
+                              placeholder="Extra cheese"
+                            />
+                          </Field>
+                          <Field label="Extra price">
+                            <Input
+                              className="w-24"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={od.price}
+                              onChange={(e) => setOd({ price: e.target.value })}
+                              placeholder="0.00"
+                            />
+                          </Field>
+                          <Button variant="ghost" disabled={busy} onClick={() => addModifierOption(g.id)}>
+                            + Add option
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {(() => {
+                  const d = mgDraft[it.id] ?? { name: '', kind: 'multi' as ModifierKind, min: '', max: '' };
+                  const setD = (patch: Partial<typeof d>) => setMgDraft((s) => ({ ...s, [it.id]: { ...d, ...patch } }));
+                  return (
+                    <div className="flex flex-wrap items-end gap-2 pt-1">
+                      <Field label="New group name">
+                        <Input
+                          className="w-36"
+                          value={d.name}
+                          onChange={(e) => setD({ name: e.target.value })}
+                          placeholder="Choose Size"
+                        />
+                      </Field>
+                      <Field label="Type">
+                        <Select value={d.kind} onChange={(e) => setD({ kind: e.target.value as ModifierKind })}>
+                          <option value="required_single">Required — pick 1</option>
+                          <option value="optional_single">Optional — pick 1</option>
+                          <option value="multi">Optional — pick several</option>
+                        </Select>
+                      </Field>
+                      {d.kind === 'multi' && (
+                        <Field label="Max (blank = any)">
+                          <Input
+                            className="w-20"
+                            type="number"
+                            min="0"
+                            value={d.max}
+                            onChange={(e) => setD({ max: e.target.value })}
+                          />
+                        </Field>
+                      )}
+                      <Button variant="ghost" disabled={busy} onClick={() => addModifierGroup(it.id)}>
+                        + Add group
+                      </Button>
+                    </div>
+                  );
+                })()}
               </div>
             </Card>
           );

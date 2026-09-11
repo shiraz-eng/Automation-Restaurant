@@ -5,15 +5,24 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-type Msg = { role: 'user' | 'assistant'; content: string; tools?: string[] };
+type PendingAction = { name: string; args: Record<string, unknown>; summary: string };
+type Resolution = 'confirmed' | 'cancelled' | 'failed';
+type Msg = {
+  role: 'user' | 'assistant';
+  content: string;
+  tools?: string[];
+  pendingAction?: PendingAction;
+  resolution?: Resolution;
+  resolutionMessage?: string;
+};
 
 const SUGGESTIONS = [
   'How is my restaurant doing right now?',
   'What needs my attention?',
+  'How are sales this month vs last month?',
+  'How is attendance this month?',
   'What are our best-selling items this week?',
-  'How is attendance today?',
   'What are customers saying about speed?',
-  'How did yesterday close out?',
 ];
 
 export function AiChat({ slug }: { slug: string }) {
@@ -21,8 +30,20 @@ export function AiChat({ slug }: { slug: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+
+  function scrollDown() {
+    requestAnimationFrame(() => boxRef.current?.scrollTo(0, boxRef.current.scrollHeight));
+  }
+
+  async function authHeader() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` };
+  }
 
   async function send(text: string) {
     const q = text.trim();
@@ -33,15 +54,9 @@ export function AiChat({ slug }: { slug: string }) {
     setMsgs(next);
     setBusy(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
       const res = await fetch(`${API}/api/ai/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token ?? ''}`,
-        },
+        headers: await authHeader(),
         body: JSON.stringify({
           slug,
           messages: next.map((m) => ({ role: m.role, content: m.content })),
@@ -62,14 +77,51 @@ export function AiChat({ slug }: { slug: string }) {
           role: 'assistant',
           content: body.reply ?? '(no answer)',
           tools: (body.tools ?? []).map((x: { name: string }) => x.name),
+          pendingAction: body.pendingAction ?? undefined,
         },
       ]);
-      requestAnimationFrame(() => boxRef.current?.scrollTo(0, boxRef.current.scrollHeight));
+      scrollDown();
     } catch {
       setError('Network error.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmAction(index: number, action: PendingAction) {
+    setConfirming(index);
+    try {
+      const res = await fetch(`${API}/api/ai/confirm`, {
+        method: 'POST',
+        headers: await authHeader(),
+        body: JSON.stringify({ slug, name: action.name, args: action.args }),
+      });
+      const body = await res.json().catch(() => ({}));
+      setMsgs((m) =>
+        m.map((msg, i) =>
+          i === index
+            ? {
+                ...msg,
+                resolution: res.ok ? 'confirmed' : 'failed',
+                resolutionMessage: res.ok ? body.message : (body.message ?? 'Could not complete that.'),
+              }
+            : msg,
+        ),
+      );
+      scrollDown();
+    } catch {
+      setMsgs((m) =>
+        m.map((msg, i) => (i === index ? { ...msg, resolution: 'failed', resolutionMessage: 'Network error.' } : msg)),
+      );
+    } finally {
+      setConfirming(null);
+    }
+  }
+
+  function cancelAction(index: number) {
+    setMsgs((m) =>
+      m.map((msg, i) => (i === index ? { ...msg, resolution: 'cancelled', resolutionMessage: 'Cancelled.' } : msg)),
+    );
   }
 
   return (
@@ -103,6 +155,41 @@ export function AiChat({ slug }: { slug: string }) {
               {m.tools && m.tools.length > 0 && (
                 <div className="text-[10px] text-muted mt-1">
                   · {m.tools.join(' · ')}
+                </div>
+              )}
+              {m.pendingAction && (
+                <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
+                  <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
+                  {!m.resolution ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => confirmAction(i, m.pendingAction!)}
+                        disabled={confirming === i}
+                        className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs disabled:opacity-50"
+                      >
+                        {confirming === i ? 'Working…' : 'Confirm'}
+                      </button>
+                      <button
+                        onClick={() => cancelAction(i)}
+                        disabled={confirming === i}
+                        className="rounded border border-border px-3 py-1.5 text-xs font-semibold"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <p
+                      className={`text-xs font-semibold ${
+                        m.resolution === 'confirmed'
+                          ? 'text-ok'
+                          : m.resolution === 'failed'
+                            ? 'text-danger'
+                            : 'text-muted'
+                      }`}
+                    >
+                      {m.resolutionMessage}
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -209,6 +209,7 @@ create type app.order_status        as enum ('pending', 'in_kitchen', 'ready', '
 create type app.line_status         as enum ('queued', 'preparing', 'ready', 'served');
 create type app.stock_reason        as enum ('order_deduction', 'restock', 'adjustment', 'spoilage', 'stock_take');
 create type app.reservation_status  as enum ('pending', 'confirmed', 'arrived', 'seated', 'completed', 'cancelled', 'no_show');
+create type app.modifier_kind       as enum ('required_single', 'optional_single', 'multi');
 
 -- ── Staff ──────────────────────────────────────────────────────────────────
 create table public.memberships (
@@ -429,6 +430,36 @@ create table public.menu_variants (
 );
 create index menu_variants_item_idx on public.menu_variants(menu_item_id, sort_order);
 
+-- ── Modifiers / add-ons (P10) ────────────────────────────────────────────
+-- A group of choices attached to an item — "Choose Size" (required, exactly
+-- one), "Toppings" (optional, up to 3), "Add-ons" (optional, any number).
+-- Distinct from a variant: a variant is a different purchasable product
+-- configuration (own price/SKU/stock); a modifier is a customization or
+-- optional addition layered on top of whichever variant was chosen.
+create table public.modifier_groups (
+  id           uuid primary key default gen_random_uuid(),
+  menu_item_id uuid not null references public.menu_items(id) on delete cascade,
+  name         text not null,
+  kind         app.modifier_kind not null default 'multi',
+  min_select   int not null default 0,
+  max_select   int,                              -- null = unlimited (kind = 'multi' only)
+  sort_order   int not null default 0,
+  created_at   timestamptz not null default now(),
+  check (kind <> 'required_single' or min_select >= 1),
+  check (max_select is null or max_select >= min_select)
+);
+create index modifier_groups_item_idx on public.modifier_groups(menu_item_id, sort_order);
+
+create table public.modifier_options (
+  id           uuid primary key default gen_random_uuid(),
+  group_id     uuid not null references public.modifier_groups(id) on delete cascade,
+  name         text not null,
+  price_cents  int not null default 0 check (price_cents >= 0),
+  is_available boolean not null default true,
+  sort_order   int not null default 0
+);
+create index modifier_options_group_idx on public.modifier_options(group_id, sort_order);
+
 -- ── Deals & combos (P7) ─────────────────────────────────────────────────
 create table public.deals (
   id                 uuid primary key default gen_random_uuid(),
@@ -605,6 +636,8 @@ begin
     ('menu_categories',   'menu.view',   'menu.update'),
     ('menu_items',        'menu.view',   'menu.update'),
     ('menu_variants',     'menu.view',   'menu.update'),
+    ('modifier_groups',   'menu.view',   'menu.update'),
+    ('modifier_options',  'menu.view',   'menu.update'),
     ('inventory_items',   'stock.view',  'stock.update'),
     ('recipe_components', 'menu.view',   'menu.update'),
     ('reservations',      'tables.view', 'tables.update'),
@@ -626,6 +659,8 @@ end $$;
 create policy guest_read on public.menu_categories for select using (true);
 create policy guest_read on public.menu_items for select using (is_available);
 create policy guest_read on public.menu_variants for select using (is_available);
+create policy guest_read on public.modifier_groups for select using (true);
+create policy guest_read on public.modifier_options for select using (true);
 
 -- orders / order_lines: staff read + update (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
@@ -667,6 +702,7 @@ create table public.feedback (
   service      int check (service between 1 and 5),
   cleanliness  int check (cleanliness between 1 and 5),
   speed        int check (speed between 1 and 5),
+  ambiance     int check (ambiance between 1 and 5),
   comment      text,
   created_at   timestamptz not null default now()
 );
@@ -707,7 +743,7 @@ declare
   v_line jsonb; v_qty int; v_lt int; v_comp record; v_need numeric; v_upd int;
   v_session_id uuid; v_disc int := greatest(0, coalesce(p_discount_cents, 0));
   v_variant_id uuid; v_item_id uuid; v_item_name text; v_variant_name text;
-  v_price int; v_avail boolean;
+  v_price int; v_avail boolean; v_track boolean;
   v_deal_id uuid; v_dc record;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
@@ -738,12 +774,12 @@ begin
 
     if v_deal_id is not null then
       -- ── Deal / combo: one priced HEADER line + zero-priced COMPONENT lines ──
-      select d.name, d.price_cents,
+      select d.name, d.price_cents, d.track_availability,
              (d.is_available
               and (d.starts_at is null or d.starts_at <= now())
               and (d.ends_at   is null or d.ends_at   >= now())
               and (not d.track_availability or d.available_qty >= v_qty))
-        into v_item_name, v_price, v_avail
+        into v_item_name, v_price, v_track, v_avail
         from public.deals d where d.id = v_deal_id;
       if not found then raise exception 'deal_not_found: %', v_deal_id using errcode = 'foreign_key_violation'; end if;
       if not coalesce(v_avail, false) then
@@ -757,21 +793,28 @@ begin
       values
         (v_order_id, v_deal_id, v_item_name, v_price, v_qty, v_lt, '[]'::jsonb,
          nullif(left(coalesce(v_line->>'note', ''), 500), ''));
-      update public.deals set available_qty = greatest(0, available_qty - v_qty)
-       where id = v_deal_id and track_availability;
+      -- Atomic, concurrency-safe: the WHERE re-checks available_qty at the
+      -- moment of the write, not just at the SELECT above, so two orders
+      -- racing for the last unit can't both succeed.
+      update public.deals set available_qty = available_qty - v_qty
+       where id = v_deal_id and track_availability and available_qty >= v_qty;
+      get diagnostics v_upd = row_count;
+      if v_track and v_upd = 0 then
+        raise exception 'deal_unavailable: %', v_item_name using errcode = 'check_violation';
+      end if;
 
       for v_dc in select menu_item_id, variant_id, qty from public.deal_components where deal_id = v_deal_id loop
         if v_dc.variant_id is not null then
-          select v.id, v.menu_item_id, i.name, v.name, (v.is_available and i.is_available)
-            into v_variant_id, v_item_id, v_item_name, v_variant_name, v_avail
+          select v.id, v.menu_item_id, i.name, v.name, v.track_availability, (v.is_available and i.is_available)
+            into v_variant_id, v_item_id, v_item_name, v_variant_name, v_track, v_avail
             from public.menu_variants v join public.menu_items i on i.id = v.menu_item_id
            where v.id = v_dc.variant_id;
         else
           v_item_id := v_dc.menu_item_id;
           select i.name, i.is_available into v_item_name, v_avail
             from public.menu_items i where i.id = v_item_id;
-          select v.id, v.name, (v.is_available and v_avail)
-            into v_variant_id, v_variant_name, v_avail
+          select v.id, v.name, v.track_availability, (v.is_available and v_avail)
+            into v_variant_id, v_variant_name, v_track, v_avail
             from public.menu_variants v where v.menu_item_id = v_item_id
            order by v.sort_order, v.created_at limit 1;
         end if;
@@ -786,8 +829,12 @@ begin
            v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
            v_variant_name, 0, v_dc.qty * v_qty, 0, '[]'::jsonb);
         if v_variant_id is not null then
-          update public.menu_variants set available_qty = greatest(0, available_qty - v_dc.qty * v_qty)
-           where id = v_variant_id and track_availability;
+          update public.menu_variants set available_qty = available_qty - v_dc.qty * v_qty
+           where id = v_variant_id and track_availability and available_qty >= v_dc.qty * v_qty;
+          get diagnostics v_upd = row_count;
+          if v_track and v_upd = 0 then
+            raise exception 'deal_item_unavailable: %', coalesce(v_item_name, '?') using errcode = 'check_violation';
+          end if;
         end if;
         for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_item_id loop
           v_need := v_comp.qty_per_unit * v_dc.qty * v_qty;
@@ -804,8 +851,8 @@ begin
     v_variant_id := nullif(v_line->>'variant_id', '')::uuid;
     if v_variant_id is not null then
       -- Explicit variant: price + availability come from the variant.
-      select v.id, v.menu_item_id, i.name, v.name, v.price_cents, (v.is_available and i.is_available)
-        into v_variant_id, v_item_id, v_item_name, v_variant_name, v_price, v_avail
+      select v.id, v.menu_item_id, i.name, v.name, v.price_cents, v.track_availability, (v.is_available and i.is_available)
+        into v_variant_id, v_item_id, v_item_name, v_variant_name, v_price, v_track, v_avail
         from public.menu_variants v join public.menu_items i on i.id = v.menu_item_id
        where v.id = v_variant_id;
       if not found then raise exception 'variant_not_found: %', v_line->>'variant_id' using errcode = 'foreign_key_violation'; end if;
@@ -815,8 +862,8 @@ begin
       select i.name, i.is_available, i.price_cents into v_item_name, v_avail, v_price
         from public.menu_items i where i.id = v_item_id;
       if not found then raise exception 'menu_item_not_found: %', v_line->>'menu_item_id' using errcode = 'foreign_key_violation'; end if;
-      select v.id, v.name, v.price_cents, (v.is_available and v_avail)
-        into v_variant_id, v_variant_name, v_price, v_avail
+      select v.id, v.name, v.price_cents, v.track_availability, (v.is_available and v_avail)
+        into v_variant_id, v_variant_name, v_price, v_track, v_avail
         from public.menu_variants v where v.menu_item_id = v_item_id
        order by v.sort_order, v.created_at limit 1;
     end if;
@@ -825,23 +872,65 @@ begin
       raise exception 'item_unavailable: %', coalesce(v_item_name, v_item_id::text) using errcode = 'check_violation';
     end if;
 
-    v_lt := v_price * v_qty;
-    v_sub := v_sub + v_lt;
+    -- Modifiers: the client sends only option IDs, never a price or name.
+    -- Every option is re-priced and re-validated here — belongs to this
+    -- item, currently available, and each group's required/min/max is
+    -- satisfied — before it can affect the total. Unknown or stale IDs are
+    -- silently dropped rather than trusted.
+    declare
+      v_mod_ids uuid[] := array(
+        select (x)::uuid from jsonb_array_elements_text(coalesce(v_line->'modifier_option_ids', '[]'::jsonb)) as x
+      );
+      v_mod_total int;
+      v_mod_snapshot jsonb;
+      v_grp record;
+      v_grp_selected int;
+    begin
+      select coalesce(sum(mo.price_cents), 0),
+             coalesce(jsonb_agg(jsonb_build_object('id', mo.id, 'name', mo.name, 'price_cents', mo.price_cents)
+                                 order by mo.sort_order), '[]'::jsonb)
+        into v_mod_total, v_mod_snapshot
+        from public.modifier_options mo
+        join public.modifier_groups mg on mg.id = mo.group_id
+       where mo.id = any(v_mod_ids) and mo.is_available and mg.menu_item_id = v_item_id;
 
-    insert into public.order_lines
-      (order_id, menu_item_id, variant_id, name_snapshot, variant_name_snapshot,
-       unit_price_cents, qty, line_total_cents, modifiers, customer_note)
-    values
-      (v_order_id, v_item_id, v_variant_id,
-       v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
-       v_variant_name, v_price, v_qty, v_lt, coalesce(v_line->'modifiers','[]'::jsonb),
-       nullif(left(coalesce(v_line->>'note', ''), 500), ''));
+      for v_grp in select id, name, kind, min_select, max_select
+                     from public.modifier_groups where menu_item_id = v_item_id loop
+        select count(*) into v_grp_selected
+          from public.modifier_options mo
+         where mo.group_id = v_grp.id and mo.id = any(v_mod_ids) and mo.is_available;
+        if v_grp_selected < v_grp.min_select then
+          raise exception 'modifier_required: %', v_grp.name using errcode = 'check_violation';
+        end if;
+        if v_grp.max_select is not null and v_grp_selected > v_grp.max_select then
+          raise exception 'modifier_too_many: %', v_grp.name using errcode = 'check_violation';
+        end if;
+      end loop;
 
-    -- Variant availability counter.
+      v_lt := (v_price + v_mod_total) * v_qty;
+      v_sub := v_sub + v_lt;
+
+      insert into public.order_lines
+        (order_id, menu_item_id, variant_id, name_snapshot, variant_name_snapshot,
+         unit_price_cents, qty, line_total_cents, modifiers, customer_note)
+      values
+        (v_order_id, v_item_id, v_variant_id,
+         v_item_name || case when v_variant_name is not null and v_variant_name <> 'Regular' then ' · ' || v_variant_name else '' end,
+         v_variant_name, v_price + v_mod_total, v_qty, v_lt, v_mod_snapshot,
+         nullif(left(coalesce(v_line->>'note', ''), 500), ''));
+    end;
+
+    -- Variant availability counter — atomic, concurrency-safe (see the deal
+    -- branch above for why: re-checks available_qty at write time, not just
+    -- at the SELECT above, so two orders racing for the last unit can't both win).
     if v_variant_id is not null then
       update public.menu_variants
-         set available_qty = greatest(0, available_qty - v_qty)
-       where id = v_variant_id and track_availability;
+         set available_qty = available_qty - v_qty
+       where id = v_variant_id and track_availability and available_qty >= v_qty;
+      get diagnostics v_upd = row_count;
+      if v_track and v_upd = 0 then
+        raise exception 'item_unavailable: %', coalesce(v_item_name, v_item_id::text) using errcode = 'check_violation';
+      end if;
     end if;
 
     for v_comp in select inventory_item_id, qty_per_unit from public.recipe_components where menu_item_id = v_item_id loop
@@ -1327,7 +1416,10 @@ begin
   select available_qty into v_old from public.menu_variants where id = p_variant_id;
   if not found then raise exception 'variant_not_found' using errcode = 'no_data_found'; end if;
   v_new := greatest(0, v_old - p_qty);
-  update public.menu_variants set available_qty = v_new, track_availability = true where id = p_variant_id;
+  update public.menu_variants
+     set available_qty = v_new, track_availability = true,
+         is_available = case when v_new = 0 then false else is_available end
+   where id = p_variant_id;
   insert into public.food_stock_log (variant_id, delta, new_qty, reason, actor_id, portal_id, note)
   values (p_variant_id, -p_qty, v_new, 'waste', app.jwt_sub(), app.current_portal_id(),
           coalesce(nullif(trim(p_reason), ''), p_note));
@@ -1963,6 +2055,11 @@ create policy portals_read on public.portals for select
   using (app.has_perm('portals.view') or id = app.current_portal_id());
 create policy portals_write on public.portals for all
   using (app.has_perm('portals.update')) with check (app.has_perm('portals.update'));
+-- The customer tracking page needs to know which counter(s) to send a guest
+-- to once their order is ready — name only, nothing sensitive in that row
+-- a guest couldn't already infer from being told where to pay.
+create policy guest_read on public.portals for select
+  using (type = 'checkout' and status = 'active');
 
 create policy portal_staff_read on public.portal_staff for select
   using (app.has_perm('portals.view') or portal_id = app.current_portal_id());
@@ -1973,7 +2070,7 @@ do $$
 declare tbl text;
 begin
   foreach tbl in array array[
-    'menu_categories','menu_items','menu_variants','deals','deal_components',
+    'menu_categories','menu_items','menu_variants','modifier_groups','modifier_options','deals','deal_components',
     'inventory_items','recipe_components',
     'memberships','restaurant_tables','reservations',
     'promotions','suppliers','purchase_orders','shifts','attendance',

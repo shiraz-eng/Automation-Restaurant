@@ -62,25 +62,37 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     tenant
       .from('menu_items')
       .select(
-        'id, name, description, price_cents, category_id, menu_variants(id, name, price_cents, sku, is_available, track_availability, available_qty, sort_order)',
+        'id, name, description, price_cents, category_id, menu_variants(id, name, price_cents, sku, is_available, track_availability, available_qty, sort_order), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order))',
       )
       .eq('is_available', true)
       .order('name'),
     tenant
       .from('deals')
       .select(
-        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_items(name), menu_variants(name, price_cents))',
+        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents), menu_variants(name, price_cents))',
       )
       .eq('is_available', true)
       .order('sort_order'),
   ]);
 
   // Drop unavailable/out-of-stock variants; keep only items that still have one.
+  // Same for modifier options — a disabled option never reaches the storefront.
   const cleaned = (items ?? [])
     .map((it: Record<string, unknown>) => ({
       ...it,
       menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
         .filter((v) => v.is_available && (!v.track_availability || (v.available_qty as number) > 0))
+        .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+      modifier_groups: ((it.modifier_groups as Array<Record<string, unknown>>) ?? [])
+        .map(
+          (g): Record<string, unknown> => ({
+            ...g,
+            modifier_options: ((g.modifier_options as Array<Record<string, unknown>>) ?? [])
+              .filter((o) => o.is_available)
+              .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+          }),
+        )
+        .filter((g) => (g.modifier_options as unknown[]).length > 0)
         .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
     }))
     .filter((it) => (it.menu_variants as unknown[]).length > 0);
@@ -124,6 +136,9 @@ const orderSchema = z.object({
         deal_id: z.string().uuid().optional(),
         qty: z.number().int().positive().max(99),
         note: z.string().trim().max(500).optional(),
+        // Option IDs only — place_order() re-prices and re-validates every
+        // one of them server-side. Never trust a client-supplied price/name.
+        modifier_option_ids: z.array(z.string().uuid()).max(20).optional(),
       }),
     )
     .min(1)

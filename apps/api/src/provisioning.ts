@@ -23,7 +23,13 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v12 Deals & combos — deals / deal_components, deal-aware place_order
 //   v13 audit attribution (portal_id) + order-lifecycle audit + daily_closings
 //   v14 hardening — set_member_access JWT-derived + service-role-only, force-pw RPC
-const SCHEMA_VERSION = 14;
+//   v15 place_order() atomic qty-tracked availability decrement (fixes an
+//       oversell race on menu_variants/deals.available_qty); record_waste()
+//       now flips is_available off when it drains a tracked variant to zero
+//   v16 feedback.ambiance category
+//   v17 guest-readable checkout-portal names (order-ready "go to the counter")
+//   v18 modifier_groups/modifier_options + place_order() prices & validates them
+const SCHEMA_VERSION = 18;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

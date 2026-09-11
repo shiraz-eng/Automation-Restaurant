@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button } from '@/components/ui';
 
+type ModSnapshot = { id: string; name: string; price_cents: number };
 type Line = {
   id: string;
   name_snapshot: string;
   qty: number;
   kds_status: 'queued' | 'preparing' | 'ready' | 'served';
-  modifiers: unknown;
+  modifiers: ModSnapshot[] | null;
   customer_note: string | null;
 };
 export type Ticket = {
@@ -133,6 +134,11 @@ export function KdsBoard({ initial }: { initial: Ticket[] }) {
                   >
                     <span>
                       {l.qty}× {l.name_snapshot}
+                      {l.modifiers && l.modifiers.length > 0 && (
+                        <span className="block text-muted font-normal">
+                          {l.modifiers.map((m) => m.name).join(', ')}
+                        </span>
+                      )}
                       {l.customer_note && (
                         <span className="block text-warn">⚠ {l.customer_note}</span>
                       )}

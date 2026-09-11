@@ -7,17 +7,18 @@ import {
   type KVariant,
 } from './KitchenPortalBoard';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
+import { CheckoutClient, type Bill } from '../../(portal)/checkout/CheckoutClient';
 
 export const dynamic = 'force-dynamic';
 
 const BLURB: Record<string, string> = {
   super_admin: 'Full control — use the admin portal at /r/<slug>.',
-  checkout: 'Accept payment → print invoice → update order. Modules arrive in Phase 3.',
   manager: 'Operational oversight scoped to its permissions.',
   custom: 'A custom portal limited to the permissions below.',
 };
 
 const ACTIVE = ['pending', 'in_kitchen', 'ready'];
+const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 
 export default async function PortalHome({
   params,
@@ -44,7 +45,7 @@ export default async function PortalHome({
       t.client
         .from('orders')
         .select(
-          'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, customer_note)',
+          'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
         )
         .in('status', ACTIVE)
         .order('created_at', { ascending: true }),
@@ -75,6 +76,29 @@ export default async function PortalHome({
           initialRoster={(roster ?? []) as RosterRow[]}
           canMark={has('attendance.mark')}
           canCheckIn={has('attendance.check_in')}
+        />
+      </div>
+    );
+  }
+
+  if (portal.type === 'checkout') {
+    const { data: bills } = await t.client
+      .from('orders')
+      .select(
+        'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
+      )
+      .in('status', UNPAID)
+      .order('created_at', { ascending: true });
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-black">{portal.name}</h1>
+        <CheckoutClient
+          restaurantName={t.config.restaurantName}
+          initial={(bills ?? []) as Bill[]}
+          canRefund={has('payments.refund')}
+          canVoid={has('payments.void')}
+          canDiscount={has('orders.apply_discount')}
+          canCancel={has('orders.cancel')}
         />
       </div>
     );

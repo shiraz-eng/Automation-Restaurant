@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
 import { StatCard } from '@/components/StatCard';
+import { LiveRefresh } from '@/components/LiveRefresh';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { PLAN_FEATURES, isPlanTier } from '@automation-restaurant/shared';
 
@@ -72,6 +73,7 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-8 max-w-6xl">
+      <LiveRefresh tables={['orders', 'payments']} channel="dashboard-live" />
       <header>
         <h1 className="text-xl font-black">{t.config.restaurantName}</h1>
         <p className="text-muted">

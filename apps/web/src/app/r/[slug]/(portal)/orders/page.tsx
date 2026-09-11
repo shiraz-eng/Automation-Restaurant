@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
+import { LiveRefresh } from '@/components/LiveRefresh';
 import { OrdersClient } from './OrdersClient';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'orders.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'orders.view');
 
   const { data: orders, error } = await t.client
     .from('orders')
@@ -23,12 +24,19 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
   return (
     <div className="space-y-6 max-w-5xl">
       <h1 className="text-xl font-black">Orders</h1>
+      <p className="text-muted text-xs -mt-4">
+        Kitchen-stage progress only — take payment in Checkout and cancel with a reason here; an order can&apos;t be
+        marked paid without a recorded payment.
+      </p>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
           {error.message}
         </div>
       ) : (
-        <OrdersClient orders={orders ?? []} />
+        <>
+          <LiveRefresh tables={['orders', 'payments']} channel="orders-page-live" />
+          <OrdersClient orders={orders ?? []} canCancel={can(perms, role, 'orders.cancel')} />
+        </>
       )}
     </div>
   );

@@ -4,7 +4,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, SYSTEM_PROMPT, type AiTool } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, type AiTool, type AiAction } from '../lib/aiTools';
+
+/** Anything the model can be offered as a callable function — a read tool or a proposable action. */
+type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
 
 export const aiRouter = express.Router();
 
@@ -30,7 +33,8 @@ const bodySchema = z.object({
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 
 const MAX_TURNS = 6;
-type AgentResult = { reply: string; trace: { name: string; ok: boolean }[] };
+type PendingAction = { name: string; args: Record<string, unknown>; summary: string };
+type AgentResult = { reply: string; trace: { name: string; ok: boolean }[]; pendingAction?: PendingAction };
 
 /** Retry a call through transient 429/503 "high demand" from the model host. */
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -80,7 +84,7 @@ type GPart =
   | { functionResponse: { name: string; response: object } };
 type GContent = { role: 'user' | 'model'; parts: GPart[] };
 
-async function geminiGenerate(contents: GContent[], tools: AiTool[], system: string) {
+async function geminiGenerate(contents: GContent[], tools: ToolLike[], system: string) {
   const decls = tools.map((t) => ({
     name: t.name,
     description: t.description,
@@ -114,11 +118,14 @@ async function geminiGenerate(contents: GContent[], tools: AiTool[], system: str
 async function runGemini(
   messages: ChatMsg[],
   tools: AiTool[],
+  actions: AiAction[],
   system: string,
   admin: SupabaseClient,
   userId: string,
 ): Promise<AgentResult> {
   const byName = new Map(tools.map((t) => [t.name, t]));
+  const actionByName = new Map(actions.map((a) => [a.name, a]));
+  const declared: ToolLike[] = [...tools, ...actions];
   const contents: GContent[] = messages.map((m) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -126,7 +133,7 @@ async function runGemini(
   const trace: AgentResult['trace'] = [];
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const content = await withRetry(() => geminiGenerate(contents, tools, system));
+    const content = await withRetry(() => geminiGenerate(contents, declared, system));
     const calls = content.parts.filter(
       (p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p,
     );
@@ -138,6 +145,24 @@ async function runGemini(
         .trim();
       return { reply: text || '(no answer)', trace };
     }
+
+    const leadText = content.parts
+      .filter((p): p is { text: string } => 'text' in p)
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
+    const actionCall = calls.find((c) => actionByName.has(c.functionCall.name));
+    if (actionCall) {
+      const pending = await proposeAction(
+        actionByName.get(actionCall.functionCall.name)!,
+        (actionCall.functionCall.args ?? {}) as Record<string, unknown>,
+        admin,
+        leadText,
+        trace,
+      );
+      return pending;
+    }
+
     contents.push(content);
     const parts: GPart[] = [];
     for (const c of calls) {
@@ -160,15 +185,45 @@ async function runGemini(
   return { reply: 'I ran out of steps before finishing — try a narrower question.', trace };
 }
 
+/**
+ * Called instead of executing an action tool. Builds a plain-language summary
+ * of exactly what would change (never runs the mutation) and returns it as a
+ * proposal for the human to confirm via POST /api/ai/confirm. If the target
+ * is already invalid (deleted, already in that state), reports that instead
+ * of proposing anything.
+ */
+async function proposeAction(
+  action: AiAction,
+  args: Record<string, unknown>,
+  admin: SupabaseClient,
+  leadText: string,
+  trace: AgentResult['trace'],
+): Promise<AgentResult> {
+  const described = await action.describe(admin, args);
+  if (!described.ok) {
+    trace.push({ name: action.name, ok: false });
+    return { reply: leadText || described.error, trace };
+  }
+  trace.push({ name: action.name, ok: true });
+  return {
+    reply: leadText || 'Here is what I would do — confirm below to go ahead.',
+    trace,
+    pendingAction: { name: action.name, args, summary: described.summary },
+  };
+}
+
 // ── Anthropic ─────────────────────────────────────────────────────────────
 async function runAnthropic(
   messages: ChatMsg[],
   tools: AiTool[],
+  actions: AiAction[],
   system: string,
   admin: SupabaseClient,
   userId: string,
 ): Promise<AgentResult> {
   const byName = new Map(tools.map((t) => [t.name, t]));
+  const actionByName = new Map(actions.map((a) => [a.name, a]));
+  const declared: ToolLike[] = [...tools, ...actions];
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const trace: AgentResult['trace'] = [];
@@ -178,7 +233,7 @@ async function runAnthropic(
       model: env.AI_MODEL,
       max_tokens: 1024,
       system,
-      tools: tools.map((t) => ({
+      tools: declared.map((t) => ({
         name: t.name,
         description: t.description,
         input_schema: t.input_schema,
@@ -193,6 +248,25 @@ async function runAnthropic(
         .trim();
       return { reply: text || '(no answer)', trace };
     }
+
+    const leadText = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    const actionBlock = resp.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && actionByName.has(b.name),
+    );
+    if (actionBlock) {
+      return proposeAction(
+        actionByName.get(actionBlock.name)!,
+        (actionBlock.input ?? {}) as Record<string, unknown>,
+        admin,
+        leadText,
+        trace,
+      );
+    }
+
     convo.push({ role: 'assistant', content: resp.content });
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const block of resp.content) {
@@ -240,18 +314,84 @@ aiRouter.post(
       return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to run AI queries.' });
     }
 
-    const allowed = AI_TOOLS.filter((t) => permits(permissions, role, t.needs));
+    const allowedTools = AI_TOOLS.filter((t) => permits(permissions, role, t.needs));
+    // An action is only offered to the model when the caller holds BOTH the
+    // AI-specific write gate and the underlying business permission it acts on.
+    const allowedActions = permits(permissions, role, 'ai.execute_write')
+      ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
+      : [];
     const system = SYSTEM_PROMPT(req.tenant!.slug);
 
     try {
       const result =
         aiProvider === 'gemini'
-          ? await runGemini(parsed.data.messages, allowed, system, admin, userId)
-          : await runAnthropic(parsed.data.messages, allowed, system, admin, userId);
-      return res.json({ reply: result.reply, tools: result.trace, provider: aiProvider });
+          ? await runGemini(parsed.data.messages, allowedTools, allowedActions, system, admin, userId)
+          : await runAnthropic(parsed.data.messages, allowedTools, allowedActions, system, admin, userId);
+      return res.json({
+        reply: result.reply,
+        tools: result.trace,
+        provider: aiProvider,
+        pendingAction: result.pendingAction ?? null,
+      });
     } catch (err) {
       console.error('[ai] chat failed:', err);
       return res.status(502).json({ error: 'ai_failed', message: 'The assistant could not complete the request.' });
+    }
+  },
+);
+
+const confirmSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  args: z.record(z.unknown()),
+});
+
+/**
+ * POST /api/ai/confirm — executes exactly one AI-proposed action after a
+ * human taps Confirm. Re-checks the permission and re-validates the target
+ * from scratch (never trusts the request body's word that it's still valid);
+ * the mutation itself still runs through the same RPC a staff member would
+ * use, so it is subject to the same business rules. Logged distinctly from
+ * both a normal AI read (`ai.tool`) and a normal staff edit.
+ */
+aiRouter.post(
+  '/confirm',
+  express.json(),
+  requirePortalPerm('ai.view'),
+  async (req: Request, res: Response) => {
+    if (!aiEnabled) {
+      return res
+        .status(503)
+        .json({ error: 'ai_not_configured', message: 'The assistant is not configured on this server.' });
+    }
+    const parsed = confirmSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+
+    const { admin, permissions, role, userId } = req.tenant!;
+    const action = AI_ACTIONS.find((a) => a.name === parsed.data.name);
+    if (!action) return res.status(404).json({ error: 'unknown_action' });
+    if (!permits(permissions, role, 'ai.execute_write') || !permits(permissions, role, action.needs)) {
+      return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to confirm this action.' });
+    }
+
+    const described = await action.describe(admin, parsed.data.args);
+    if (!described.ok) {
+      return res.status(409).json({ error: 'stale', message: described.error });
+    }
+    try {
+      await action.run(admin, parsed.data.args);
+      await admin.from('audit_logs').insert({
+        actor_id: userId,
+        action: 'ai.action_executed',
+        entity: action.name,
+        after: { args: parsed.data.args, summary: described.summary },
+      });
+      return res.json({ ok: true, message: `Done — ${described.summary}` });
+    } catch (err) {
+      console.error('[ai] confirm failed:', err);
+      return res
+        .status(502)
+        .json({ error: 'action_failed', message: String((err as Error).message ?? err).slice(0, 300) });
     }
   },
 );

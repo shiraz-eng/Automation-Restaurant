@@ -50,13 +50,63 @@ function due(b: Bill): number {
   return Math.max(0, b.total_cents - b.refunded_cents - netPaid(b));
 }
 
+/** Opens a small print-ready receipt in a new tab and triggers the browser
+ *  print dialog. No PDF library, no server round-trip — just the same
+ *  numbers already on screen, formatted for a till printer or A4 page. */
+function printInvoice(bill: Bill, restaurantName: string) {
+  const w = window.open('', '_blank', 'width=380,height=640');
+  if (!w) return;
+  const paidVia =
+    bill.payments
+      .filter((p) => p.status !== 'voided')
+      .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
+      .join(', ') || 'unpaid';
+  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!);
+  w.document.write(`<!doctype html><html><head><title>Invoice #${bill.order_number}</title><meta charset="utf-8">
+<style>
+  body{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#111;padding:18px;max-width:340px}
+  h1{font-size:14px;margin:0 0 2px}
+  .muted{color:#666;font-size:10px;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  td{padding:2px 0}
+  .right{text-align:right}
+  hr{border:none;border-top:1px dashed #999;margin:8px 0}
+  .total{font-weight:bold;font-size:13px}
+</style></head><body>
+<h1>${esc(restaurantName)}</h1>
+<div class="muted">Order #${bill.order_number}${bill.table_label ? ' · ' + esc(bill.table_label) : ''}${bill.customer_name ? ' · ' + esc(bill.customer_name) : ''}</div>
+<div class="muted">${new Date(bill.created_at).toLocaleString()}</div>
+<hr/>
+<table>${bill.order_lines
+    .map(
+      (l) =>
+        `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`,
+    )
+    .join('')}</table>
+<hr/>
+<table>
+<tr><td>Subtotal</td><td class="right">${formatCents(bill.subtotal_cents)}</td></tr>
+${bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : ''}
+<tr><td>Tax</td><td class="right">${formatCents(bill.tax_cents)}</td></tr>
+${bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : ''}
+<tr class="total"><td>Total</td><td class="right">${formatCents(bill.total_cents)}</td></tr>
+</table>
+<hr/>
+<div class="muted">Paid via: ${esc(paidVia)}</div>
+<script>window.onload=function(){window.print();}<\/script>
+</body></html>`);
+  w.document.close();
+}
+
 export function CheckoutClient({
+  restaurantName,
   initial,
   canRefund,
   canVoid,
   canDiscount,
   canCancel,
 }: {
+  restaurantName: string;
   initial: Bill[];
   canRefund: boolean;
   canVoid: boolean;
@@ -224,7 +274,15 @@ export function CheckoutClient({
               Order #{bill.order_number}
               {bill.table_label ? ` · ${bill.table_label}` : ''}
             </h2>
-            <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
+              <button
+                onClick={() => printInvoice(bill, restaurantName)}
+                className="text-primary text-xs font-semibold underline"
+              >
+                Print invoice
+              </button>
+            </div>
           </div>
 
           <div className="space-y-1 text-xs mb-3">

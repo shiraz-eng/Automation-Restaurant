@@ -31,6 +31,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
         </div>
       ) : (
         <CheckoutClient
+          restaurantName={t.config.restaurantName}
           initial={(data ?? []) as Bill[]}
           canRefund={can(perms, role, 'payments.refund')}
           canVoid={can(perms, role, 'payments.void')}

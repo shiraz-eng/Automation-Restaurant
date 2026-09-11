@@ -41,18 +41,58 @@ function stepIndex(status: string): number {
   }
 }
 
+// Optional categories collected alongside the required overall rating —
+// matches the columns the restaurant actually reads back (aiTools.ts'
+// get_customer_feedback, the same set the AI assistant reports on).
+const CATEGORIES = [
+  { key: 'food', label: 'Food' },
+  { key: 'service', label: 'Service' },
+  { key: 'speed', label: 'Speed' },
+  { key: 'cleanliness', label: 'Cleanliness' },
+  { key: 'ambiance', label: 'Ambiance' },
+] as const;
+type CategoryKey = (typeof CATEGORIES)[number]['key'];
+
+function Stars({
+  value,
+  onChange,
+  size = 'text-2xl',
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  size?: string;
+}) {
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          aria-label={`${n} star${n === 1 ? '' : 's'}`}
+          className={`${size} leading-none ${n <= value ? 'text-warn' : 'text-muted'}`}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TrackClient({
   slug,
   restaurantName,
   supabaseUrl,
   supabaseAnonKey,
   initial,
+  counters,
 }: {
   slug: string;
   restaurantName: string;
   supabaseUrl: string;
   supabaseAnonKey: string;
   initial: TrackedOrder;
+  counters: string[];
 }) {
   const supabase = useMemo(
     () => createTenantBrowserClient(supabaseUrl, supabaseAnonKey),
@@ -81,25 +121,44 @@ export function TrackClient({
 
   const [fbOpen, setFbOpen] = useState(false);
   const [rating, setRating] = useState(5);
+  const [cats, setCats] = useState<Record<CategoryKey, number>>({
+    food: 0,
+    service: 0,
+    speed: 0,
+    cleanliness: 0,
+    ambiance: 0,
+  });
   const [comment, setComment] = useState('');
+  const [fbBusy, setFbBusy] = useState(false);
   const [fbDone, setFbDone] = useState(false);
   const [fbErr, setFbErr] = useState<string | null>(null);
 
   async function sendFeedback() {
     setFbErr(null);
+    setFbBusy(true);
     const { error } = await supabase.from('feedback').insert({
       order_id: initial.id,
       table_label: initial.table_label,
       guest_name: initial.customer_name,
       overall: rating,
+      // Only send a category the guest actually rated — leave the rest null
+      // rather than recording a false "1 star" for something unrated.
+      food: cats.food || null,
+      service: cats.service || null,
+      speed: cats.speed || null,
+      cleanliness: cats.cleanliness || null,
+      ambiance: cats.ambiance || null,
       comment: comment.trim() || null,
     });
+    setFbBusy(false);
     if (error) {
       setFbErr(error.message);
       return;
     }
     setFbDone(true);
   }
+
+  const readyForCounter = status === 'ready' && counters.length > 0;
 
   return (
     <div className="min-h-screen px-6 py-8 max-w-md mx-auto">
@@ -109,7 +168,7 @@ export function TrackClient({
         {initial.customer_name ? ` · ${initial.customer_name}` : ''}
       </p>
 
-      <ol className="space-y-3 mb-8">
+      <ol className="space-y-3 mb-6">
         {STEPS.map((s, i) => {
           const done = i < current;
           const active = i === current;
@@ -135,6 +194,19 @@ export function TrackClient({
           );
         })}
       </ol>
+
+      {readyForCounter && (
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 mb-6 text-center">
+          <p className="font-bold text-sm">Your order is ready! 🎉</p>
+          <p className="text-xs text-muted mt-1">
+            Please collect it and pay at{' '}
+            {counters.length === 1
+              ? counters[0]
+              : `${counters.slice(0, -1).join(', ')} or ${counters[counters.length - 1]}`}
+            .
+          </p>
+        </div>
+      )}
 
       <div className="rounded-lg border border-border bg-surface p-4 text-xs space-y-1 mb-6">
         {initial.order_lines.map((l, i) => (
@@ -168,16 +240,22 @@ export function TrackClient({
               Rate your experience
             </button>
           ) : (
-            <div className="space-y-3">
-              <div className="flex gap-1">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setRating(n)}
-                    className={`text-2xl ${n <= rating ? 'text-warn' : 'text-muted'}`}
-                  >
-                    ★
-                  </button>
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-muted mb-1">Overall</p>
+                <Stars value={rating} onChange={setRating} />
+              </div>
+              <div className="space-y-2 pt-1 border-t border-border">
+                <p className="text-[11px] text-muted">Anything specific? (optional)</p>
+                {CATEGORIES.map((c) => (
+                  <div key={c.key} className="flex items-center justify-between">
+                    <span className="text-xs">{c.label}</span>
+                    <Stars
+                      value={cats[c.key]}
+                      onChange={(n) => setCats((p) => ({ ...p, [c.key]: n }))}
+                      size="text-base"
+                    />
+                  </div>
                 ))}
               </div>
               <textarea
@@ -190,9 +268,10 @@ export function TrackClient({
               {fbErr && <p className="text-danger text-xs">{fbErr}</p>}
               <button
                 onClick={sendFeedback}
-                className="w-full rounded bg-primary text-primary-fg font-bold py-2.5 text-sm"
+                disabled={fbBusy}
+                className="w-full rounded bg-primary text-primary-fg font-bold py-2.5 text-sm disabled:opacity-50"
               >
-                Submit feedback
+                {fbBusy ? 'Sending…' : 'Submit feedback'}
               </button>
             </div>
           )}

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 
+type ModSnapshot = { id: string; name: string; price_cents: number };
 type Line = {
   id: string;
   name_snapshot: string;
   qty: number;
   kds_status: 'queued' | 'preparing' | 'ready' | 'served';
-  modifiers: unknown;
+  modifiers: ModSnapshot[] | null;
   customer_note: string | null;
 };
 export type KitchenTicket = {
@@ -128,6 +129,11 @@ export function KitchenBoard({ initial }: { initial: KitchenTicket[] }) {
                         {t.order_lines.map((l) => (
                           <li key={l.id} className="text-sm font-semibold">
                             {l.qty}× {l.name_snapshot}
+                            {l.modifiers && l.modifiers.length > 0 && (
+                              <span className="block text-xs font-normal text-muted">
+                                {l.modifiers.map((m) => m.name).join(', ')}
+                              </span>
+                            )}
                             {l.customer_note && (
                               <span className="block text-xs font-normal text-warn">
                                 ⚠ {l.customer_note}
