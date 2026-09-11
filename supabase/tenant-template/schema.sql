@@ -919,7 +919,7 @@ declare
   v_price int; v_avail boolean; v_track boolean;
   v_deal_id uuid; v_dc record;
   v_line_id uuid; v_recipe_cost int; v_cost_per_base numeric;
-  v_promo_id uuid;
+  v_promo_id uuid; v_promo_kind app.promo_kind; v_val_bps int; v_val_cents int;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'no_lines' using errcode = 'check_violation';
@@ -1270,27 +1270,43 @@ begin
   end loop;
 
   -- A promo code, if supplied and valid, decides the discount (staff-applied
-  -- p_discount_cents is the fallback for manual till discounts). Redeeming
-  -- it — bumping usage_count and logging promotion_redemptions — happens
-  -- HERE, not inside promo_discount() (which stays a read-only validity
-  -- check reused by the storefront's live preview), and the usage_count
-  -- bump is itself the concurrency guard: two orders racing for the last
+  -- p_discount_cents is the fallback for manual till discounts). Resolved
+  -- ONCE here (not via promo_discount(), which only knows percent/fixed
+  -- and can't see this order's own lines) via app.promotion_is_valid_now()
+  -- so this and the storefront's live preview can never disagree about
+  -- whether a code is currently valid. BOGO needs the actual line items
+  -- just inserted above — that's why this runs after the line loop, not
+  -- before it. Redeeming — bumping usage_count and logging
+  -- promotion_redemptions — happens HERE, and the usage_count bump is
+  -- itself the concurrency guard: two orders racing for the last
   -- redemption of a capped code can't both win, same atomic
   -- update-with-a-still-true-where-clause pattern as deal/variant
   -- availability above.
   if coalesce(p_promo_code, '') <> '' then
-    v_disc := public.promo_discount(p_promo_code, v_sub);
-    if v_disc > 0 then
-      v_promo_id := null;
-      update public.promotions set usage_count = usage_count + 1
-       where lower(code) = lower(p_promo_code)
-         and (usage_limit_total is null or usage_count < usage_limit_total)
-      returning id into v_promo_id;
-      if v_promo_id is null then
-        v_disc := 0; -- lost the race against the usage cap between validation and now
+    v_promo_id := null;
+    select p.id, p.kind, p.value_bps, p.value_cents
+      into v_promo_id, v_promo_kind, v_val_bps, v_val_cents
+      from public.promotions p
+     where lower(p.code) = lower(p_promo_code) and app.promotion_is_valid_now(p, v_sub)
+     limit 1;
+    if v_promo_id is not null then
+      v_disc := case
+        when v_promo_kind = 'bogo' then public.bogo_discount_for_order(v_order_id, v_promo_id)
+        when v_promo_kind = 'percent' then (v_sub * coalesce(v_val_bps, 0) / 10000)
+        else least(coalesce(v_val_cents, 0), v_sub)
+      end;
+      if v_disc > 0 then
+        update public.promotions set usage_count = usage_count + 1
+         where id = v_promo_id and (usage_limit_total is null or usage_count < usage_limit_total)
+        returning id into v_promo_id;
+        if v_promo_id is null then
+          v_disc := 0; -- lost the race against the usage cap between validation and now
+        else
+          insert into public.promotion_redemptions (promotion_id, order_id, discount_cents)
+          values (v_promo_id, v_order_id, v_disc);
+        end if;
       else
-        insert into public.promotion_redemptions (promotion_id, order_id, discount_cents)
-        values (v_promo_id, v_order_id, v_disc);
+        v_promo_id := null;
       end if;
     end if;
   end if;
@@ -1830,7 +1846,7 @@ grant execute on function public.record_waste(uuid, int, text, text) to authenti
 alter publication supabase_realtime add table public.menu_variants;
 
 -- ── Promotions ───────────────────────────────────────────────────────────
-create type app.promo_kind as enum ('percent', 'fixed');
+create type app.promo_kind as enum ('percent', 'fixed', 'bogo');
 
 create table public.promotions (
   id                uuid primary key default gen_random_uuid(),
@@ -1863,6 +1879,17 @@ create table public.promotions (
   -- anything) — see best_auto_promotion() below. A code-bearing promo may
   -- ALSO be auto_apply; the two are independent.
   auto_apply        boolean not null default false,
+  -- BOGO (spec: buy-X-get-Y). Only meaningful when kind = 'bogo' — the
+  -- other kinds leave these null, same convention as value_bps/value_cents
+  -- being null for the kind that doesn't use them. v1 scope: one specific
+  -- menu item, code-required (not auto_apply — see best_auto_promotion()),
+  -- computed from the order's own lines at redemption time since it needs
+  -- to know how many of that item were actually bought, not just the
+  -- subtotal (see bogo_discount_for_order() below).
+  bogo_menu_item_id     uuid references public.menu_items(id) on delete cascade,
+  bogo_buy_qty          int check (bogo_buy_qty is null or bogo_buy_qty > 0),
+  bogo_get_qty          int check (bogo_get_qty is null or bogo_get_qty > 0),
+  bogo_get_discount_bps int check (bogo_get_discount_bps is null or bogo_get_discount_bps between 0 and 10000),
   created_at        timestamptz not null default now()
 );
 
@@ -1870,53 +1897,14 @@ create table public.promotions (
 alter table public.orders add column discount_cents int not null default 0 check (discount_cents >= 0);
 alter table public.orders add column promo_code text;
 
--- Validate a code and return the discount for a given subtotal (0 if
--- invalid) — schedule, usage-limit and min-subtotal checks all live here so
--- the storefront's live preview (/api/public/promo) and place_order's real
--- redemption can never disagree about whether a code is currently valid.
-create or replace function public.promo_discount(p_code text, p_subtotal_cents int)
-returns int language sql stable security definer set search_path = public, app as $fn$
-  select coalesce((
-    select case
-      when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
-      else least(coalesce(p.value_cents, 0), p_subtotal_cents)
-    end
-    from public.promotions p
-    where lower(p.code) = lower(p_code)
-      and p.active
-      and p_subtotal_cents >= p.min_subtotal_cents
-      and (p.starts_at is null or p.starts_at <= now())
-      and (p.ends_at is null or p.ends_at >= now())
-      and (p.usage_limit_total is null or p.usage_count < p.usage_limit_total)
-      and (p.days_of_week is null or extract(
-             dow from (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))
-           )::smallint = any(p.days_of_week))
-      and (p.start_time is null or
-           (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time >= p.start_time)
-      and (p.end_time is null or
-           (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time <= p.end_time)
-    limit 1
-  ), 0);
-$fn$;
-grant execute on function public.promo_discount(text, int) to authenticated, service_role, anon;
-
--- The single best currently-eligible auto_apply promotion for a subtotal
--- (same validity checks as promo_discount, minus the code match — instead
--- filtered to auto_apply promotions, ranked by whichever discounts the
--- most). place_order() calls this when no explicit code produced a
--- discount, so a scheduled happy-hour promo actually fires on its own —
--- the gap a code-only design would otherwise leave.
-create or replace function public.best_auto_promotion(p_subtotal_cents int)
-returns table (id uuid, discount_cents int)
-language sql stable security definer set search_path = public, app as $fn$
-  select p.id,
-         case
-           when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
-           else least(coalesce(p.value_cents, 0), p_subtotal_cents)
-         end as discount_cents
-    from public.promotions p
-   where p.auto_apply
-     and p.active
+-- Every validity rule a promotion must pass to apply RIGHT NOW, shared by
+-- promo_discount(), best_auto_promotion() and place_order()'s explicit-code
+-- lookup so they can never disagree about whether a promotion is currently
+-- eligible. Takes the whole row (avoids re-querying it) plus the order
+-- subtotal being evaluated against min_subtotal_cents.
+create or replace function app.promotion_is_valid_now(p public.promotions, p_subtotal_cents int)
+returns boolean language sql stable as $fn$
+  select p.active
      and p_subtotal_cents >= p.min_subtotal_cents
      and (p.starts_at is null or p.starts_at <= now())
      and (p.ends_at is null or p.ends_at >= now())
@@ -1927,11 +1915,125 @@ language sql stable security definer set search_path = public, app as $fn$
      and (p.start_time is null or
           (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time >= p.start_time)
      and (p.end_time is null or
-          (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time <= p.end_time)
+          (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time <= p.end_time);
+$fn$;
+
+-- BOGO discount for an already-placed order's lines: total qty of the
+-- target item actually bought (à la carte lines only — deal-embedded
+-- copies of the item don't count, same as everywhere else in this file
+-- that reasons about "what was really purchased"), how many of those
+-- qualify as the discounted "get" units under buy_qty/get_qty, and which
+-- specific units get discounted — the CHEAPEST ones first (the
+-- customer-favorable, standard retail convention when variants price
+-- differently), each by bogo_get_discount_bps.
+create or replace function public.bogo_discount_for_order(p_order_id uuid, p_promotion_id uuid)
+returns int language plpgsql stable security definer set search_path = public, app as $fn$
+declare
+  v_buy int; v_get int; v_bps int; v_item_id uuid;
+  v_total_qty int; v_free_units int; v_remaining int; v_take int;
+  v_discount int := 0;
+  v_line record;
+begin
+  select bogo_buy_qty, bogo_get_qty, bogo_get_discount_bps, bogo_menu_item_id
+    into v_buy, v_get, v_bps, v_item_id
+    from public.promotions where id = p_promotion_id and kind = 'bogo';
+  if v_item_id is null or v_buy is null or v_get is null then
+    return 0;
+  end if;
+
+  select coalesce(sum(qty), 0) into v_total_qty
+    from public.order_lines
+   where order_id = p_order_id and menu_item_id = v_item_id and deal_id is null;
+
+  v_free_units := (v_total_qty / (v_buy + v_get)) * v_get;
+  if v_free_units <= 0 then
+    return 0;
+  end if;
+
+  v_remaining := v_free_units;
+  for v_line in
+    select qty, unit_price_cents from public.order_lines
+     where order_id = p_order_id and menu_item_id = v_item_id and deal_id is null
+     order by unit_price_cents asc
+  loop
+    exit when v_remaining <= 0;
+    v_take := least(v_line.qty, v_remaining);
+    v_discount := v_discount + round(v_take * v_line.unit_price_cents * coalesce(v_bps, 0) / 10000.0);
+    v_remaining := v_remaining - v_take;
+  end loop;
+
+  return v_discount;
+end;
+$fn$;
+revoke all on function public.bogo_discount_for_order(uuid, uuid) from public;
+grant execute on function public.bogo_discount_for_order(uuid, uuid) to authenticated, service_role;
+
+-- Validate a code and return the discount for a given subtotal (0 if
+-- invalid, or if it's a BOGO code — that needs the actual cart contents to
+-- compute, which this endpoint doesn't have; see bogo_discount_for_order())
+-- — schedule, usage-limit and min-subtotal checks all live in
+-- app.promotion_is_valid_now() so the storefront's live preview
+-- (/api/public/promo) and place_order's real redemption can never disagree
+-- about whether a code is currently valid.
+create or replace function public.promo_discount(p_code text, p_subtotal_cents int)
+returns int language sql stable security definer set search_path = public, app as $fn$
+  select coalesce((
+    select case
+      when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
+      when p.kind = 'fixed' then least(coalesce(p.value_cents, 0), p_subtotal_cents)
+      else 0
+    end
+    from public.promotions p
+    where lower(p.code) = lower(p_code)
+      and app.promotion_is_valid_now(p, p_subtotal_cents)
+    limit 1
+  ), 0);
+$fn$;
+grant execute on function public.promo_discount(text, int) to authenticated, service_role, anon;
+
+-- The single best currently-eligible auto_apply promotion for a subtotal
+-- (same validity checks as promo_discount, minus the code match — instead
+-- filtered to auto_apply promotions, ranked by whichever discounts the
+-- most). place_order() calls this when no explicit code produced a
+-- discount, so a scheduled happy-hour promo actually fires on its own —
+-- the gap a code-only design would otherwise leave. BOGO is excluded here:
+-- auto-apply BOGO would need this to know cart contents, not just the
+-- subtotal — deferred, BOGO is code-required for now (see the table comment).
+create or replace function public.best_auto_promotion(p_subtotal_cents int)
+returns table (id uuid, discount_cents int)
+language sql stable security definer set search_path = public, app as $fn$
+  select p.id,
+         case
+           when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
+           else least(coalesce(p.value_cents, 0), p_subtotal_cents)
+         end as discount_cents
+    from public.promotions p
+   where p.auto_apply
+     and p.kind in ('percent', 'fixed')
+     and app.promotion_is_valid_now(p, p_subtotal_cents)
    order by discount_cents desc
    limit 1;
 $fn$;
 grant execute on function public.best_auto_promotion(int) to authenticated, service_role;
+
+-- Storefront code preview: unlike promo_discount() (which folds "invalid"
+-- and "valid but this endpoint can't compute it" into the same 0), this
+-- tells the caller WHICH one it is — a BOGO code is real and will apply at
+-- checkout, it just can't show a dollar figure without the actual cart.
+create or replace function public.promo_preview(p_code text, p_subtotal_cents int)
+returns table (kind app.promo_kind, discount_cents int)
+language sql stable security definer set search_path = public, app as $fn$
+  select p.kind,
+         case
+           when p.kind = 'percent' then (p_subtotal_cents * coalesce(p.value_bps, 0) / 10000)
+           when p.kind = 'fixed' then least(coalesce(p.value_cents, 0), p_subtotal_cents)
+           else 0
+         end
+    from public.promotions p
+   where lower(p.code) = lower(p_code) and app.promotion_is_valid_now(p, p_subtotal_cents)
+   limit 1;
+$fn$;
+grant execute on function public.promo_preview(text, int) to authenticated, service_role, anon;
 
 alter table public.promotions enable row level security;
 create policy staff_read on public.promotions for select using (app.has_perm('menu.view') or app.is_staff());

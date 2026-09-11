@@ -295,7 +295,9 @@ export function StorefrontClient({
 
   const [promo, setPromo] = useState('');
   const [promoState, setPromoState] = useState<
-    { status: 'idle' | 'checking' } | { status: 'ok'; code: string; discount: number } | { status: 'bad' }
+    | { status: 'idle' | 'checking' }
+    | { status: 'ok'; code: string; discount: number; kind: 'percent' | 'fixed' | 'bogo' }
+    | { status: 'bad' }
   >({ status: 'idle' });
 
   // Flat variant list — deal-matching and cart lines work at this level
@@ -410,7 +412,7 @@ export function StorefrontClient({
       const body = await res.json();
       setPromoState(
         body.valid
-          ? { status: 'ok', code, discount: body.discount_cents }
+          ? { status: 'ok', code, discount: body.discount_cents ?? 0, kind: body.kind ?? 'fixed' }
           : { status: 'bad' },
       );
     } catch {
@@ -876,7 +878,9 @@ export function StorefrontClient({
         )}
         {promoState.status === 'ok' && (
           <p className="text-ok text-xs mb-2">
-            Code applied — {formatCents(promoState.discount)} off
+            {promoState.kind === 'bogo'
+              ? 'Code applied — your Buy One Get One discount will show on the receipt'
+              : `Code applied — ${formatCents(promoState.discount)} off`}
           </p>
         )}
         {promoState.status === 'bad' && (

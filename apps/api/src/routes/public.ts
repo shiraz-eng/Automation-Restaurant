@@ -159,13 +159,18 @@ publicRouter.get('/promo/:slug', async (req: Request, res: Response) => {
   const tenant = await tenantClientForSlug(slug);
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const { data, error } = await tenant.rpc('promo_discount', {
+  // promo_preview distinguishes "genuinely invalid" from "valid but this
+  // endpoint can't compute a dollar figure" (a BOGO code — it needs the
+  // real cart contents, which only place_order sees) — a BOGO code should
+  // never show as "invalid" just because nothing's previewable yet.
+  const { data, error } = await tenant.rpc('promo_preview', {
     p_code: code,
     p_subtotal_cents: subtotal,
   });
   if (error) return res.status(400).json({ error: 'promo_check_failed' });
-  const discount = typeof data === 'number' ? data : 0;
-  res.json({ valid: discount > 0, discount_cents: discount });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return res.json({ valid: false, discount_cents: 0 });
+  res.json({ valid: true, kind: row.kind, discount_cents: row.discount_cents ?? 0 });
 });
 
 const orderSchema = z.object({

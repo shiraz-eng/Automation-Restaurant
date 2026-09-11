@@ -16,14 +16,15 @@ export default async function PromotionsPage({
 
   await gatePortalPage(t.client, slug, 'menu.view');
 
-  const [{ data, error }, { data: perf }] = await Promise.all([
+  const [{ data, error }, { data: perf }, { data: menuItems }] = await Promise.all([
     t.client
       .from('promotions')
       .select(
-        'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, auto_apply, created_at',
+        'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, auto_apply, bogo_menu_item_id, bogo_buy_qty, bogo_get_qty, bogo_get_discount_bps, created_at',
       )
       .order('created_at', { ascending: false }),
     t.client.rpc('promotion_performance'),
+    t.client.from('menu_items').select('id, name').order('name'),
   ]);
 
   return (
@@ -45,6 +46,7 @@ export default async function PromotionsPage({
         <PromotionsManager
           promos={(data ?? []) as Promo[]}
           performance={(perf ?? []) as PromoPerformance[]}
+          menuItems={menuItems ?? []}
         />
       )}
     </div>

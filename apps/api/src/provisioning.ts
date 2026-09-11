@@ -62,7 +62,16 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       eligible auto_apply promotion itself when no code was entered (or
 //       the one entered didn't validate), so a scheduled happy-hour promo
 //       actually fires on its own instead of needing a typed code
-const SCHEMA_VERSION = 28;
+//   v29 BOGO promotions: app.promo_kind gains 'bogo'; promotions gains
+//       bogo_menu_item_id/bogo_buy_qty/bogo_get_qty/bogo_get_discount_bps;
+//       bogo_discount_for_order() computes the discount from the order's
+//       own lines (cheapest qualifying units first) since BOGO needs to
+//       know what was actually bought, not just the subtotal; place_order()
+//       resolves an explicit code's promotion ONCE (via the new shared
+//       app.promotion_is_valid_now()) and branches on kind. Code-required
+//       in v1 — auto-apply BOGO is deferred (needs cart contents,
+//       best_auto_promotion() only ever sees a subtotal)
+const SCHEMA_VERSION = 29;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
