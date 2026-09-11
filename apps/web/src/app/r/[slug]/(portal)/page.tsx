@@ -3,6 +3,7 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
 import { StatCard } from '@/components/StatCard';
 import { LiveRefresh } from '@/components/LiveRefresh';
+import { SalesTrend, type DayRow } from './SalesTrend';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { PLAN_FEATURES, isPlanTier } from '@automation-restaurant/shared';
 
@@ -29,7 +30,12 @@ export default async function DashboardPage({
 
   const { user } = await gatePortalPage(supabase, slug, '');
 
-  const [membershipRes, ordersRes, menuRes, inventoryRes] = await Promise.all([
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const [membershipRes, ordersRes, menuRes, inventoryRes, salesByDayRes] = await Promise.all([
     supabase.from('memberships').select('role').eq('user_id', user.id).maybeSingle(),
     supabase
       .from('orders')
@@ -41,6 +47,7 @@ export default async function DashboardPage({
       .from('inventory_items')
       .select('id, name, unit, stock_qty, min_threshold')
       .order('name'),
+    supabase.rpc('sales_by_day', { p_from: monthStart, p_to: monthEnd }),
   ]);
 
   const since = new Date();
@@ -109,6 +116,8 @@ export default async function DashboardPage({
           hint={`of ${inventory.length} items`}
         />
       </section>
+
+      <SalesTrend initialMonth={currentMonth} initialDays={(salesByDayRes.data as DayRow[] | null) ?? []} />
 
       <div className="grid lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 rounded-lg border border-border bg-surface p-5">

@@ -40,7 +40,9 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       approval gate, accept/reject receiving, supplier invoices, 3-way
 //       matching with tolerance, payment holds, credit notes, payments with
 //       multi-invoice allocation, supplier_payable()/supplier_statement()
-const SCHEMA_VERSION = 22;
+//   v23 Dashboard sales trend: sales_by_day()/sales_by_hour() for the
+//       monthly line chart + day drill-down, built on app.day_sales()
+const SCHEMA_VERSION = 23;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
