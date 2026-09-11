@@ -53,7 +53,11 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       existing fixed-price deals; place_order() validates/prices/
 //       inserts selections and explodes their recipes exactly like plain
 //       menu items
-const SCHEMA_VERSION = 26;
+//   v27 Promotions v2: happy-hour scheduling (days_of_week/start_time/
+//       end_time), usage_limit_total with an atomic usage_count redemption
+//       guard, promotion_redemptions log, and promotion_performance() —
+//       one authoritative calc layer for the Promotions page + AI
+const SCHEMA_VERSION = 27;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -694,6 +694,51 @@ export const AI_TOOLS: AiTool[] = [
     },
   },
   {
+    name: 'get_promotion_performance',
+    description:
+      'How each promotion/promo-code is performing: times redeemed, total discount given, and the revenue of the orders it was applied to — plus its usage cap and schedule if it has one. Use for "how is SUMMER10 doing", "which promo gets used most", "how much have we discounted" questions. Omit period for all-time totals.',
+    needs: 'menu.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'],
+          description: 'Omit for all-time totals.',
+        },
+      },
+    },
+    async run(admin, args) {
+      let p_from: string | null = null;
+      let p_to: string | null = null;
+      let label = 'all time';
+      if (
+        typeof args.period === 'string' &&
+        ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(args.period)
+      ) {
+        const r = periodRange(args.period as Period);
+        p_from = r.from.toISOString();
+        p_to = r.to.toISOString();
+        label = r.label;
+      }
+      const { data, error } = await admin.rpc('promotion_performance', { p_from, p_to });
+      if (error) return { error: error.message };
+      return {
+        period: label,
+        promotions: (data as Record<string, unknown>[] | null ?? []).map((r) => ({
+          name: r.name,
+          code: r.code,
+          kind: r.kind,
+          redemptions: r.redemptions,
+          total_discount_cents: r.total_discount_cents,
+          total_order_revenue_cents: r.total_order_revenue_cents,
+          usage_limit_total: r.usage_limit_total,
+          usage_count: r.usage_count,
+        })),
+      };
+    },
+  },
+  {
     name: 'get_recent_orders',
     description: 'The most recent orders (number, table/channel, status, total, time, any customer note).',
     needs: 'orders.view',
@@ -1317,6 +1362,7 @@ HOW TO ANSWER
 - For analysis ("why are sales/margin down", comparisons beyond the built-in period tools): pull the relevant windows, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
 - For "what do we owe" / "who do we owe the most" / "how much do we owe X", use get_supplier_payable (omit supplier_name for the ranked list, pass it for one supplier). Lead with outstanding, then call out on_hold and overdue separately since money can be owed without being payable yet. For "what's on hold" / "why is this invoice on hold", use get_payment_holds and quote the specific reason verbatim — never guess why something is held. For "what did we buy from X" / "how much have we paid X", use get_supplier_statement.
 - For "did you email anyone about low stock" / "which suppliers were contacted" / "what did you ask X for", use get_supplier_communications — this is AI Management's own automation log (a deterministic SQL trigger decides when it fires, not you), so answer strictly from what it returns, including a failed send's actual reason (e.g. no email provider configured) rather than implying it went out.
+- For "how is [promo/deal code] doing" / "which promo gets used most" / "how much have we discounted", use get_promotion_performance. If a promo has a usage_limit_total, say how much of it is used up ("6 of 10 used"), not just the raw redemption count — a code nearing its cap is worth flagging.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
 - Keep it short. A busy manager is reading this between tables.
 

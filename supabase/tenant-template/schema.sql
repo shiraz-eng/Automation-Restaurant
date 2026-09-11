@@ -919,6 +919,7 @@ declare
   v_price int; v_avail boolean; v_track boolean;
   v_deal_id uuid; v_dc record;
   v_line_id uuid; v_recipe_cost int; v_cost_per_base numeric;
+  v_promo_id uuid;
 begin
   if p_lines is null or jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then
     raise exception 'no_lines' using errcode = 'check_violation';
@@ -1269,9 +1270,29 @@ begin
   end loop;
 
   -- A promo code, if supplied and valid, decides the discount (staff-applied
-  -- p_discount_cents is the fallback for manual till discounts).
+  -- p_discount_cents is the fallback for manual till discounts). Redeeming
+  -- it — bumping usage_count and logging promotion_redemptions — happens
+  -- HERE, not inside promo_discount() (which stays a read-only validity
+  -- check reused by the storefront's live preview), and the usage_count
+  -- bump is itself the concurrency guard: two orders racing for the last
+  -- redemption of a capped code can't both win, same atomic
+  -- update-with-a-still-true-where-clause pattern as deal/variant
+  -- availability above.
   if coalesce(p_promo_code, '') <> '' then
     v_disc := public.promo_discount(p_promo_code, v_sub);
+    if v_disc > 0 then
+      v_promo_id := null;
+      update public.promotions set usage_count = usage_count + 1
+       where lower(code) = lower(p_promo_code)
+         and (usage_limit_total is null or usage_count < usage_limit_total)
+      returning id into v_promo_id;
+      if v_promo_id is null then
+        v_disc := 0; -- lost the race against the usage cap between validation and now
+      else
+        insert into public.promotion_redemptions (promotion_id, order_id, discount_cents)
+        values (v_promo_id, v_order_id, v_disc);
+      end if;
+    end if;
   end if;
   v_disc := least(greatest(v_disc, 0), v_sub);
   v_tax := round((v_sub - v_disc)::numeric * coalesce(p_tax_rate_bps,0) / 10000)::int;
@@ -1791,6 +1812,20 @@ create table public.promotions (
   active            boolean not null default true,
   starts_at         timestamptz,
   ends_at           timestamptz,
+  -- Happy-hour scheduling (spec: time-based scheduling): both null means
+  -- "every day, all day" — the pre-existing unscheduled behavior.
+  days_of_week      smallint[], -- 0=Sunday..6=Saturday; null = every day
+  start_time        time,       -- null = no lower bound
+  end_time          time,       -- null = no upper bound
+  -- Usage limit (spec: promo codes with usage limits). usage_count is bumped
+  -- atomically by place_order() at redemption time — the same
+  -- update-where-still-true-then-check-affected-rows pattern used for deal
+  -- and variant availability, so a race for the last redemption can't
+  -- double-spend it. Per-customer limits are deferred: this system has no
+  -- customer identity (guest orders carry only a free-text name), so there
+  -- is nothing stable to key a per-customer count on yet.
+  usage_limit_total int check (usage_limit_total is null or usage_limit_total > 0),
+  usage_count       int not null default 0,
   created_at        timestamptz not null default now()
 );
 
@@ -1798,7 +1833,10 @@ create table public.promotions (
 alter table public.orders add column discount_cents int not null default 0 check (discount_cents >= 0);
 alter table public.orders add column promo_code text;
 
--- Validate a code and return the discount for a given subtotal (0 if invalid).
+-- Validate a code and return the discount for a given subtotal (0 if
+-- invalid) — schedule, usage-limit and min-subtotal checks all live here so
+-- the storefront's live preview (/api/public/promo) and place_order's real
+-- redemption can never disagree about whether a code is currently valid.
 create or replace function public.promo_discount(p_code text, p_subtotal_cents int)
 returns int language sql stable security definer set search_path = public, app as $fn$
   select coalesce((
@@ -1812,6 +1850,14 @@ returns int language sql stable security definer set search_path = public, app a
       and p_subtotal_cents >= p.min_subtotal_cents
       and (p.starts_at is null or p.starts_at <= now())
       and (p.ends_at is null or p.ends_at >= now())
+      and (p.usage_limit_total is null or p.usage_count < p.usage_limit_total)
+      and (p.days_of_week is null or extract(
+             dow from (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))
+           )::smallint = any(p.days_of_week))
+      and (p.start_time is null or
+           (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time >= p.start_time)
+      and (p.end_time is null or
+           (now() at time zone coalesce((select timezone from public.business_settings where id), 'UTC'))::time <= p.end_time)
     limit 1
   ), 0);
 $fn$;
@@ -1822,6 +1868,55 @@ create policy staff_read on public.promotions for select using (app.has_perm('me
 create policy mgr_write on public.promotions for all using (app.has_perm('menu.update') or app.can_write()) with check (app.has_perm('menu.update') or app.can_write());
 -- anon may read active promos so the storefront can validate a code
 create policy guest_read on public.promotions for select using (active);
+
+-- One row per successful promo-code redemption (spec: promotion analytics).
+-- Written only by place_order() (security definer) at the point usage_count
+-- is bumped — never directly by staff or the storefront.
+create table public.promotion_redemptions (
+  id            uuid primary key default gen_random_uuid(),
+  promotion_id  uuid not null references public.promotions(id) on delete cascade,
+  order_id      uuid references public.orders(id) on delete set null,
+  discount_cents int not null,
+  redeemed_at   timestamptz not null default now()
+);
+create index promotion_redemptions_promo_idx on public.promotion_redemptions(promotion_id, redeemed_at desc);
+alter table public.promotion_redemptions enable row level security;
+create policy staff_read on public.promotion_redemptions for select using (app.has_perm('menu.view') or app.is_staff());
+
+-- Per-promotion redemption count, total discount given and total revenue of
+-- the orders it was applied to, over an optional window (both bounds null =
+-- all time). Same authoritative-calc-layer principle as period_profitability
+-- etc: this is the one place that answers "how is this promo doing" for
+-- both the Promotions page and the AI assistant.
+create or replace function public.promotion_performance(p_from timestamptz default null, p_to timestamptz default null)
+returns table (
+  promotion_id uuid, name text, code text, kind app.promo_kind,
+  redemptions bigint, total_discount_cents bigint, total_order_revenue_cents bigint,
+  usage_limit_total int, usage_count int
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not app.has_perm('menu.view') then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    select p.id, p.name, p.code, p.kind,
+           count(r.id)::bigint,
+           coalesce(sum(r.discount_cents), 0)::bigint,
+           coalesce(sum(o.total_cents), 0)::bigint,
+           p.usage_limit_total, p.usage_count
+      from public.promotions p
+      left join public.promotion_redemptions r
+        on r.promotion_id = p.id
+       and (p_from is null or r.redeemed_at >= p_from)
+       and (p_to   is null or r.redeemed_at <  p_to)
+      left join public.orders o on o.id = r.order_id
+     group by p.id, p.name, p.code, p.kind, p.usage_limit_total, p.usage_count
+     order by count(r.id) desc, p.name;
+end;
+$fn$;
+revoke all on function public.promotion_performance(timestamptz, timestamptz) from public;
+grant execute on function public.promotion_performance(timestamptz, timestamptz) to authenticated, service_role;
 
 -- ── Suppliers & purchasing ───────────────────────────────────────────────
 create type app.po_status as enum ('draft', 'sent', 'partial', 'received', 'cancelled');

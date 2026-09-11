@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
-import { PromotionsManager, type Promo } from './PromotionsManager';
+import { PromotionsManager, type Promo, type PromoPerformance } from './PromotionsManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,12 +16,15 @@ export default async function PromotionsPage({
 
   await gatePortalPage(t.client, slug, 'menu.view');
 
-  const { data, error } = await t.client
-    .from('promotions')
-    .select(
-      'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, created_at',
-    )
-    .order('created_at', { ascending: false });
+  const [{ data, error }, { data: perf }] = await Promise.all([
+    t.client
+      .from('promotions')
+      .select(
+        'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, created_at',
+      )
+      .order('created_at', { ascending: false }),
+    t.client.rpc('promotion_performance'),
+  ]);
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -38,7 +41,10 @@ export default async function PromotionsPage({
           {error.message}
         </div>
       ) : (
-        <PromotionsManager promos={(data ?? []) as Promo[]} />
+        <PromotionsManager
+          promos={(data ?? []) as Promo[]}
+          performance={(perf ?? []) as PromoPerformance[]}
+        />
       )}
     </div>
   );
