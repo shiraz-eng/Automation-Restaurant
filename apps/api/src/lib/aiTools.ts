@@ -130,6 +130,128 @@ async function topItems(admin: SupabaseClient, sinceIso: string, n: number) {
     .map(([name, v]) => ({ name, ...v }));
 }
 
+// ── Exceptions engine (spec §44-47) ─────────────────────────────────────────
+// Shared by get_attention_items and get_daily_brief so "what needs
+// attention" is computed exactly once, never two competing exception
+// lists. Every check is deterministic SQL/RPC evidence, never an LLM
+// judgment call, and each category is independently permission-gated by
+// its own existing RLS policy or RPC check — a caller without access to a
+// category simply gets no items from it.
+type AttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
+async function computeAttentionItems(admin: SupabaseClient): Promise<AttentionItem[]> {
+  const items: AttentionItem[] = [];
+  const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+
+  // Low stock — reads AI Management's own low_stock_events (the same
+  // deterministic trigger the automatic supplier email uses), not a
+  // second ad hoc threshold check.
+  const lowStock = await admin
+    .from('low_stock_events')
+    .select('stock_at_open, threshold_at_open, inventory_items(name, unit)')
+    .eq('status', 'open');
+  if (!lowStock.error) {
+    for (const r of (lowStock.data ?? []) as { stock_at_open: number; threshold_at_open: number; inventory_items: { name: string; unit: string } | { name: string; unit: string }[] | null }[]) {
+      const it = one(r.inventory_items);
+      items.push({
+        severity: r.stock_at_open <= 0 ? 'CRITICAL' : 'HIGH',
+        category: 'inventory',
+        message: `${it?.name ?? 'An ingredient'} is at ${r.stock_at_open}${it?.unit ?? ''}, at or below its ${r.threshold_at_open}${it?.unit ?? ''} threshold.`,
+        open_in: 'Inventory',
+      });
+    }
+  }
+
+  // Payment holds — open supplier invoice holds, with the real reason.
+  const holds = await admin
+    .from('supplier_payment_holds')
+    .select('reason, amount_cents, supplier_invoices(supplier_invoice_number, suppliers(name))')
+    .eq('status', 'open');
+  if (!holds.error) {
+    for (const r of (holds.data ?? []) as { reason: string; amount_cents: number; supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null }[]) {
+      const inv = one(r.supplier_invoices);
+      const sup = inv ? one(inv.suppliers) : null;
+      items.push({
+        severity: r.amount_cents >= 50_000 ? 'HIGH' : 'MEDIUM',
+        category: 'payables',
+        message: `${sup?.name ?? 'A supplier'} invoice ${inv?.supplier_invoice_number ?? ''} (${formatCentsPlain(r.amount_cents)}) is on hold: ${r.reason}`,
+        open_in: 'Purchasing',
+      });
+    }
+  }
+
+  // Overdue payables — via the authoritative ledger; silently omitted
+  // for a caller without payables/finance visibility (the RPC's own
+  // permission check decides that, not this tool).
+  const payable = await admin.rpc('supplier_payable');
+  if (!payable.error) {
+    for (const r of (payable.data ?? []) as { supplier_name: string; overdue_cents: number }[]) {
+      if (r.overdue_cents > 0) {
+        items.push({
+          severity: 'HIGH',
+          category: 'payables',
+          message: `${formatCentsPlain(r.overdue_cents)} owed to ${r.supplier_name} is overdue.`,
+          open_in: 'Purchasing',
+        });
+      }
+    }
+  }
+
+  // Kitchen delays.
+  const kitchen = await admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE);
+  if (!kitchen.error) {
+    const oldest = (kitchen.data ?? []).reduce(
+      (m, o) => Math.max(m, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)),
+      0,
+    );
+    if (oldest >= 40) {
+      items.push({ severity: 'HIGH', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
+    } else if (oldest >= 20) {
+      items.push({ severity: 'MEDIUM', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
+    }
+  }
+
+  // Missing check-outs today.
+  const roster = await admin.rpc('attendance_roster', {});
+  if (!roster.error) {
+    const incomplete = ((roster.data ?? []) as { full_name: string | null; status: string }[]).filter((r) => r.status === 'incomplete');
+    if (incomplete.length > 0) {
+      items.push({
+        severity: 'MEDIUM',
+        category: 'attendance',
+        message: `${incomplete.length} staff member${incomplete.length === 1 ? '' : 's'} checked in but never checked out today (${incomplete.map((r) => r.full_name ?? '—').join(', ')}).`,
+        open_in: 'Team',
+      });
+    }
+  }
+
+  // Customer-rating drop, this week vs last week.
+  const { from: thisFrom, to: thisTo } = periodRange('this_week');
+  const { from: lastFrom, to: lastTo } = periodRange('last_week');
+  const [thisWeek, lastWeek] = await Promise.all([
+    admin.rpc('feedback_summary', { p_from: thisFrom.toISOString(), p_to: thisTo.toISOString() }),
+    admin.rpc('feedback_summary', { p_from: lastFrom.toISOString(), p_to: lastTo.toISOString() }),
+  ]);
+  if (!thisWeek.error && !lastWeek.error) {
+    const cur = (thisWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+    const prev = (lastWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+    if (cur && prev && cur.responses >= 2 && prev.responses >= 2 && cur.avg_overall != null && prev.avg_overall != null) {
+      const drop = prev.avg_overall - cur.avg_overall;
+      if (drop >= 0.3) {
+        items.push({
+          severity: drop >= 0.8 ? 'HIGH' : 'MEDIUM',
+          category: 'customers',
+          message: `Overall customer rating dropped from ${prev.avg_overall.toFixed(1)} to ${cur.avg_overall.toFixed(1)} this week (${cur.responses} response${cur.responses === 1 ? '' : 's'}).`,
+          open_in: 'Feedback',
+        });
+      }
+    }
+  }
+
+  const order: Record<AttentionItem['severity'], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  items.sort((a, b) => order[a.severity] - order[b.severity]);
+  return items;
+}
+
 export const AI_TOOLS: AiTool[] = [
   {
     name: 'get_restaurant_now',
@@ -172,118 +294,80 @@ export const AI_TOOLS: AiTool[] = [
     needs: 'orders.view',
     input_schema: { type: 'object', properties: {} },
     async run(admin) {
-      type Item = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
-      const items: Item[] = [];
-      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
-
-      // Low stock — reads AI Management's own low_stock_events (the same
-      // deterministic trigger the automatic supplier email uses), not a
-      // second ad hoc threshold check.
-      const lowStock = await admin
-        .from('low_stock_events')
-        .select('stock_at_open, threshold_at_open, inventory_items(name, unit)')
-        .eq('status', 'open');
-      if (!lowStock.error) {
-        for (const r of (lowStock.data ?? []) as { stock_at_open: number; threshold_at_open: number; inventory_items: { name: string; unit: string } | { name: string; unit: string }[] | null }[]) {
-          const it = one(r.inventory_items);
-          items.push({
-            severity: r.stock_at_open <= 0 ? 'CRITICAL' : 'HIGH',
-            category: 'inventory',
-            message: `${it?.name ?? 'An ingredient'} is at ${r.stock_at_open}${it?.unit ?? ''}, at or below its ${r.threshold_at_open}${it?.unit ?? ''} threshold.`,
-            open_in: 'Inventory',
-          });
-        }
-      }
-
-      // Payment holds — open supplier invoice holds, with the real reason.
-      const holds = await admin
-        .from('supplier_payment_holds')
-        .select('reason, amount_cents, supplier_invoices(supplier_invoice_number, suppliers(name))')
-        .eq('status', 'open');
-      if (!holds.error) {
-        for (const r of (holds.data ?? []) as { reason: string; amount_cents: number; supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null }[]) {
-          const inv = one(r.supplier_invoices);
-          const sup = inv ? one(inv.suppliers) : null;
-          items.push({
-            severity: r.amount_cents >= 50_000 ? 'HIGH' : 'MEDIUM',
-            category: 'payables',
-            message: `${sup?.name ?? 'A supplier'} invoice ${inv?.supplier_invoice_number ?? ''} (${formatCentsPlain(r.amount_cents)}) is on hold: ${r.reason}`,
-            open_in: 'Purchasing',
-          });
-        }
-      }
-
-      // Overdue payables — via the authoritative ledger; silently omitted
-      // for a caller without payables/finance visibility (the RPC's own
-      // permission check decides that, not this tool).
-      const payable = await admin.rpc('supplier_payable');
-      if (!payable.error) {
-        for (const r of (payable.data ?? []) as { supplier_name: string; overdue_cents: number }[]) {
-          if (r.overdue_cents > 0) {
-            items.push({
-              severity: 'HIGH',
-              category: 'payables',
-              message: `${formatCentsPlain(r.overdue_cents)} owed to ${r.supplier_name} is overdue.`,
-              open_in: 'Purchasing',
-            });
-          }
-        }
-      }
-
-      // Kitchen delays.
-      const kitchen = await admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE);
-      if (!kitchen.error) {
-        const oldest = (kitchen.data ?? []).reduce(
-          (m, o) => Math.max(m, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)),
-          0,
-        );
-        if (oldest >= 40) {
-          items.push({ severity: 'HIGH', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
-        } else if (oldest >= 20) {
-          items.push({ severity: 'MEDIUM', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
-        }
-      }
-
-      // Missing check-outs today.
-      const roster = await admin.rpc('attendance_roster', {});
-      if (!roster.error) {
-        const incomplete = ((roster.data ?? []) as { full_name: string | null; status: string }[]).filter((r) => r.status === 'incomplete');
-        if (incomplete.length > 0) {
-          items.push({
-            severity: 'MEDIUM',
-            category: 'attendance',
-            message: `${incomplete.length} staff member${incomplete.length === 1 ? '' : 's'} checked in but never checked out today (${incomplete.map((r) => r.full_name ?? '—').join(', ')}).`,
-            open_in: 'Team',
-          });
-        }
-      }
-
-      // Customer-rating drop, this week vs last week.
-      const { from: thisFrom, to: thisTo } = periodRange('this_week');
-      const { from: lastFrom, to: lastTo } = periodRange('last_week');
-      const [thisWeek, lastWeek] = await Promise.all([
-        admin.rpc('feedback_summary', { p_from: thisFrom.toISOString(), p_to: thisTo.toISOString() }),
-        admin.rpc('feedback_summary', { p_from: lastFrom.toISOString(), p_to: lastTo.toISOString() }),
-      ]);
-      if (!thisWeek.error && !lastWeek.error) {
-        const cur = (thisWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
-        const prev = (lastWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
-        if (cur && prev && cur.responses >= 2 && prev.responses >= 2 && cur.avg_overall != null && prev.avg_overall != null) {
-          const drop = prev.avg_overall - cur.avg_overall;
-          if (drop >= 0.3) {
-            items.push({
-              severity: drop >= 0.8 ? 'HIGH' : 'MEDIUM',
-              category: 'customers',
-              message: `Overall customer rating dropped from ${prev.avg_overall.toFixed(1)} to ${cur.avg_overall.toFixed(1)} this week (${cur.responses} response${cur.responses === 1 ? '' : 's'}).`,
-              open_in: 'Feedback',
-            });
-          }
-        }
-      }
-
-      const order: Record<Item['severity'], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-      items.sort((a, b) => order[a.severity] - order[b.severity]);
+      const items = await computeAttentionItems(admin);
       return { count: items.length, items, note: items.length === 0 ? 'Nothing needs attention right now.' : undefined };
+    },
+  },
+  {
+    name: 'get_daily_brief',
+    description:
+      'The morning AI Restaurant Brief (spec §17): yesterday\'s sales/orders/AOV/food cost/rating, today\'s low-stock count, pending supplier deliveries, total outstanding payables, today\'s missing staff check-outs, yesterday\'s customer feedback, and the same exception list as get_attention_items. Use for "morning brief" / "how did we do yesterday and what\'s going on" / "give me today\'s brief" — this is the one-call daily rollup, not a substitute for the deeper period tools when the owner asks a narrower question.',
+    needs: 'orders.view',
+    input_schema: { type: 'object', properties: {} },
+    async run(admin) {
+      const { from: yFrom, to: yTo } = periodRange('yesterday');
+
+      const [profitRes, feedbackRes, lowStockRes, pendingPoRes, payableRes, rosterRes, attentionItems, lowRatedRes] =
+        await Promise.all([
+          admin.rpc('period_profitability', { p_from: yFrom.toISOString(), p_to: yTo.toISOString() }),
+          admin.rpc('feedback_summary', { p_from: yFrom.toISOString(), p_to: yTo.toISOString() }),
+          admin.from('low_stock_events').select('inventory_items(name)').eq('status', 'open'),
+          admin.from('purchase_orders').select('id').in('status', ['sent', 'partial']),
+          admin.rpc('supplier_payable'),
+          admin.rpc('attendance_roster', {}),
+          computeAttentionItems(admin),
+          admin
+            .from('feedback')
+            .select('overall, comment, table_label, guest_name')
+            .gte('created_at', yFrom.toISOString())
+            .lt('created_at', yTo.toISOString())
+            .lte('overall', 2),
+        ]);
+
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const profit = (profitRes.data as { net_sales_cents: number; orders_count: number; gross_profit_cents: number; food_cost_pct: number | null }[] | null)?.[0];
+      const feedback = (feedbackRes.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const canSeeFinance = !profitRes.error && !payableRes.error;
+
+      const payableRows = (payableRes.data ?? []) as { supplier_name: string; outstanding_cents: number; overdue_cents: number }[];
+      const roster = (rosterRes.data ?? []) as { full_name: string | null; status: string }[];
+
+      return {
+        yesterday: profit
+          ? {
+              net_sales_cents: profit.net_sales_cents,
+              orders: profit.orders_count,
+              aov_cents: profit.orders_count > 0 ? Math.round(profit.net_sales_cents / profit.orders_count) : 0,
+              gross_profit_cents: canSeeFinance ? profit.gross_profit_cents : undefined,
+              food_cost_pct: canSeeFinance ? profit.food_cost_pct : undefined,
+              customer_rating: feedback?.avg_overall ?? null,
+              rating_responses: feedback?.responses ?? 0,
+            }
+          : { note: 'No sales recorded yesterday.' },
+        inventory: {
+          low_stock_count: (lowStockRes.data ?? []).length,
+          low_stock_items: (lowStockRes.data ?? [])
+            .map((r) => one(r.inventory_items as { name: string } | { name: string }[] | null)?.name)
+            .filter(Boolean),
+        },
+        suppliers: { pending_deliveries: (pendingPoRes.data ?? []).length },
+        finance: canSeeFinance
+          ? {
+              total_outstanding_cents: payableRows.reduce((s, r) => s + r.outstanding_cents, 0),
+              total_overdue_cents: payableRows.reduce((s, r) => s + r.overdue_cents, 0),
+            }
+          : undefined,
+        attendance: { missing_checkouts: roster.filter((r) => r.status === 'incomplete').length },
+        customer_feedback_yesterday: {
+          low_rated_count: (lowRatedRes.data ?? []).length,
+          low_rated: (lowRatedRes.data ?? []).slice(0, 5).map((f) => ({
+            overall: f.overall,
+            comment: untrusted(f.comment),
+            where: f.table_label ?? f.guest_name ?? null,
+          })),
+        },
+        attention_items: attentionItems,
+      };
     },
   },
   {
@@ -1223,6 +1307,7 @@ HOW TO ANSWER
 - Lead with the direct answer in one line. Then the few numbers that matter. Then, only if useful, a short recommendation.
 - For "how are we doing / what's happening": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
 - For "what needs my attention" / "what should I do" / "manage my restaurant" / "take care of today" — the single most important command — call get_attention_items and present its list as-is, ranked CRITICAL > HIGH > MEDIUM > LOW exactly as it returns them: do not add items it didn't find, and say "Nothing needs attention right now" plainly when the list is empty rather than inventing something to say. Name which part of the app to open (its open_in field) for each item so the owner can act on it.
+- For "morning brief" / "daily brief" / "how did we do yesterday and what's going on" / "give me today's brief", use get_daily_brief — one call covering yesterday's sales/food cost/rating, today's low-stock and pending-delivery counts, total outstanding payables, missing check-outs, yesterday's low-rated feedback, and the same attention items. Structure the answer in that order (yesterday, inventory, suppliers, finance, attendance, customers, then attention) rather than a wall of text, and only mention a section if it actually has something to say. If finance fields are absent, that's the caller's own permissions, not a fetch failure — don't apologize for it.
 - This assistant IS the sales, attendance AND profitability dashboard — there is no separate charts page, so when asked about sales, attendance, food cost, margin or profit, actually answer with the numbers (as a short table in plain text if there's more than a couple of rows), not just a pointer to "check the app".
 - For any question naming a period ("today", "this week", "this month", "last month", etc.) use get_sales_summary with that period — it already includes the comparison to the equivalent previous period, so state the % change directly (e.g. "Revenue is up 8% on this week last week") rather than fetching both ranges yourself.
 - For "how is attendance" / "who's been late" / a monthly attendance question, use get_attendance_month_summary. Present each person's attendance % together with its band (Excellent/Good/Needs Attention/Needs Improvement per get_attendance_month_summary's own bands, not your own judgment), and the raw days behind it ("18 of 20 scheduled days") — never a bare percentage. These bands describe attendance patterns, not disciplinary conclusions — never suggest firing or discipline from them.
