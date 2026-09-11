@@ -27,6 +27,11 @@ const clampInt = (v: unknown, def: number, max: number) => {
 /** Wrap customer-authored text so the model treats it as data, not instructions. */
 const untrusted = (s: string | null | undefined) =>
   s ? `<customer_text>${String(s).replace(/[<>]/g, '')}</customer_text>` : null;
+/** For the few tools (get_attention_items) that pre-compose a natural-language
+ * message server-side rather than leaving presentation to the model — matches
+ * apps/web's own formatCents (USD, en-US) so the number reads the same everywhere. */
+const formatCentsPlain = (cents: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const KITCHEN_ACTIVE = ['pending', 'in_kitchen', 'ready'];
@@ -158,6 +163,127 @@ export const AI_TOOLS: AiTool[] = [
           (i) => Number(i.stock_qty) <= Number(i.min_threshold),
         ).length,
       };
+    },
+  },
+  {
+    name: 'get_attention_items',
+    description:
+      'The single most important AI command: "what needs my attention". Scans stock, payment holds, overdue supplier payables, kitchen delays, missing staff check-outs and a customer-rating drop, and returns ONLY the real exceptions found — each with a severity, the evidence behind it, and which part of the app to open. Never invents an item; a category with nothing wrong is simply absent from the list.',
+    needs: 'orders.view',
+    input_schema: { type: 'object', properties: {} },
+    async run(admin) {
+      type Item = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
+      const items: Item[] = [];
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+
+      // Low stock — reads AI Management's own low_stock_events (the same
+      // deterministic trigger the automatic supplier email uses), not a
+      // second ad hoc threshold check.
+      const lowStock = await admin
+        .from('low_stock_events')
+        .select('stock_at_open, threshold_at_open, inventory_items(name, unit)')
+        .eq('status', 'open');
+      if (!lowStock.error) {
+        for (const r of (lowStock.data ?? []) as { stock_at_open: number; threshold_at_open: number; inventory_items: { name: string; unit: string } | { name: string; unit: string }[] | null }[]) {
+          const it = one(r.inventory_items);
+          items.push({
+            severity: r.stock_at_open <= 0 ? 'CRITICAL' : 'HIGH',
+            category: 'inventory',
+            message: `${it?.name ?? 'An ingredient'} is at ${r.stock_at_open}${it?.unit ?? ''}, at or below its ${r.threshold_at_open}${it?.unit ?? ''} threshold.`,
+            open_in: 'Inventory',
+          });
+        }
+      }
+
+      // Payment holds — open supplier invoice holds, with the real reason.
+      const holds = await admin
+        .from('supplier_payment_holds')
+        .select('reason, amount_cents, supplier_invoices(supplier_invoice_number, suppliers(name))')
+        .eq('status', 'open');
+      if (!holds.error) {
+        for (const r of (holds.data ?? []) as { reason: string; amount_cents: number; supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null }[]) {
+          const inv = one(r.supplier_invoices);
+          const sup = inv ? one(inv.suppliers) : null;
+          items.push({
+            severity: r.amount_cents >= 50_000 ? 'HIGH' : 'MEDIUM',
+            category: 'payables',
+            message: `${sup?.name ?? 'A supplier'} invoice ${inv?.supplier_invoice_number ?? ''} (${formatCentsPlain(r.amount_cents)}) is on hold: ${r.reason}`,
+            open_in: 'Purchasing',
+          });
+        }
+      }
+
+      // Overdue payables — via the authoritative ledger; silently omitted
+      // for a caller without payables/finance visibility (the RPC's own
+      // permission check decides that, not this tool).
+      const payable = await admin.rpc('supplier_payable');
+      if (!payable.error) {
+        for (const r of (payable.data ?? []) as { supplier_name: string; overdue_cents: number }[]) {
+          if (r.overdue_cents > 0) {
+            items.push({
+              severity: 'HIGH',
+              category: 'payables',
+              message: `${formatCentsPlain(r.overdue_cents)} owed to ${r.supplier_name} is overdue.`,
+              open_in: 'Purchasing',
+            });
+          }
+        }
+      }
+
+      // Kitchen delays.
+      const kitchen = await admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE);
+      if (!kitchen.error) {
+        const oldest = (kitchen.data ?? []).reduce(
+          (m, o) => Math.max(m, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)),
+          0,
+        );
+        if (oldest >= 40) {
+          items.push({ severity: 'HIGH', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
+        } else if (oldest >= 20) {
+          items.push({ severity: 'MEDIUM', category: 'kitchen', message: `The oldest active ticket has been waiting ${oldest} minutes.`, open_in: 'Kitchen' });
+        }
+      }
+
+      // Missing check-outs today.
+      const roster = await admin.rpc('attendance_roster', {});
+      if (!roster.error) {
+        const incomplete = ((roster.data ?? []) as { full_name: string | null; status: string }[]).filter((r) => r.status === 'incomplete');
+        if (incomplete.length > 0) {
+          items.push({
+            severity: 'MEDIUM',
+            category: 'attendance',
+            message: `${incomplete.length} staff member${incomplete.length === 1 ? '' : 's'} checked in but never checked out today (${incomplete.map((r) => r.full_name ?? '—').join(', ')}).`,
+            open_in: 'Team',
+          });
+        }
+      }
+
+      // Customer-rating drop, this week vs last week.
+      const { from: thisFrom, to: thisTo } = periodRange('this_week');
+      const { from: lastFrom, to: lastTo } = periodRange('last_week');
+      const [thisWeek, lastWeek] = await Promise.all([
+        admin.rpc('feedback_summary', { p_from: thisFrom.toISOString(), p_to: thisTo.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: lastFrom.toISOString(), p_to: lastTo.toISOString() }),
+      ]);
+      if (!thisWeek.error && !lastWeek.error) {
+        const cur = (thisWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+        const prev = (lastWeek.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+        if (cur && prev && cur.responses >= 2 && prev.responses >= 2 && cur.avg_overall != null && prev.avg_overall != null) {
+          const drop = prev.avg_overall - cur.avg_overall;
+          if (drop >= 0.3) {
+            items.push({
+              severity: drop >= 0.8 ? 'HIGH' : 'MEDIUM',
+              category: 'customers',
+              message: `Overall customer rating dropped from ${prev.avg_overall.toFixed(1)} to ${cur.avg_overall.toFixed(1)} this week (${cur.responses} response${cur.responses === 1 ? '' : 's'}).`,
+              open_in: 'Feedback',
+            });
+          }
+        }
+      }
+
+      const order: Record<Item['severity'], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+      items.sort((a, b) => order[a.severity] - order[b.severity]);
+      return { count: items.length, items, note: items.length === 0 ? 'Nothing needs attention right now.' : undefined };
     },
   },
   {
@@ -1095,7 +1221,8 @@ DATA & HONESTY
 
 HOW TO ANSWER
 - Lead with the direct answer in one line. Then the few numbers that matter. Then, only if useful, a short recommendation.
-- For "how are we doing / what's happening / what needs my attention": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
+- For "how are we doing / what's happening": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
+- For "what needs my attention" / "what should I do" / "manage my restaurant" / "take care of today" — the single most important command — call get_attention_items and present its list as-is, ranked CRITICAL > HIGH > MEDIUM > LOW exactly as it returns them: do not add items it didn't find, and say "Nothing needs attention right now" plainly when the list is empty rather than inventing something to say. Name which part of the app to open (its open_in field) for each item so the owner can act on it.
 - This assistant IS the sales, attendance AND profitability dashboard — there is no separate charts page, so when asked about sales, attendance, food cost, margin or profit, actually answer with the numbers (as a short table in plain text if there's more than a couple of rows), not just a pointer to "check the app".
 - For any question naming a period ("today", "this week", "this month", "last month", etc.) use get_sales_summary with that period — it already includes the comparison to the equivalent previous period, so state the % change directly (e.g. "Revenue is up 8% on this week last week") rather than fetching both ranges yourself.
 - For "how is attendance" / "who's been late" / a monthly attendance question, use get_attendance_month_summary. Present each person's attendance % together with its band (Excellent/Good/Needs Attention/Needs Improvement per get_attendance_month_summary's own bands, not your own judgment), and the raw days behind it ("18 of 20 scheduled days") — never a bare percentage. These bands describe attendance patterns, not disciplinary conclusions — never suggest firing or discipline from them.
