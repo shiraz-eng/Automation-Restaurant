@@ -69,6 +69,13 @@ const schema = z.object({
   RESEND_API_KEY: z.string().trim().optional(),
   EMAIL_FROM: z.string().trim().default('Automation Restaurant <onboarding@automationrestaurant.app>'),
   SUPPORT_EMAIL: z.string().trim().default('support@automationrestaurant.app'),
+
+  // AI assistant. Set GEMINI_API_KEY (free tier at aistudio.google.com) or
+  // ANTHROPIC_API_KEY. Both blank -> /api/ai returns 503 ai_not_configured.
+  GEMINI_API_KEY: z.string().trim().optional(),
+  GEMINI_MODEL: z.string().trim().default('gemini-flash-lite-latest'),
+  ANTHROPIC_API_KEY: z.string().trim().optional(),
+  AI_MODEL: z.string().trim().default('claude-sonnet-5'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -84,6 +91,14 @@ export const env = parsed.data;
 export const oauthConnectEnabled = Boolean(
   env.SUPABASE_OAUTH_CLIENT_ID && env.SUPABASE_OAUTH_CLIENT_SECRET,
 );
+
+/** Which AI backend to use — Gemini takes precedence when both keys are set. */
+export const aiProvider: 'gemini' | 'anthropic' | null = env.GEMINI_API_KEY
+  ? 'gemini'
+  : env.ANTHROPIC_API_KEY
+    ? 'anthropic'
+    : null;
+export const aiEnabled = aiProvider !== null;
 
 /** Real Stripe is usable (secret key + at least one price mapping). */
 const stripeConfigured =

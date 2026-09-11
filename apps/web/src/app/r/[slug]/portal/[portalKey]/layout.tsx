@@ -66,6 +66,14 @@ export default async function PortalLayout({
           </div>
           <div className="flex items-center gap-3 text-xs text-muted">
             <span className="hidden sm:inline">{user.email}</span>
+            {isThisPortal && (
+              <a
+                href={`/r/${slug}/set-portal-password?p=${portalKey}`}
+                className="hover:text-body underline"
+              >
+                Password
+              </a>
+            )}
             <SignOutButton redirectTo={`/r/${slug}/login`} />
           </div>
         </header>

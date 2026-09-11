@@ -6,6 +6,7 @@ import { publicRouter } from './routes/public';
 import { staffRouter } from './routes/staff';
 import { adminRouter } from './routes/admin';
 import { portalsRouter } from './routes/portals';
+import { aiRouter } from './routes/ai';
 import { retryFailedProvisions } from './provisioning';
 
 const app = express();
@@ -20,6 +21,7 @@ app.use('/api/public', publicRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/portals', portalsRouter);
+app.use('/api/ai', aiRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

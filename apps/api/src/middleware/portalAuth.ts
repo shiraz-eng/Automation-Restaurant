@@ -31,7 +31,7 @@ declare global {
  * app.has_perm()'s transitional fallback and the legacy is_staff() RLS, so
  * existing role-only logins keep working until they are back-filled.
  */
-function permits(perms: string[], role: string | null, need: string): boolean {
+export function permits(perms: string[], role: string | null, need: string): boolean {
   if (perms.includes('*') || perms.includes(need)) return true;
   if (perms.length === 0 && (role === 'owner' || role === 'manager')) return true;
   return false;

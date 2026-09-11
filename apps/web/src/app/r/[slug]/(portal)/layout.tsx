@@ -30,6 +30,7 @@ const NAV: [string, string, string?][] = [
   ['scheduling', 'Shifts', 'attendance.view'],
   ['portals', 'Portals', 'portals.view'],
   ['audit', 'Audit log', 'reports.view'],
+  ['ai', 'Assistant', 'ai.view'],
   ['billing', 'Billing', 'settings.view'],
   ['settings/theme', 'Theme', 'settings.view'],
 ];
