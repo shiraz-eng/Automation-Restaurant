@@ -45,7 +45,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v24 Dashboard visuals: revenue_by_category()/payment_mix()/
 //       feedback_summary() for the KPI row, mix pie charts and customer-
 //       experience card (top products/attendance reuse existing RPCs)
-const SCHEMA_VERSION = 24;
+//   v25 AI Management's first automation: low_stock_events (deterministic
+//       trigger, open/resolve, one-open-per-item), supplier_communications
+//       log, pending_low_stock_reorders() eligibility RPC
+const SCHEMA_VERSION = 25;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -8,6 +8,7 @@ import { adminRouter } from './routes/admin';
 import { portalsRouter } from './routes/portals';
 import { aiRouter } from './routes/ai';
 import { retryFailedProvisions } from './provisioning';
+import { runLowStockSweepAllTenants } from './lib/lowStockAutomation';
 
 const app = express();
 
@@ -35,3 +36,12 @@ const RETRY_INTERVAL_MS = 5 * 60_000;
 setInterval(() => {
   retryFailedProvisions().catch((err) => console.error('[provision] retry sweep error:', err));
 }, RETRY_INTERVAL_MS).unref();
+
+// AI Management's low-stock supplier email sweep (deterministic — the
+// trigger and eligibility are decided in SQL, this just sends). Off by
+// default per-restaurant (purchasing_settings.low_stock_email_enabled),
+// so this interval running is harmless until an owner opts in.
+const LOW_STOCK_SWEEP_INTERVAL_MS = 15 * 60_000;
+setInterval(() => {
+  runLowStockSweepAllTenants().catch((err) => console.error('[low-stock] sweep error:', err));
+}, LOW_STOCK_SWEEP_INTERVAL_MS).unref();

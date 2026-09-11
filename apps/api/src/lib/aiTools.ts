@@ -971,6 +971,51 @@ export const AI_TOOLS: AiTool[] = [
       return { supplier: sup.name, window_days: days, transactions: data ?? [] };
     },
   },
+  {
+    name: 'get_supplier_communications',
+    description:
+      'The log of automatic low-stock reorder emails sent to suppliers (AI Management\'s low-stock automation) — evidence for "did you email anyone about low stock", "which suppliers were contacted today", "what did we ask X for". Every row is a real send attempt, never invented.',
+    needs: 'supplier.view',
+    input_schema: {
+      type: 'object',
+      properties: { days: { type: 'integer', description: '1-90, default 7' } },
+    },
+    async run(admin, args) {
+      const days = clampInt(args.days, 7, 90);
+      const { data, error } = await admin
+        .from('supplier_communications')
+        .select('subject, recipient_email, suggested_qty, status, error, sent_at, created_at, suppliers(name), inventory_items(name, unit)')
+        .gte('created_at', daysAgo(days))
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) return { error: error.message };
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const rows = (data ?? []) as {
+        subject: string;
+        recipient_email: string;
+        suggested_qty: number | null;
+        status: string;
+        error: string | null;
+        sent_at: string | null;
+        created_at: string;
+        suppliers: { name: string } | { name: string }[] | null;
+        inventory_items: { name: string; unit: string } | { name: string; unit: string }[] | null;
+      }[];
+      return {
+        window_days: days,
+        communications: rows.map((r) => ({
+          supplier: one(r.suppliers)?.name ?? '—',
+          item: one(r.inventory_items)?.name ?? '—',
+          suggested_qty: r.suggested_qty,
+          recipient_email: r.recipient_email,
+          status: r.status,
+          error: r.error,
+          sent_at: r.sent_at ?? r.created_at,
+        })),
+        note: rows.length === 0 ? 'No supplier reorder emails in this window.' : undefined,
+      };
+    },
+  },
 ];
 
 /**
@@ -1059,6 +1104,7 @@ HOW TO ANSWER
 - For "which item/deal makes the most money", "which item has high food cost", or "what should I push/cut/reprice", use get_item_profitability / get_deal_profitability / get_menu_engineering for the period asked. Rank by CONTRIBUTION (Rupees earned), not food-cost % alone — a high-food-cost item that sells a lot can still be a Star; say so explicitly if the data shows it, rather than assuming high food cost = bad.
 - For analysis ("why are sales/margin down", comparisons beyond the built-in period tools): pull the relevant windows, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
 - For "what do we owe" / "who do we owe the most" / "how much do we owe X", use get_supplier_payable (omit supplier_name for the ranked list, pass it for one supplier). Lead with outstanding, then call out on_hold and overdue separately since money can be owed without being payable yet. For "what's on hold" / "why is this invoice on hold", use get_payment_holds and quote the specific reason verbatim — never guess why something is held. For "what did we buy from X" / "how much have we paid X", use get_supplier_statement.
+- For "did you email anyone about low stock" / "which suppliers were contacted" / "what did you ask X for", use get_supplier_communications — this is AI Management's own automation log (a deterministic SQL trigger decides when it fires, not you), so answer strictly from what it returns, including a failed send's actual reason (e.g. no email provider configured) rather than implying it went out.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
 - Keep it short. A busy manager is reading this between tables.
 

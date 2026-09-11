@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 
 type Item = {
@@ -12,16 +12,34 @@ type Item = {
   unit: string;
   stock_qty: number;
   min_threshold: number;
+  target_stock_qty: number | null;
+  auto_reorder_email: boolean;
   supplier_name: string | null;
   cost_cents_per_base_unit: number;
 };
+type Supplier = { id: string; name: string; email: string | null };
 
-export function InventoryManager({ items, canViewCost }: { items: Item[]; canViewCost: boolean }) {
+export function InventoryManager({
+  items,
+  canViewCost,
+  canManageAutomation,
+  suppliers,
+  preferredBySupplierItem,
+  lowStockEmailEnabled,
+}: {
+  items: Item[];
+  canViewCost: boolean;
+  canManageAutomation: boolean;
+  suppliers: Supplier[];
+  preferredBySupplierItem: Record<string, { supplierItemId: string; supplierId: string }>;
+  lowStockEmailEnabled: boolean;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<Record<string, string>>({});
+  const [automationBusy, setAutomationBusy] = useState(false);
 
   const [newName, setNewName] = useState('');
   const [newUnit, setNewUnit] = useState('unit');
@@ -123,6 +141,87 @@ export function InventoryManager({ items, canViewCost }: { items: Item[]; canVie
     router.refresh();
   }
 
+  async function setTarget(item: Item) {
+    const v = window.prompt(
+      `Target stock for ${item.name} (${item.unit}) — used to size the automatic low-stock reorder email. Leave blank to clear.`,
+      item.target_stock_qty != null ? String(item.target_stock_qty) : '',
+    );
+    if (v == null) return;
+    const trimmed = v.trim();
+    const target = trimmed === '' ? null : parseFloat(trimmed);
+    if (trimmed !== '' && (Number.isNaN(target) || (target as number) < 0)) {
+      setError('Enter a valid non-negative target, or leave blank to clear it.');
+      return;
+    }
+    setBusyId(item.id);
+    setError(null);
+    const { error } = await supabase.from('inventory_items').update({ target_stock_qty: target }).eq('id', item.id);
+    setBusyId(null);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function setPreferredSupplier(item: Item, supplierId: string) {
+    setBusyId(item.id);
+    setError(null);
+    const existing = preferredBySupplierItem[item.id];
+    if (existing && existing.supplierId === supplierId) {
+      setBusyId(null);
+      return;
+    }
+    // Only one preferred supplier per item — clear any other preferred row
+    // for this item before setting the new one (or clearing to "none").
+    if (existing) {
+      await supabase.from('supplier_items').update({ is_preferred: false }).eq('id', existing.supplierItemId);
+    }
+    if (supplierId) {
+      const { data: already } = await supabase
+        .from('supplier_items')
+        .select('id')
+        .eq('supplier_id', supplierId)
+        .eq('inventory_item_id', item.id)
+        .maybeSingle();
+      const { error } = already
+        ? await supabase.from('supplier_items').update({ is_preferred: true }).eq('id', already.id)
+        : await supabase.from('supplier_items').insert({ supplier_id: supplierId, inventory_item_id: item.id, is_preferred: true });
+      setBusyId(null);
+      if (error) {
+        setError(error.message);
+        return;
+      }
+    } else {
+      setBusyId(null);
+    }
+    router.refresh();
+  }
+
+  async function toggleItemAutomation(item: Item) {
+    setBusyId(item.id);
+    setError(null);
+    const { error } = await supabase.from('inventory_items').update({ auto_reorder_email: !item.auto_reorder_email }).eq('id', item.id);
+    setBusyId(null);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function toggleLowStockEmailEnabled() {
+    setAutomationBusy(true);
+    setError(null);
+    const { error } = await supabase.from('purchasing_settings').update({ low_stock_email_enabled: !lowStockEmailEnabled }).eq('id', true);
+    setAutomationBusy(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.refresh();
+  }
+
   async function addItem(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) {
@@ -154,6 +253,27 @@ export function InventoryManager({ items, canViewCost }: { items: Item[]; canVie
         <div className="rounded border border-danger/40 bg-danger/10 text-danger p-3 text-xs">
           {error}
         </div>
+      )}
+
+      {canManageAutomation && (
+        <Card className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-sm">AI Management — low-stock supplier email</h2>
+            <p className="text-[11px] text-muted mt-0.5">
+              When an ingredient falls to or below its minimum and has a target stock + preferred supplier set below,
+              automatically email that supplier a reorder request. Never sends twice for the same low-stock spell,
+              and stops once stock recovers.
+            </p>
+          </div>
+          <Button
+            variant={lowStockEmailEnabled ? 'danger' : 'primary'}
+            disabled={automationBusy}
+            onClick={toggleLowStockEmailEnabled}
+            className="shrink-0"
+          >
+            {lowStockEmailEnabled ? 'Turn off' : 'Turn on'}
+          </Button>
+        </Card>
       )}
 
       <Card>
@@ -192,6 +312,8 @@ export function InventoryManager({ items, canViewCost }: { items: Item[]; canVie
               <th className="p-3 font-semibold">Ingredient</th>
               <th className="p-3 font-semibold text-right">On hand</th>
               <th className="p-3 font-semibold text-right">Min</th>
+              {canManageAutomation && <th className="p-3 font-semibold text-right">Target</th>}
+              {canManageAutomation && <th className="p-3 font-semibold">Preferred supplier</th>}
               {canViewCost && <th className="p-3 font-semibold text-right">Cost</th>}
               {canViewCost && <th className="p-3 font-semibold text-right">Value</th>}
               <th className="p-3 font-semibold">Record</th>
@@ -200,7 +322,7 @@ export function InventoryManager({ items, canViewCost }: { items: Item[]; canVie
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={canViewCost ? 6 : 4} className="p-3 text-muted">
+                <td colSpan={4 + (canManageAutomation ? 2 : 0) + (canViewCost ? 2 : 0)} className="p-3 text-muted">
                   No ingredients yet.
                 </td>
               </tr>
@@ -217,6 +339,42 @@ export function InventoryManager({ items, canViewCost }: { items: Item[]; canVie
                       {it.stock_qty} {it.unit}
                     </td>
                     <td className="p-3 text-right text-muted">{it.min_threshold}</td>
+                    {canManageAutomation && (
+                      <td className="p-3 text-right">
+                        <button onClick={() => setTarget(it)} className="font-mono text-primary underline decoration-dotted">
+                          {it.target_stock_qty != null ? it.target_stock_qty : 'set'}
+                        </button>
+                      </td>
+                    )}
+                    {canManageAutomation && (
+                      <td className="p-3">
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={preferredBySupplierItem[it.id]?.supplierId ?? ''}
+                            onChange={(e) => setPreferredSupplier(it, e.target.value as string)}
+                            disabled={busyId === it.id}
+                            className="text-[11px]"
+                          >
+                            <option value="">— none —</option>
+                            {suppliers.map((s) => (
+                              <option key={s.id} value={s.id} disabled={!s.email}>
+                                {s.name}
+                                {!s.email ? ' (no email)' : ''}
+                              </option>
+                            ))}
+                          </Select>
+                          <label className="flex items-center gap-1 text-[10px] text-muted whitespace-nowrap" title="Include this ingredient in the automatic low-stock reorder email">
+                            <input
+                              type="checkbox"
+                              checked={it.auto_reorder_email}
+                              onChange={() => toggleItemAutomation(it)}
+                              disabled={busyId === it.id}
+                            />
+                            auto-email
+                          </label>
+                        </div>
+                      </td>
+                    )}
                     {canViewCost && (
                       <td className="p-3 text-right">
                         <button onClick={() => setCost(it)} className="font-mono text-primary underline decoration-dotted">
