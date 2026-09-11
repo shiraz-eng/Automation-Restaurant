@@ -25,6 +25,7 @@ const INVITABLE: StaffRole[] = [
   'accountant',
   'delivery',
 ];
+const ALL_ROLES: StaffRole[] = ['owner', ...INVITABLE];
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export function StaffManager({ staff }: { staff: Member[] }) {
@@ -39,6 +40,33 @@ export function StaffManager({ staff }: { staff: Member[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  async function changeRole(m: Member, nextRole: StaffRole) {
+    if (nextRole === m.role) return;
+    setSavingId(m.id);
+    setError(null);
+    setOk(null);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const res = await fetch(`${API}/api/staff/access`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token ?? ''}`,
+      },
+      body: JSON.stringify({ slug, membership_id: m.id, role: nextRole }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSavingId(null);
+    if (!res.ok) {
+      setError(body.message ?? body.error ?? 'Could not change the role.');
+      return;
+    }
+    setOk(`${m.email} is now ${ROLE_LABELS[nextRole]}.`);
+    router.refresh();
+  }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -140,7 +168,20 @@ export function StaffManager({ staff }: { staff: Member[] }) {
                 <tr key={m.id} className="border-b border-border/60">
                   <td className="p-3 font-semibold">{m.full_name ?? '—'}</td>
                   <td className="p-3 text-muted">{m.email}</td>
-                  <td className="p-3 capitalize">{m.role}</td>
+                  <td className="p-3">
+                    <Select
+                      value={m.role}
+                      disabled={savingId === m.id}
+                      onChange={(e) => changeRole(m, e.target.value as StaffRole)}
+                      className="text-xs py-1"
+                    >
+                      {ALL_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
                   <td className="p-3">
                     <span className={m.status === 'active' ? 'text-ok' : 'text-muted'}>
                       {m.status}

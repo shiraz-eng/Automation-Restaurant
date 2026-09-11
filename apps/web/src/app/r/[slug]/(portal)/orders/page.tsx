@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { OrdersClient } from './OrdersClient';
 
 export const dynamic = 'force-dynamic';
@@ -9,10 +10,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'orders.view');
 
   const { data: orders, error } = await t.client
     .from('orders')

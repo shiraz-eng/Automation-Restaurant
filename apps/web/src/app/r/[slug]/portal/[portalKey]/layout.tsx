@@ -23,7 +23,7 @@ export default async function PortalLayout({
 
   const { data: portal } = await t.client
     .from('portals')
-    .select('id, name, type, route_key, status, permissions')
+    .select('id, name, type, route_key, status, permissions, force_pw_change')
     .eq('route_key', portalKey)
     .maybeSingle();
   if (!portal) notFound();
@@ -43,6 +43,10 @@ export default async function PortalLayout({
   }
   if (portal.status === 'disabled' && !isOwner) {
     redirect(`/r/${slug}/login`);
+  }
+  // Force a password change on first sign-in for a freshly-created portal login.
+  if (isThisPortal && portal.force_pw_change) {
+    redirect(`/r/${slug}/set-portal-password?p=${portalKey}`);
   }
 
   return (

@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { KdsBoard, type Ticket } from './KdsBoard';
 
 export const dynamic = 'force-dynamic';
@@ -11,15 +12,12 @@ export default async function KdsPage({ params }: { params: Promise<{ slug: stri
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'kitchen.view');
 
   const { data, error } = await t.client
     .from('orders')
     .select(
-      'id, order_number, table_label, channel, created_at, status, order_lines(id, name_snapshot, qty, kds_status, modifiers)',
+      'id, order_number, table_label, channel, created_at, status, customer_note, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
     )
     .in('status', ACTIVE)
     .order('created_at', { ascending: true });

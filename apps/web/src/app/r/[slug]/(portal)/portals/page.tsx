@@ -1,6 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { isManagement } from '@/lib/portals';
+import { gatePortalPage } from '@/lib/permissions';
 import { PortalsManager, type Portal, type PermRow } from './PortalsManager';
 
 export const dynamic = 'force-dynamic';
@@ -14,12 +14,7 @@ export default async function PortalsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
-  const role = (user.app_metadata as { role?: string }).role ?? 'owner';
-  if (!isManagement(role)) redirect(`/r/${slug}`);
+  await gatePortalPage(t.client, slug, 'portals.view');
 
   const [{ data: portals, error }, { data: perms }] = await Promise.all([
     t.client

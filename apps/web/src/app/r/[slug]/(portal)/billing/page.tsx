@@ -1,6 +1,7 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { getTenantConfig } from '@/lib/tenant';
 import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 import { Card } from '@/components/ui';
@@ -11,10 +12,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'settings.view');
 
   const config = await getTenantConfig(slug);
   const tier = isPlanTier(config?.tier) ? config!.tier : 'starter';

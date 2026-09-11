@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { LiveBoard, type LiveOrder, type FeedbackRow } from './LiveBoard';
 
 export const dynamic = 'force-dynamic';
@@ -8,10 +9,7 @@ export default async function LivePage({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'orders.view');
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);

@@ -1,6 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { isManagement } from '@/lib/portals';
+import { gatePortalPage } from '@/lib/permissions';
 import { Card } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 
@@ -20,6 +20,7 @@ type Row = {
   id: number;
   actor_email: string | null;
   actor_role: string | null;
+  portal_id: string | null;
   action: string;
   entity: string;
   entity_id: string | null;
@@ -31,6 +32,11 @@ type Row = {
 /** Short description of what changed, favouring money/name/status fields. */
 function describe(r: Row): string {
   const keys = ['name', 'label', 'price_cents', 'stock_qty', 'role', 'status', 'is_available'];
+  if (r.action.includes('.')) {
+    // domain event from app.log_action — before/after are compact objects
+    const parts = Object.entries(r.after ?? {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
+    return parts.length ? parts.join(', ') : r.action;
+  }
   if (r.action === 'INSERT') {
     const n = (r.after?.name ?? r.after?.label ?? r.after?.email) as string | undefined;
     return n ? `added “${n}”` : 'created a record';
@@ -59,16 +65,11 @@ export default async function AuditPage({
   const { entity } = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
-  const role = (user.app_metadata as { role?: string }).role ?? 'owner';
-  if (!isManagement(role)) redirect(`/r/${slug}`);
+  await gatePortalPage(t.client, slug, 'reports.view');
 
   let q = t.client
     .from('audit_logs')
-    .select('id, actor_email, actor_role, action, entity, entity_id, before, after, created_at')
+    .select('id, actor_email, actor_role, portal_id, action, entity, entity_id, before, after, created_at')
     .order('created_at', { ascending: false })
     .limit(200);
   if (entity && (ENTITIES as readonly string[]).includes(entity)) q = q.eq('entity', entity);
@@ -123,7 +124,10 @@ export default async function AuditPage({
                   </td>
                   <td className="p-3">
                     <div>{r.actor_email ?? 'system'}</div>
-                    <div className="text-muted">{r.actor_role ?? '—'}</div>
+                    <div className="text-muted">
+                      {r.actor_role ?? '—'}
+                      {r.portal_id ? ' · portal' : ''}
+                    </div>
                   </td>
                   <td className="p-3">
                     <span className="font-semibold">{r.entity.replace(/_/g, ' ')}</span>

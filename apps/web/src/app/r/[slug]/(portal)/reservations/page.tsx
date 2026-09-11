@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { ReservationsClient } from './ReservationsClient';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +14,7 @@ export default async function ReservationsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'tables.view');
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);

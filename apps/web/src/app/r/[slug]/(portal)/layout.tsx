@@ -3,27 +3,35 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
 import { NavLink } from '@/components/NavLink';
-import { isManagement, roleHome } from '@/lib/portals';
+import { roleHome } from '@/lib/portals';
+import { can } from '@/lib/permissions';
 
-const NAV: [string, string][] = [
+// [segment, label, permission key]. Items without a key always show. The
+// permission gate is additive to the role gate below — owner/manager (and any
+// '*' grant) see everything; a scoped permission array hides what it lacks.
+const NAV: [string, string, string?][] = [
   ['', 'Dashboard'],
-  ['live', 'Live ops'],
-  ['pos', 'Counter POS'],
-  ['kds', 'Kitchen Display'],
-  ['tables', 'Tables & QR'],
-  ['reservations', 'Reservations'],
-  ['orders', 'Orders'],
-  ['menu', 'Menu'],
-  ['promotions', 'Promotions'],
-  ['inventory', 'Inventory'],
-  ['suppliers', 'Suppliers'],
-  ['purchasing', 'Purchasing'],
-  ['staff', 'Staff'],
-  ['scheduling', 'Shifts'],
-  ['portals', 'Portals'],
-  ['audit', 'Audit log'],
-  ['billing', 'Billing'],
-  ['settings/theme', 'Theme'],
+  ['live', 'Live ops', 'orders.view'],
+  ['pos', 'Counter POS', 'orders.create'],
+  ['checkout', 'Checkout', 'payments.view'],
+  ['close', 'Day close', 'finance.view'],
+  ['kds', 'Kitchen Display', 'kitchen.view'],
+  ['tables', 'Tables & QR', 'tables.view'],
+  ['reservations', 'Reservations', 'tables.view'],
+  ['orders', 'Orders', 'orders.view'],
+  ['menu', 'Menu', 'menu.view'],
+  ['deals', 'Deals', 'deals.view'],
+  ['promotions', 'Promotions', 'menu.view'],
+  ['inventory', 'Inventory', 'stock.view'],
+  ['suppliers', 'Suppliers', 'supplier.view'],
+  ['purchasing', 'Purchasing', 'purchases.view'],
+  ['staff', 'Staff', 'staff.view'],
+  ['roles', 'Roles', 'roles.view'],
+  ['scheduling', 'Shifts', 'attendance.view'],
+  ['portals', 'Portals', 'portals.view'],
+  ['audit', 'Audit log', 'reports.view'],
+  ['billing', 'Billing', 'settings.view'],
+  ['settings/theme', 'Theme', 'settings.view'],
 ];
 
 export default async function PortalLayout({
@@ -42,9 +50,25 @@ export default async function PortalLayout({
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
 
-  // This is the management portal. Non-management roles get bounced to theirs.
-  const role = (user.app_metadata as { role?: string }).role ?? 'owner';
-  if (!isManagement(role)) redirect(roleHome(role, slug));
+  // Operations Portal. A portal login goes to its own portal; roles with a
+  // dedicated surface (chef → kitchen, cashier → register, …) are bounced there;
+  // owner/manager and any permissioned role without a dedicated home may use
+  // Operations, gated per-page by permission.
+  const meta = (user.app_metadata ?? {}) as {
+    kind?: string;
+    role?: string;
+    portal_route?: string;
+    permissions?: string[];
+  };
+  if (meta.kind === 'portal') {
+    redirect(meta.portal_route ? `/r/${slug}/portal/${meta.portal_route}` : `/r/${slug}/login`);
+  }
+  const role = meta.role ?? 'owner';
+  const home = roleHome(role, slug);
+  if (home !== `/r/${slug}`) redirect(home);
+
+  const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
+  const canSee = (key?: string) => !key || can(perms, role, key);
 
   return (
     <PortalProvider
@@ -58,7 +82,7 @@ export default async function PortalLayout({
             {t.config.tier ? ` · ${t.config.tier}` : ''}
           </div>
           <nav className="flex flex-col gap-1 text-sm">
-            {NAV.map(([seg, label]) => (
+            {NAV.filter(([, , key]) => canSee(key)).map(([seg, label]) => (
               <NavLink
                 key={seg}
                 href={`/r/${slug}${seg ? `/${seg}` : ''}`}

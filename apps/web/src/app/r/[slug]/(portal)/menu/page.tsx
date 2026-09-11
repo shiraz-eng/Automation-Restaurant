@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { MenuManager } from './MenuManager';
 
 export const dynamic = 'force-dynamic';
@@ -9,10 +10,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'menu.view');
 
   const [{ data: categories }, { data: items, error }] = await Promise.all([
     t.client.from('menu_categories').select('id, name').order('sort_order'),

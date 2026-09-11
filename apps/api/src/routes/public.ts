@@ -57,7 +57,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   const tenant = slug ? await tenantClientForSlug(slug) : null;
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const [{ data: categories }, { data: items }] = await Promise.all([
+  const [{ data: categories }, { data: items }, { data: deals }] = await Promise.all([
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
@@ -66,6 +66,13 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
       )
       .eq('is_available', true)
       .order('name'),
+    tenant
+      .from('deals')
+      .select(
+        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_items(name), menu_variants(name, price_cents))',
+      )
+      .eq('is_available', true)
+      .order('sort_order'),
   ]);
 
   // Drop unavailable/out-of-stock variants; keep only items that still have one.
@@ -78,7 +85,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     }))
     .filter((it) => (it.menu_variants as unknown[]).length > 0);
 
-  res.json({ categories: categories ?? [], items: cleaned });
+  res.json({ categories: categories ?? [], items: cleaned, deals: deals ?? [] });
 });
 
 // Storefront promo-code preview: validate a code against a subtotal without
@@ -108,18 +115,21 @@ const orderSchema = z.object({
   guest_name: z.string().trim().max(80).optional(),
   channel: z.enum(['dine_in', 'takeaway', 'delivery']).default('dine_in'),
   promo_code: z.string().trim().min(1).max(40).optional(),
+  customer_note: z.string().trim().max(500).optional(),
   lines: z
     .array(
       z.object({
         menu_item_id: z.string().uuid().optional(),
         variant_id: z.string().uuid().optional(),
+        deal_id: z.string().uuid().optional(),
         qty: z.number().int().positive().max(99),
+        note: z.string().trim().max(500).optional(),
       }),
     )
     .min(1)
     .max(50)
-    .refine((ls) => ls.every((l) => l.menu_item_id || l.variant_id), {
-      message: 'each line needs menu_item_id or variant_id',
+    .refine((ls) => ls.every((l) => l.menu_item_id || l.variant_id || l.deal_id), {
+      message: 'each line needs menu_item_id, variant_id or deal_id',
     }),
 });
 
@@ -130,13 +140,14 @@ publicRouter.post('/orders', express.json(), async (req: Request, res: Response)
       .status(422)
       .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
   }
-  const { slug, table, guest_name, channel, promo_code, lines } = parsed.data;
+  const { slug, table, guest_name, channel, promo_code, customer_note, lines } = parsed.data;
 
   const tenant = await tenantClientForSlug(slug);
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
   // place_order re-validates the code against the live promotion server-side and
-  // computes the discount itself — the client can't dictate a price.
+  // computes the discount itself — the client can't dictate a price. Notes are
+  // stored as untrusted plain text.
   const { data, error } = await tenant.rpc('place_order', {
     p_channel: channel,
     p_table_label: table ?? null,
@@ -144,6 +155,7 @@ publicRouter.post('/orders', express.json(), async (req: Request, res: Response)
     p_tax_rate_bps: TAX_RATE_BPS,
     p_lines: lines,
     p_promo_code: promo_code ?? null,
+    p_customer_note: customer_note ?? null,
   });
   if (error) {
     return res.status(400).json({ error: 'order_failed', message: error.message });

@@ -12,8 +12,18 @@ import { sendWelcomeEmail, type MailResult } from './lib/mailer';
 import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 
 // Bump whenever tenant-template/schema.sql changes; matches the highest applied
-// file in supabase/tenant-migrations/. v2 = promotions + purchasing + scheduling.
-const SCHEMA_VERSION = 3;
+// file in supabase/tenant-migrations/.
+//   v3 permissions foundation · v4 portals · v5 menu variants
+//   v6 Operations Portal RBAC (permission-gated RLS + expanded catalog)
+//   v7 roles as objects + presets + set_member_access
+//   v8 staff permission back-fill (no-op on a fresh project)
+//   v9 payments / refunds / order_adjustments + cashier RPCs
+//   v10 Kitchen Portal — customer notes, kitchen status RPCs, food availability
+//   v11 Attendance Portal — business/attendance settings, check-in/out RPCs
+//   v12 Deals & combos — deals / deal_components, deal-aware place_order
+//   v13 audit attribution (portal_id) + order-lifecycle audit + daily_closings
+//   v14 hardening — set_member_access JWT-derived + service-role-only, force-pw RPC
+const SCHEMA_VERSION = 14;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

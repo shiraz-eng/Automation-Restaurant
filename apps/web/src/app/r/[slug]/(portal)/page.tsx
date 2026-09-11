@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { StatCard } from '@/components/StatCard';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { PLAN_FEATURES, isPlanTier } from '@automation-restaurant/shared';
@@ -25,10 +26,7 @@ export default async function DashboardPage({
   if (!t) notFound();
   const supabase = t.client;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  const { user } = await gatePortalPage(supabase, slug, '');
 
   const [membershipRes, ordersRes, menuRes, inventoryRes] = await Promise.all([
     supabase.from('memberships').select('role').eq('user_id', user.id).maybeSingle(),

@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { env } from '../env';
-import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
+import { requirePortalPerm } from '../middleware/portalAuth';
 
 export const portalsRouter = express.Router();
 
@@ -43,35 +42,6 @@ function routeKey(name: string): string {
   );
 }
 
-/**
- * Resolve the tenant admin client and verify the caller holds `need`.
- * Caller proves identity with their tenant-project access token.
- */
-async function authorize(
-  req: Request,
-  res: Response,
-  slug: string,
-  need: string,
-): Promise<{ admin: SupabaseClient } | null> {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'missing_token' });
-    return null;
-  }
-  const svc = await tenantServiceClientBySlug(slug);
-  if (!svc) {
-    res.status(404).json({ error: 'restaurant_not_found' });
-    return null;
-  }
-  const { data: caller } = await svc.admin.auth.getUser(auth.slice(7));
-  const perms = (caller?.user?.app_metadata as { permissions?: string[] } | undefined)?.permissions ?? [];
-  if (!caller?.user || !(perms.includes('*') || perms.includes(need))) {
-    res.status(403).json({ error: 'forbidden' });
-    return null;
-  }
-  return { admin: svc.admin };
-}
-
 const createSchema = z.object({
   slug: z.string().min(1),
   name: z.string().trim().min(2).max(60),
@@ -81,14 +51,15 @@ const createSchema = z.object({
 });
 
 /** POST /api/portals — create a portal + its login. */
-portalsRouter.post('/', express.json(), async (req: Request, res: Response) => {
+portalsRouter.post(
+  '/',
+  express.json(),
+  requirePortalPerm('portals.create'),
+  async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
   const { slug, name, type, permissions } = parsed.data;
-
-  const ok = await authorize(req, res, slug, 'portals.create');
-  if (!ok) return;
-  const { admin } = ok;
+  const { admin } = req.tenant!;
 
   // Unique route_key.
   let key = routeKey(name);
@@ -101,7 +72,7 @@ portalsRouter.post('/', express.json(), async (req: Request, res: Response) => {
   // 1. row (need its id for the Auth user's app_metadata)
   const { data: portal, error: pErr } = await admin
     .from('portals')
-    .insert({ name, type, route_key: key, permissions })
+    .insert({ name, type, route_key: key, permissions, force_pw_change: true })
     .select('id, name, type, route_key, status, permissions')
     .single();
   if (pErr || !portal) return res.status(400).json({ error: 'create_failed', message: pErr?.message });
@@ -138,14 +109,16 @@ const patchSchema = z.object({
 });
 
 /** PATCH /api/portals/:id — rename / retype / re-permission / enable-disable. */
-portalsRouter.patch('/:id', express.json(), async (req: Request, res: Response) => {
+portalsRouter.patch(
+  '/:id',
+  express.json(),
+  requirePortalPerm('portals.update'),
+  async (req: Request, res: Response) => {
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
-  const { slug, ...changes } = parsed.data;
-
-  const ok = await authorize(req, res, slug, 'portals.update');
-  if (!ok) return;
-  const { admin } = ok;
+  const { slug: _slug, ...changes } = parsed.data;
+  void _slug;
+  const { admin } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')
@@ -174,18 +147,20 @@ portalsRouter.patch('/:id', express.json(), async (req: Request, res: Response) 
     await admin.auth.admin.updateUserById(portal.portal_user_id, patch);
   }
   res.json({ ok: true });
-});
+},
+);
 
 /** POST /api/portals/:id/password — change or reset. */
-portalsRouter.post('/:id/password', express.json(), async (req: Request, res: Response) => {
-  const slug = String(req.body?.slug ?? '');
+portalsRouter.post(
+  '/:id/password',
+  express.json(),
+  requirePortalPerm('portals.credentials'),
+  async (req: Request, res: Response) => {
   const newPw = typeof req.body?.password === 'string' ? req.body.password : undefined;
   if (newPw && (newPw.length < 8 || newPw.length > 200)) {
     return res.status(422).json({ error: 'weak_password' });
   }
-  const ok = await authorize(req, res, slug, 'portals.credentials');
-  if (!ok) return;
-  const { admin } = ok;
+  const { admin } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')
@@ -200,15 +175,19 @@ portalsRouter.post('/:id/password', express.json(), async (req: Request, res: Re
     email_confirm: true,
   });
   if (error) return res.status(400).json({ error: 'reset_failed', message: error.message });
+  // A generated temp password must be changed on next sign-in.
+  await admin.from('portals').update({ force_pw_change: !newPw }).eq('id', req.params.id);
   res.json({ ok: true, password: newPw ? undefined : password });
-});
+},
+);
 
 /** DELETE /api/portals/:id */
-portalsRouter.delete('/:id', express.json(), async (req: Request, res: Response) => {
-  const slug = String(req.body?.slug ?? '');
-  const ok = await authorize(req, res, slug, 'portals.update');
-  if (!ok) return;
-  const { admin } = ok;
+portalsRouter.delete(
+  '/:id',
+  express.json(),
+  requirePortalPerm('portals.update'),
+  async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')
@@ -223,4 +202,5 @@ portalsRouter.delete('/:id', express.json(), async (req: Request, res: Response)
     await admin.auth.admin.deleteUser(portal.portal_user_id).catch(() => {});
   }
   res.json({ ok: true });
-});
+},
+);

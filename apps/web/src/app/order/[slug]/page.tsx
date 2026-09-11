@@ -1,5 +1,10 @@
 import { getTenantConfig } from '@/lib/tenant';
-import { StorefrontClient, type MenuItem, type MenuCategory } from './StorefrontClient';
+import {
+  StorefrontClient,
+  type MenuItem,
+  type MenuCategory,
+  type DealLite,
+} from './StorefrontClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +16,11 @@ async function getMenu(slug: string) {
       cache: 'no-store',
     });
     if (!res.ok) return null;
-    return (await res.json()) as { categories: MenuCategory[]; items: MenuItem[] };
+    return (await res.json()) as {
+      categories: MenuCategory[];
+      items: MenuItem[];
+      deals?: DealLite[];
+    };
   } catch {
     return null;
   }
@@ -45,6 +54,7 @@ export default async function OrderPage({
       table={table ?? null}
       categories={menu.categories}
       items={menu.items}
+      deals={menu.deals ?? []}
     />
   );
 }

@@ -25,25 +25,32 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   delivery: 'Delivery',
 };
 
-/** Home path for a role, within a restaurant. */
+/**
+ * Standalone-portal home for a role. Roles that still have a dedicated legacy
+ * surface return its path; everyone else (owner, manager, cashier since P4, and
+ * any custom role) resolves to the Operations Portal root. The Operations layout
+ * uses this to decide who to bounce out.
+ */
 export function roleHome(role: string, slug: string): string {
   switch (role) {
     case 'chef':
       return `/r/${slug}/kitchen`;
-    case 'cashier':
-      return `/r/${slug}/register`;
     case 'waiter':
     case 'host':
       return `/r/${slug}/floor`;
     case 'accountant':
       return `/r/${slug}/finance`;
-    case 'hr':
-      return `/r/${slug}/team`;
     case 'delivery':
       return `/r/${slug}/deliveries`;
     default:
-      return `/r/${slug}`; // owner / manager → management portal
+      return `/r/${slug}`; // owner, manager, cashier (P4), hr (P6), custom roles
   }
+}
+
+/** Preferred landing path after login, including Operations sub-routes. */
+export function roleLanding(role: string, slug: string): string {
+  if (role === 'cashier') return `/r/${slug}/checkout`;
+  return roleHome(role, slug);
 }
 
 export function isManagement(role: string): boolean {

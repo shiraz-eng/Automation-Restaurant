@@ -1,17 +1,23 @@
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { Card } from '@/components/ui';
+import {
+  KitchenPortalBoard,
+  type KOrder,
+  type KVariant,
+} from './KitchenPortalBoard';
+import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 
 export const dynamic = 'force-dynamic';
 
 const BLURB: Record<string, string> = {
   super_admin: 'Full control — use the admin portal at /r/<slug>.',
   checkout: 'Accept payment → print invoice → update order. Modules arrive in Phase 3.',
-  kitchen: 'NEW → PREPARING → READY → COMPLETED, plus food availability. Modules arrive in Phase 3 & 6.',
-  attendance: "Today's staff, check in / check out. Module arrives in Phase 7.",
   manager: 'Operational oversight scoped to its permissions.',
   custom: 'A custom portal limited to the permissions below.',
 };
+
+const ACTIVE = ['pending', 'in_kitchen', 'ready'];
 
 export default async function PortalHome({
   params,
@@ -31,6 +37,48 @@ export default async function PortalHome({
   if (portal.type === 'super_admin') redirect(`/r/${slug}`);
 
   const perms: string[] = portal.permissions ?? [];
+  const has = (k: string) => perms.includes('*') || perms.includes(k);
+
+  if (portal.type === 'kitchen') {
+    const [{ data: orders }, { data: variants }] = await Promise.all([
+      t.client
+        .from('orders')
+        .select(
+          'id, order_number, table_label, channel, status, customer_note, created_at, order_lines(id, name_snapshot, qty, kds_status, customer_note)',
+        )
+        .in('status', ACTIVE)
+        .order('created_at', { ascending: true }),
+      t.client
+        .from('menu_variants')
+        .select('id, name, is_available, track_availability, available_qty, menu_items(name)')
+        .order('name'),
+    ]);
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-black">{portal.name}</h1>
+        <KitchenPortalBoard
+          initialOrders={(orders ?? []) as KOrder[]}
+          initialVariants={(variants ?? []) as unknown as KVariant[]}
+          canAvailability={has('kitchen.manage_availability') || has('availability.update')}
+          canWaste={has('kitchen.record_waste')}
+        />
+      </div>
+    );
+  }
+
+  if (portal.type === 'attendance') {
+    const { data: roster } = await t.client.rpc('attendance_roster', {});
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-black">{portal.name}</h1>
+        <AttendancePortalBoard
+          initialRoster={(roster ?? []) as RosterRow[]}
+          canMark={has('attendance.mark')}
+          canCheckIn={has('attendance.check_in')}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl space-y-6">

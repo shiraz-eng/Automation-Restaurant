@@ -17,6 +17,20 @@ export type MenuItem = {
 /** A selectable product = one variant, labelled with its item. */
 type Product = { id: string; name: string; price_cents: number; category_id: string | null };
 
+type NamedRef = { name: string } | { name: string }[] | null;
+export type DealLite = {
+  id: string;
+  name: string;
+  description?: string | null;
+  image_url?: string | null;
+  price_cents: number;
+  deal_components: { qty: number; menu_items: NamedRef; menu_variants: NamedRef }[];
+};
+function refName(x: NamedRef): string {
+  if (!x) return '';
+  return Array.isArray(x) ? (x[0]?.name ?? '') : x.name;
+}
+
 const TAX_RATE_BPS = 800;
 
 function toProducts(items: MenuItem[]): Product[] {
@@ -40,12 +54,14 @@ export function StorefrontClient({
   table,
   categories,
   items,
+  deals,
 }: {
   slug: string;
   restaurantName: string;
   table: string | null;
   categories: MenuCategory[];
   items: MenuItem[];
+  deals: DealLite[];
 }) {
   const router = useRouter();
   const [guestName, setGuestName] = useState('');
@@ -54,6 +70,8 @@ export function StorefrontClient({
 
   const [activeCat, setActiveCat] = useState('all');
   const [cart, setCart] = useState<Record<string, { item: Product; qty: number }>>({});
+  const [dealCart, setDealCart] = useState<Record<string, { deal: DealLite; qty: number }>>({});
+  const [orderNote, setOrderNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,14 +83,30 @@ export function StorefrontClient({
   const products = useMemo(() => toProducts(items), [items]);
   const shown = products.filter((i) => activeCat === 'all' || i.category_id === activeCat);
   const lines = Object.values(cart);
+  const dealLines = Object.values(dealCart);
   const subtotal = useMemo(
-    () => lines.reduce((s, l) => s + l.item.price_cents * l.qty, 0),
-    [lines],
+    () =>
+      lines.reduce((s, l) => s + l.item.price_cents * l.qty, 0) +
+      dealLines.reduce((s, d) => s + d.deal.price_cents * d.qty, 0),
+    [lines, dealLines],
   );
   const discount = promoState.status === 'ok' ? Math.min(promoState.discount, subtotal) : 0;
   const tax = Math.round(((subtotal - discount) * TAX_RATE_BPS) / 10000);
   const total = subtotal - discount + tax;
-  const count = lines.reduce((s, l) => s + l.qty, 0);
+  const count =
+    lines.reduce((s, l) => s + l.qty, 0) + dealLines.reduce((s, d) => s + d.qty, 0);
+
+  function bumpDeal(deal: DealLite, delta: number) {
+    setError(null);
+    setPromoState((s) => (s.status === 'ok' || s.status === 'bad' ? { status: 'idle' } : s));
+    setDealCart((c) => {
+      const next = { ...c };
+      const qty = (next[deal.id]?.qty ?? 0) + delta;
+      if (qty <= 0) delete next[deal.id];
+      else next[deal.id] = { deal, qty };
+      return next;
+    });
+  }
 
   async function checkPromo() {
     const code = promo.trim();
@@ -105,7 +139,7 @@ export function StorefrontClient({
   }
 
   async function placeOrder() {
-    if (lines.length === 0) return;
+    if (lines.length === 0 && dealLines.length === 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -119,7 +153,11 @@ export function StorefrontClient({
           channel: 'dine_in',
           promo_code:
             promoState.status === 'ok' ? promoState.code : promo.trim() || undefined,
-          lines: lines.map((l) => ({ variant_id: l.item.id, qty: l.qty })),
+          customer_note: orderNote.trim() || undefined,
+          lines: [
+            ...lines.map((l) => ({ variant_id: l.item.id, qty: l.qty })),
+            ...dealLines.map((d) => ({ deal_id: d.deal.id, qty: d.qty })),
+          ],
         }),
       });
       const body = await res.json();
@@ -191,6 +229,57 @@ export function StorefrontClient({
         ))}
       </div>
 
+      {deals.length > 0 && activeCat === 'all' && (
+        <div className="p-4 pb-0 space-y-2">
+          <h2 className="font-black text-sm">Deals</h2>
+          {deals.map((d) => {
+            const qty = dealCart[d.id]?.qty ?? 0;
+            return (
+              <div
+                key={d.id}
+                className="rounded-lg border border-primary/40 bg-primary/5 p-3 flex items-start justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm">{d.name}</div>
+                  <div className="text-[11px] text-muted truncate">
+                    {d.deal_components
+                      .map((c) => `${c.qty}× ${refName(c.menu_variants) || refName(c.menu_items)}`)
+                      .join(' + ')}
+                  </div>
+                  <div className="text-primary font-bold text-sm mt-0.5">
+                    {formatCents(d.price_cents)}
+                  </div>
+                </div>
+                {qty === 0 ? (
+                  <button
+                    onClick={() => bumpDeal(d, 1)}
+                    className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs shrink-0"
+                  >
+                    Add
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => bumpDeal(d, -1)}
+                      className="w-7 h-7 rounded border border-border font-bold"
+                    >
+                      −
+                    </button>
+                    <span className="w-4 text-center text-sm font-semibold">{qty}</span>
+                    <button
+                      onClick={() => bumpDeal(d, 1)}
+                      className="w-7 h-7 rounded border border-border font-bold"
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         {shown.length === 0 ? (
           <p className="text-muted text-xs">Nothing here right now.</p>
@@ -241,6 +330,15 @@ export function StorefrontClient({
       {error && <p className="px-4 text-danger text-xs">{error}</p>}
 
       <div className="fixed bottom-0 inset-x-0 border-t border-border bg-surface p-4">
+        {count > 0 && (
+          <textarea
+            value={orderNote}
+            onChange={(e) => setOrderNote(e.target.value.slice(0, 500))}
+            placeholder="Special instructions (e.g. no onions, pack separately)"
+            rows={2}
+            className="w-full mb-2 rounded border border-border bg-main px-3 py-2 text-xs outline-none focus:border-primary resize-none"
+          />
+        )}
         {count > 0 && (
           <div className="flex gap-2 mb-2">
             <input

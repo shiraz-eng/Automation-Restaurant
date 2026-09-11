@@ -9,6 +9,7 @@ type Line = {
   qty: number;
   kds_status: 'queued' | 'preparing' | 'ready' | 'served';
   modifiers: unknown;
+  customer_note: string | null;
 };
 export type KitchenTicket = {
   id: string;
@@ -18,6 +19,7 @@ export type KitchenTicket = {
   channel: string;
   created_at: string;
   status: string;
+  customer_note: string | null;
   order_lines: Line[];
 };
 
@@ -48,7 +50,7 @@ export function KitchenBoard({ initial }: { initial: KitchenTicket[] }) {
     const { data } = await supabase
       .from('orders')
       .select(
-        'id, order_number, table_label, customer_name, channel, created_at, status, order_lines(id, name_snapshot, qty, kds_status, modifiers)',
+        'id, order_number, table_label, customer_name, channel, created_at, status, customer_note, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
       )
       .in('status', ACTIVE)
       .order('created_at', { ascending: true });
@@ -64,37 +66,24 @@ export function KitchenBoard({ initial }: { initial: KitchenTicket[] }) {
     };
   }, [load]);
 
-  async function setLines(ticket: KitchenTicket, status: Line['kds_status']) {
+  async function advance(
+    ticket: KitchenTicket,
+    rpc: 'kitchen_start_order' | 'kitchen_mark_ready' | 'kitchen_complete_order',
+  ) {
     if (busy.current) return;
     busy.current = true;
-    setTickets((ts) =>
-      ts.map((t) =>
-        t.id === ticket.id
-          ? { ...t, order_lines: t.order_lines.map((l) => ({ ...l, kds_status: status })) }
-          : t,
-      ),
-    );
-    await supabase
-      .from('order_lines')
-      .update({ kds_status: status })
-      .eq('order_id', ticket.id);
-    if (status === 'ready') {
-      await supabase.from('orders').update({ status: 'ready' }).eq('id', ticket.id);
+    if (rpc === 'kitchen_complete_order') {
+      setTickets((ts) => ts.filter((t) => t.id !== ticket.id));
     }
+    await supabase.rpc(rpc, { p_order_id: ticket.id });
     busy.current = false;
     load();
   }
 
-  async function complete(ticket: KitchenTicket) {
-    setTickets((ts) => ts.filter((t) => t.id !== ticket.id));
-    await supabase.from('orders').update({ status: 'served' }).eq('id', ticket.id);
-    load();
-  }
-
   const lanes: { key: Lane; title: string; action?: (t: KitchenTicket) => void; cta?: string }[] = [
-    { key: 'new', title: 'New', action: (t) => setLines(t, 'preparing'), cta: 'Start' },
-    { key: 'preparing', title: 'Preparing', action: (t) => setLines(t, 'ready'), cta: 'Mark ready' },
-    { key: 'ready', title: 'Ready', action: (t) => complete(t), cta: 'Complete' },
+    { key: 'new', title: 'New', action: (t) => advance(t, 'kitchen_start_order'), cta: 'Start' },
+    { key: 'preparing', title: 'Preparing', action: (t) => advance(t, 'kitchen_mark_ready'), cta: 'Mark ready' },
+    { key: 'ready', title: 'Ready', action: (t) => advance(t, 'kitchen_complete_order'), cta: 'Complete' },
   ];
 
   return (
@@ -132,10 +121,18 @@ export function KitchenBoard({ initial }: { initial: KitchenTicket[] }) {
                       {t.customer_name && (
                         <div className="text-xs text-muted mb-1">{t.customer_name}</div>
                       )}
+                      {t.customer_note && (
+                        <p className="text-xs font-semibold text-warn mb-1">⚠ {t.customer_note}</p>
+                      )}
                       <ul className="space-y-1 mb-3">
                         {t.order_lines.map((l) => (
                           <li key={l.id} className="text-sm font-semibold">
                             {l.qty}× {l.name_snapshot}
+                            {l.customer_note && (
+                              <span className="block text-xs font-normal text-warn">
+                                ⚠ {l.customer_note}
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>

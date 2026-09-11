@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
-import { roleHome } from '@/lib/portals';
+import { roleLanding } from '@/lib/portals';
 
 export function LoginForm({
   slug,
@@ -43,7 +43,7 @@ export function LoginForm({
     if (meta.kind === 'portal' && meta.portal_route) {
       router.push(`/r/${slug}/portal/${meta.portal_route}`);
     } else {
-      router.push(roleHome(meta.role ?? 'owner', slug));
+      router.push(roleLanding(meta.role ?? 'owner', slug));
     }
     router.refresh();
   }

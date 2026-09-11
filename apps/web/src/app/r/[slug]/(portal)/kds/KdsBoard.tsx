@@ -10,6 +10,7 @@ type Line = {
   qty: number;
   kds_status: 'queued' | 'preparing' | 'ready' | 'served';
   modifiers: unknown;
+  customer_note: string | null;
 };
 export type Ticket = {
   id: string;
@@ -18,6 +19,7 @@ export type Ticket = {
   channel: string;
   created_at: string;
   status: string;
+  customer_note: string | null;
   order_lines: Line[];
 };
 
@@ -50,7 +52,7 @@ export function KdsBoard({ initial }: { initial: Ticket[] }) {
     const { data } = await supabase
       .from('orders')
       .select(
-        'id, order_number, table_label, channel, created_at, status, order_lines(id, name_snapshot, qty, kds_status, modifiers)',
+        'id, order_number, table_label, channel, created_at, status, customer_note, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
       )
       .in('status', ACTIVE)
       .order('created_at', { ascending: true });
@@ -78,14 +80,14 @@ export function KdsBoard({ initial }: { initial: Ticket[] }) {
         ),
       })),
     );
-    await supabase.from('order_lines').update({ kds_status: next }).eq('id', line.id);
+    await supabase.rpc('kitchen_set_line_status', { p_line_id: line.id, p_status: next });
     busy.current.delete(line.id);
     load();
   }
 
   async function bump(ticket: Ticket) {
     setTickets((ts) => ts.filter((t) => t.id !== ticket.id));
-    await supabase.from('orders').update({ status: 'served' }).eq('id', ticket.id);
+    await supabase.rpc('kitchen_complete_order', { p_order_id: ticket.id });
     load();
   }
 
@@ -113,6 +115,10 @@ export function KdsBoard({ initial }: { initial: Ticket[] }) {
               </span>
             </div>
 
+            {t.customer_note && (
+              <p className="text-xs font-semibold text-warn mb-2">⚠ {t.customer_note}</p>
+            )}
+
             <div className="space-y-1.5">
               {t.order_lines.map((l) => {
                 const done = l.kds_status === 'served';
@@ -127,6 +133,9 @@ export function KdsBoard({ initial }: { initial: Ticket[] }) {
                   >
                     <span>
                       {l.qty}× {l.name_snapshot}
+                      {l.customer_note && (
+                        <span className="block text-warn">⚠ {l.customer_note}</span>
+                      )}
                     </span>
                     <span
                       className={`font-semibold ${

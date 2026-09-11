@@ -19,7 +19,7 @@ export default async function KitchenPage({ params }: { params: Promise<{ slug: 
   const { data } = await t.client
     .from('orders')
     .select(
-      'id, order_number, table_label, customer_name, channel, created_at, status, order_lines(id, name_snapshot, qty, kds_status, modifiers)',
+      'id, order_number, table_label, customer_name, channel, created_at, status, customer_note, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
     )
     .in('status', ACTIVE)
     .order('created_at', { ascending: true });

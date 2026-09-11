@@ -1,6 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { isManagement } from '@/lib/portals';
+import { gatePortalPage } from '@/lib/permissions';
 import { SchedulingClient, type Shift, type Attendance } from './SchedulingClient';
 
 export const dynamic = 'force-dynamic';
@@ -25,12 +25,7 @@ export default async function SchedulingPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
-  const role = (user.app_metadata as { role?: string }).role ?? 'owner';
-  if (!isManagement(role)) redirect(`/r/${slug}`);
+  await gatePortalPage(t.client, slug, 'attendance.view');
 
   const offset = Number.parseInt(w ?? '0', 10) || 0;
   const start = weekStart();

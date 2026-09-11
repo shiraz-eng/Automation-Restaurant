@@ -1,5 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage } from '@/lib/permissions';
 import { InventoryManager } from './InventoryManager';
 import { Card } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
@@ -15,10 +16,7 @@ export default async function InventoryPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const {
-    data: { user },
-  } = await t.client.auth.getUser();
-  if (!user) redirect(`/r/${slug}/login`);
+  await gatePortalPage(t.client, slug, 'stock.view');
 
   const [{ data: items, error }, { data: ledgerRaw }] = await Promise.all([
     t.client
