@@ -23,6 +23,7 @@ export type MenuItem = {
   description?: string | null;
   price_cents: number;
   category_id: string | null;
+  image_url?: string | null;
   menu_variants: Variant[];
   modifier_groups?: ModGroup[];
 };
@@ -35,6 +36,7 @@ type Product = {
   name: string;
   price_cents: number;
   category_id: string | null;
+  image_url: string | null;
   modifier_groups: ModGroup[];
 };
 
@@ -74,6 +76,7 @@ function toProducts(items: MenuItem[]): Product[] {
         name: v.name === 'Regular' ? it.name : `${it.name} · ${v.name}`,
         price_cents: v.price_cents,
         category_id: it.category_id,
+        image_url: it.image_url ?? null,
         modifier_groups: it.modifier_groups ?? [],
       });
     }
@@ -509,7 +512,19 @@ export function StorefrontClient({
                 key={d.id}
                 className="rounded-lg border border-primary/40 bg-primary/5 p-3 flex items-start justify-between gap-3"
               >
-                <div className="min-w-0">
+                {d.image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={d.image_url}
+                    alt={d.name}
+                    className="w-14 h-14 rounded object-cover shrink-0"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm">{d.name}</div>
                   <div className="text-[11px] text-muted truncate">
                     {d.deal_components
@@ -561,9 +576,21 @@ export function StorefrontClient({
             return (
               <div
                 key={it.id}
-                className="rounded-lg border border-border bg-surface p-3 flex items-center justify-between"
+                className="rounded-lg border border-border bg-surface p-3 flex items-center justify-between gap-3"
               >
-                <div className="min-w-0">
+                {it.image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={it.image_url}
+                    alt={it.name}
+                    className="w-12 h-12 rounded object-cover shrink-0"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm truncate">{it.name}</div>
                   <div className="text-primary font-bold text-sm">
                     {hasMods ? `from ${formatCents(it.price_cents)}` : formatCents(it.price_cents)}

@@ -62,7 +62,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     tenant
       .from('menu_items')
       .select(
-        'id, name, description, price_cents, category_id, menu_variants(id, name, price_cents, sku, is_available, track_availability, available_qty, sort_order), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order))',
+        'id, name, description, price_cents, category_id, image_url, menu_variants(id, name, price_cents, sku, is_available, track_availability, available_qty, sort_order), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order))',
       )
       .eq('is_available', true)
       .order('name'),

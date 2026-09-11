@@ -662,6 +662,17 @@ create policy guest_read on public.menu_variants for select using (is_available)
 create policy guest_read on public.modifier_groups for select using (true);
 create policy guest_read on public.modifier_options for select using (true);
 
+-- Menu image storage: public bucket (served to anonymous storefront guests,
+-- same trust level as the rest of the guest-readable menu), staff-only writes.
+insert into storage.buckets (id, name, public)
+values ('menu-images', 'menu-images', true)
+on conflict (id) do nothing;
+create policy "menu-images public read" on storage.objects for select
+  using (bucket_id = 'menu-images');
+create policy "menu-images staff write" on storage.objects for all
+  using (bucket_id = 'menu-images' and (app.has_perm('menu.update') or app.can_write()))
+  with check (bucket_id = 'menu-images' and (app.has_perm('menu.update') or app.can_write()));
+
 -- orders / order_lines: staff read + update (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
 create policy staff_read on public.orders for select using (app.has_perm('orders.view') or app.is_staff());

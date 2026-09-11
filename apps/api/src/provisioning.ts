@@ -29,7 +29,8 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v16 feedback.ambiance category
 //   v17 guest-readable checkout-portal names (order-ready "go to the counter")
 //   v18 modifier_groups/modifier_options + place_order() prices & validates them
-const SCHEMA_VERSION = 18;
+//   v19 menu-images storage bucket (public read, staff write)
+const SCHEMA_VERSION = 19;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

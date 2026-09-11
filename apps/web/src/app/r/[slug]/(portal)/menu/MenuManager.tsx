@@ -45,9 +45,13 @@ type Item = {
   price_cents: number;
   is_available: boolean;
   category_id: string | null;
+  image_url: string | null;
   menu_variants: Variant[];
   modifier_groups: ModifierGroup[];
 };
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export function MenuManager({ categories, items }: { categories: Category[]; items: Item[] }) {
   const router = useRouter();
@@ -67,6 +71,47 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
   >({});
   // per-group "add option" draft
   const [moDraft, setMoDraft] = useState<Record<string, { name: string; price: string }>>({});
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+
+  async function uploadImage(itemId: string, file: File) {
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      setError('Images must be JPG, PNG, or WebP.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError('Image must be under 5 MB.');
+      return;
+    }
+    setUploadingId(itemId);
+    setError(null);
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `${itemId}/${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from('menu-images')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (upErr) {
+      setUploadingId(null);
+      setError(upErr.message);
+      return;
+    }
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('menu-images').getPublicUrl(path);
+    const { error: dbErr } = await supabase
+      .from('menu_items')
+      .update({ image_url: publicUrl })
+      .eq('id', itemId);
+    setUploadingId(null);
+    if (dbErr) {
+      setError(dbErr.message);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function removeImage(itemId: string) {
+    await run(() => supabase.from('menu_items').update({ image_url: null }).eq('id', itemId));
+  }
 
   async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
     setBusy(true);
@@ -246,6 +291,44 @@ export function MenuManager({ categories, items }: { categories: Category[]; ite
                     Delete
                   </Button>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-3 p-2.5 border-b border-border bg-main/30">
+                {it.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={it.image_url}
+                    alt={it.name}
+                    className="w-14 h-14 rounded object-cover border border-border shrink-0"
+                  />
+                ) : (
+                  <div className="w-14 h-14 rounded border border-dashed border-border grid place-items-center text-muted text-[10px] shrink-0">
+                    No image
+                  </div>
+                )}
+                <label className="text-xs font-semibold text-primary cursor-pointer">
+                  {uploadingId === it.id ? 'Uploading…' : it.image_url ? 'Replace image' : 'Upload image'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={uploadingId === it.id}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) uploadImage(it.id, file);
+                    }}
+                  />
+                </label>
+                {it.image_url && (
+                  <button
+                    onClick={() => removeImage(it.id)}
+                    disabled={busy}
+                    className="text-xs font-semibold text-danger"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
 
               <table className="w-full text-left text-xs">
