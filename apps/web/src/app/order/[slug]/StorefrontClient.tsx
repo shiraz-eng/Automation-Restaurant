@@ -28,8 +28,9 @@ export type MenuItem = {
   modifier_groups?: ModGroup[];
 };
 /** A selectable product = one variant, labelled with its item. Carries its
- *  parent item's modifier groups so the card knows whether "Add" should be
- *  instant or open a configuration step (spec §5). */
+ *  parent item's modifier groups. Cart lines and deal-matching are keyed at
+ *  this level — one variant, fully resolved — regardless of how it was
+ *  chosen (instant add, or via the item sheet's variant picker). */
 type Product = {
   id: string;
   item_id: string;
@@ -37,6 +38,20 @@ type Product = {
   price_cents: number;
   category_id: string | null;
   image_url: string | null;
+  modifier_groups: ModGroup[];
+};
+
+/** What the customer actually browses: one card per menu item, not one per
+ *  variant (spec §5-6, §9-11) — "Chicken Burger" is a single card; Regular
+ *  vs Large is a choice made inside its detail sheet, exactly like a
+ *  modifier group, not a second card that looks like a different product. */
+type BrowseItem = {
+  id: string;
+  name: string;
+  minPriceCents: number;
+  category_id: string | null;
+  image_url: string | null;
+  variants: Variant[];
   modifier_groups: ModGroup[];
 };
 
@@ -82,6 +97,23 @@ function toProducts(items: MenuItem[]): Product[] {
     }
   }
   return out;
+}
+
+function toBrowseItems(items: MenuItem[]): BrowseItem[] {
+  return items
+    .map((it) => {
+      const variants = (it.menu_variants ?? []).slice().sort((a, b) => a.sort_order - b.sort_order);
+      return {
+        id: it.id,
+        name: it.name,
+        minPriceCents: variants.reduce((m, v) => Math.min(m, v.price_cents), variants[0]?.price_cents ?? 0),
+        category_id: it.category_id,
+        image_url: it.image_url ?? null,
+        variants,
+        modifier_groups: it.modifier_groups ?? [],
+      };
+    })
+    .filter((it) => it.variants.length > 0);
 }
 
 /** A cart line's identity: the same variant with a different modifier
@@ -218,15 +250,19 @@ export function StorefrontClient({
   const [orderNote, setOrderNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [configuring, setConfiguring] = useState<Product | null>(null);
+  const [configuring, setConfiguring] = useState<BrowseItem | null>(null);
 
   const [promo, setPromo] = useState('');
   const [promoState, setPromoState] = useState<
     { status: 'idle' | 'checking' } | { status: 'ok'; code: string; discount: number } | { status: 'bad' }
   >({ status: 'idle' });
 
+  // Flat variant list — deal-matching and cart lines work at this level
+  // regardless of how a variant was chosen (instant add vs. the item sheet).
   const products = useMemo(() => toProducts(items), [items]);
-  const shown = products.filter((i) => activeCat === 'all' || i.category_id === activeCat);
+  // What's actually browsed: one card per item (spec §5-6).
+  const browseItems = useMemo(() => toBrowseItems(items), [items]);
+  const shownItems = browseItems.filter((i) => activeCat === 'all' || i.category_id === activeCat);
   const lines = Object.values(cart);
   const dealLines = Object.values(dealCart);
   const lineUnitPrice = (l: CartLine) =>
@@ -566,13 +602,17 @@ export function StorefrontClient({
       )}
 
       <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        {shown.length === 0 ? (
+        {shownItems.length === 0 ? (
           <p className="text-muted text-xs">Nothing here right now.</p>
         ) : (
-          shown.map((it) => {
-            const hasMods = it.modifier_groups.length > 0;
-            const key = cartKey(it.id, []);
-            const qty = hasMods ? 0 : (cart[key]?.qty ?? 0);
+          shownItems.map((it) => {
+            // A choice to make — which size, or any modifier — opens the
+            // sheet; a plain single-variant item adds instantly (spec §5).
+            const hasChoices = it.variants.length > 1 || it.modifier_groups.length > 0;
+            const soleVariant = it.variants[0];
+            const soleProduct = !hasChoices ? products.find((p) => p.id === soleVariant.id) : undefined;
+            const key = soleProduct ? cartKey(soleProduct.id, []) : '';
+            const qty = soleProduct ? (cart[key]?.qty ?? 0) : 0;
             return (
               <div
                 key={it.id}
@@ -593,10 +633,10 @@ export function StorefrontClient({
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm truncate">{it.name}</div>
                   <div className="text-primary font-bold text-sm">
-                    {hasMods ? `from ${formatCents(it.price_cents)}` : formatCents(it.price_cents)}
+                    {hasChoices ? `from ${formatCents(it.minPriceCents)}` : formatCents(it.minPriceCents)}
                   </div>
                 </div>
-                {hasMods ? (
+                {hasChoices || !soleProduct ? (
                   <button
                     onClick={() => setConfiguring(it)}
                     className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs shrink-0"
@@ -605,7 +645,7 @@ export function StorefrontClient({
                   </button>
                 ) : qty === 0 ? (
                   <button
-                    onClick={() => bump(it, 1)}
+                    onClick={() => bump(soleProduct, 1)}
                     className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs shrink-0"
                   >
                     Add
@@ -613,14 +653,14 @@ export function StorefrontClient({
                 ) : (
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => bump(it, -1)}
+                      onClick={() => bump(soleProduct, -1)}
                       className="w-7 h-7 rounded border border-border font-bold"
                     >
                       −
                     </button>
                     <span className="w-4 text-center text-sm font-semibold">{qty}</span>
                     <button
-                      onClick={() => bump(it, 1)}
+                      onClick={() => bump(soleProduct, 1)}
                       className="w-7 h-7 rounded border border-border font-bold"
                     >
                       +
@@ -667,7 +707,7 @@ export function StorefrontClient({
       {error && <p className="px-4 text-danger text-xs">{error}</p>}
 
       {configuring && (
-        <ModifierSheet
+        <ItemSheet
           item={configuring}
           onClose={() => setConfiguring(null)}
           onAdd={addConfigured}
@@ -732,20 +772,24 @@ export function StorefrontClient({
 }
 
 /**
- * Product-detail / customization step (spec §11-12) — only shown for items
- * that actually have modifier groups, so a plain item never gets an
- * unnecessary extra tap (spec §5). Displayed price is provisional; the
- * server always re-prices and re-validates every option on submit.
+ * Product-detail / customization step (spec §11-12) — shown whenever an item
+ * has more than one variant, or any modifier group, so a plain single-
+ * variant item with no modifiers never gets an unnecessary extra tap (spec
+ * §5). Size/variant is presented exactly like a required modifier group —
+ * one consistent picker pattern rather than two different UI idioms.
+ * Displayed price is provisional; the server always re-prices and
+ * re-validates every option (and the variant itself) on submit.
  */
-function ModifierSheet({
+function ItemSheet({
   item,
   onClose,
   onAdd,
 }: {
-  item: Product;
+  item: BrowseItem;
   onClose: () => void;
   onAdd: (item: Product, modifierIds: string[], snapshot: ModOption[]) => void;
 }) {
+  const [variantId, setVariantId] = useState(item.variants[0]?.id ?? '');
   const [selected, setSelected] = useState<Record<string, string[]>>({}); // group id -> option ids
 
   function toggle(group: ModGroup, optionId: string) {
@@ -761,6 +805,7 @@ function ModifierSheet({
     });
   }
 
+  const variant = item.variants.find((v) => v.id === variantId) ?? item.variants[0];
   const allOptions = new Map(item.modifier_groups.flatMap((g) => g.modifier_options.map((o) => [o.id, o])));
   const chosenIds = Object.values(selected).flat();
   const chosenOptions = chosenIds.map((id) => allOptions.get(id)).filter((o): o is ModOption => !!o);
@@ -768,6 +813,20 @@ function ModifierSheet({
   const requiredUnmet = item.modifier_groups.some(
     (g) => g.kind === 'required_single' && (selected[g.id]?.length ?? 0) < 1,
   );
+
+  function add() {
+    if (!variant) return;
+    const product: Product = {
+      id: variant.id,
+      item_id: item.id,
+      name: variant.name === 'Regular' ? item.name : `${item.name} · ${variant.name}`,
+      price_cents: variant.price_cents,
+      category_id: item.category_id,
+      image_url: item.image_url,
+      modifier_groups: item.modifier_groups,
+    };
+    onAdd(product, chosenIds, chosenOptions);
+  }
 
   return (
     <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
@@ -781,9 +840,44 @@ function ModifierSheet({
             ✕
           </button>
         </div>
-        <p className="text-primary font-bold text-sm mb-4">{formatCents(item.price_cents)}</p>
+        <p className="text-primary font-bold text-sm mb-4">{formatCents(variant?.price_cents ?? item.minPriceCents)}</p>
 
         <div className="space-y-5">
+          {item.variants.length > 1 && (
+            <div>
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="font-bold text-sm">Choose size</h3>
+                <span className="text-[11px] text-muted">Required</span>
+              </div>
+              <div className="space-y-1.5">
+                {item.variants.map((v) => {
+                  const checked = v.id === variantId;
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => setVariantId(v.id)}
+                      className={`w-full flex items-center justify-between rounded border px-3 py-2 text-xs text-left ${
+                        checked ? 'border-primary bg-primary/5' : 'border-border'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span
+                          className={`w-4 h-4 grid place-items-center rounded-full border ${
+                            checked ? 'bg-primary border-primary text-primary-fg' : 'border-border'
+                          }`}
+                        >
+                          {checked ? '✓' : ''}
+                        </span>
+                        {v.name}
+                      </span>
+                      <span className="text-muted">{formatCents(v.price_cents)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {item.modifier_groups.map((g) => (
             <div key={g.id}>
               <div className="flex items-baseline justify-between mb-2">
@@ -827,11 +921,11 @@ function ModifierSheet({
         </div>
 
         <button
-          onClick={() => onAdd(item, chosenIds, chosenOptions)}
-          disabled={requiredUnmet}
+          onClick={add}
+          disabled={requiredUnmet || !variant}
           className="w-full mt-6 rounded bg-primary text-primary-fg font-bold py-3 text-sm disabled:opacity-50"
         >
-          Add — {formatCents(item.price_cents + addonTotal)}
+          Add — {formatCents((variant?.price_cents ?? 0) + addonTotal)}
         </button>
       </div>
     </div>
