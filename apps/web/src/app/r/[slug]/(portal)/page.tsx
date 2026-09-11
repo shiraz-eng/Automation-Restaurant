@@ -4,6 +4,7 @@ import { gatePortalPage } from '@/lib/permissions';
 import { StatCard } from '@/components/StatCard';
 import { LiveRefresh } from '@/components/LiveRefresh';
 import { SalesTrend, type DayRow } from './SalesTrend';
+import { PerformancePanel } from './PerformancePanel';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { PLAN_FEATURES, isPlanTier } from '@automation-restaurant/shared';
 
@@ -116,6 +117,8 @@ export default async function DashboardPage({
           hint={`of ${inventory.length} items`}
         />
       </section>
+
+      <PerformancePanel />
 
       <SalesTrend initialMonth={currentMonth} initialDays={(salesByDayRes.data as DayRow[] | null) ?? []} />
 

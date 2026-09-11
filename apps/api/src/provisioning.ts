@@ -42,7 +42,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       multi-invoice allocation, supplier_payable()/supplier_statement()
 //   v23 Dashboard sales trend: sales_by_day()/sales_by_hour() for the
 //       monthly line chart + day drill-down, built on app.day_sales()
-const SCHEMA_VERSION = 23;
+//   v24 Dashboard visuals: revenue_by_category()/payment_mix()/
+//       feedback_summary() for the KPI row, mix pie charts and customer-
+//       experience card (top products/attendance reuse existing RPCs)
+const SCHEMA_VERSION = 24;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
