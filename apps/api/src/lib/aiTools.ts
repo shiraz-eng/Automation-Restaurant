@@ -711,6 +711,171 @@ export const AI_TOOLS: AiTool[] = [
       return data ?? [];
     },
   },
+  // ── COGS & Profitability (spec §22-31, §36-41) ──────────────────────────
+  // Every number below comes from the same authoritative RPCs the Finance
+  // page calls (public.*_profitability, public.menu_engineering) — one
+  // calculation engine, not a second AI-only formula. "Net sales" is always
+  // gross minus discount minus refunds; a deal's revenue is the deal price
+  // actually charged, never the sum of component list prices.
+  {
+    name: 'get_period_profitability',
+    description:
+      "P&L for a named period: gross/net sales, theoretical COGS (from recipes), gross profit & margin, food cost %, actual ingredient value consumed/wasted/adjusted (read off the stock ledger), the variance between theoretical and actual COGS, expenses, and net profit. This IS the profitability dashboard — use it for any \"how profitable\", \"what's our food cost\", \"margin\", \"net profit\" question naming a period.",
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'],
+        },
+      },
+      required: ['period'],
+    },
+    async run(admin, args) {
+      const period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(
+        String(args.period),
+      )
+        ? (args.period as Period)
+        : 'today';
+      const { from, to, label } = periodRange(period);
+      const { data, error } = await admin.rpc('period_profitability', {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) return { error: error.message };
+      const row = (data as Record<string, unknown>[] | null)?.[0];
+      if (!row) return { period: label, note: 'no sales in this period' };
+      return {
+        period: label,
+        ...row,
+        note:
+          (row.cogs_lines_missing as number) > 0
+            ? `${row.cogs_lines_missing} of ${row.cogs_lines_total} sold line(s) have no recipe configured — theoretical COGS and food cost % understate the true figure.`
+            : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_order_profitability',
+    description:
+      'Full profitability breakdown for one order by its order number: gross/net sales, COGS, food cost %, contribution and contribution margin — the order-level drilldown behind "how profitable was Order #1052".',
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: { order_number: { type: 'integer' } },
+      required: ['order_number'],
+    },
+    async run(admin, args) {
+      const { data: order } = await admin
+        .from('orders')
+        .select('id')
+        .eq('order_number', clampInt(args.order_number, 0, 10_000_000))
+        .maybeSingle();
+      if (!order) return { error: 'no_matching_order' };
+      const { data, error } = await admin.rpc('order_profitability', { p_order_id: order.id });
+      if (error) return { error: error.message };
+      const row = (data as Record<string, unknown>[] | null)?.[0];
+      if (!row) return { error: 'no_matching_order' };
+      return {
+        ...row,
+        note:
+          (row.cogs_lines_missing as number) > 0
+            ? `${row.cogs_lines_missing} line(s) on this order have no recipe configured, so COGS understates the true cost.`
+            : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_item_profitability',
+    description:
+      'Every à la carte menu item/variant sold in a period, ranked by revenue, with units sold, COGS, contribution and contribution margin. Use for "which item makes the most money" / "what has high food cost" questions. Deal sales are not counted here — see get_deal_profitability for those.',
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'],
+        },
+      },
+      required: ['period'],
+    },
+    async run(admin, args) {
+      const period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(
+        String(args.period),
+      )
+        ? (args.period as Period)
+        : 'today';
+      const { from, to, label } = periodRange(period);
+      const { data, error } = await admin.rpc('item_profitability', {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) return { error: error.message };
+      return { period: label, items: data ?? [] };
+    },
+  },
+  {
+    name: 'get_deal_profitability',
+    description:
+      'Every deal/combo sold in a period, ranked by revenue: units sold, revenue (the deal price actually charged, not the component list total), COGS from its actual components, contribution, contribution margin, and the customer\'s saving vs today\'s menu prices. Use for "which deal is most profitable" / "which deal gives the biggest discount" questions.',
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'],
+        },
+      },
+      required: ['period'],
+    },
+    async run(admin, args) {
+      const period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(
+        String(args.period),
+      )
+        ? (args.period as Period)
+        : 'today';
+      const { from, to, label } = periodRange(period);
+      const { data, error } = await admin.rpc('deal_profitability', {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) return { error: error.message };
+      return { period: label, deals: data ?? [], note: (data ?? []).length === 0 ? 'No deals sold in this period.' : undefined };
+    },
+  },
+  {
+    name: 'get_menu_engineering',
+    description:
+      'Classifies each à la carte item sold in a period into Star / Plowhorse / Puzzle / Dog by comparing its sales volume and contribution-per-unit against the period\'s own averages — never by food-cost % alone. Use for "what should I push / cut / reprice on the menu".',
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: {
+          type: 'string',
+          enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'],
+        },
+      },
+      required: ['period'],
+    },
+    async run(admin, args) {
+      const period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(
+        String(args.period),
+      )
+        ? (args.period as Period)
+        : 'this_week';
+      const { from, to, label } = periodRange(period);
+      const { data, error } = await admin.rpc('menu_engineering', {
+        p_from: from.toISOString(),
+        p_to: to.toISOString(),
+      });
+      if (error) return { error: error.message };
+      return { period: label, items: data ?? [] };
+    },
+  },
 ];
 
 /**
@@ -786,14 +951,18 @@ DATA & HONESTY
 - Money from tools is integer cents — convert to a normal amount when you present it.
 - "Top-selling" (units/revenue, from get_top_products / get_today_summary) is NOT "top-rated". Ratings are restaurant-wide only (get_customer_feedback) — there is no per-item rating data, so never rank dishes by rating.
 - If you lack the data to answer (e.g. asked for profit, but there are no cost figures), say what you can answer and what's missing. Do not guess.
+- Profitability numbers (get_period_profitability / get_order_profitability / get_item_profitability / get_deal_profitability) are Operational/Theoretical estimates, not formal accounting — food cost is what the configured recipe says it should be, not a full audited P&L. Call it "Contribution" or "Gross Profit", never "Net Profit", unless a tool actually returns net_profit_cents (only get_period_profitability does, after real recorded expenses). If a tool's cogs_lines_missing is above 0, say plainly that N of the sold lines had no recipe configured and the food-cost figure understates the true cost — never silently present it as complete.
 
 HOW TO ANSWER
 - Lead with the direct answer in one line. Then the few numbers that matter. Then, only if useful, a short recommendation.
 - For "how are we doing / what's happening / what needs my attention": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
-- This assistant IS the sales and attendance dashboard — there is no separate charts page, so when asked about sales or attendance, actually answer with the numbers (as a short table in plain text if there's more than a couple of rows), not just a pointer to "check the app".
+- This assistant IS the sales, attendance AND profitability dashboard — there is no separate charts page, so when asked about sales, attendance, food cost, margin or profit, actually answer with the numbers (as a short table in plain text if there's more than a couple of rows), not just a pointer to "check the app".
 - For any question naming a period ("today", "this week", "this month", "last month", etc.) use get_sales_summary with that period — it already includes the comparison to the equivalent previous period, so state the % change directly (e.g. "Revenue is up 8% on this week last week") rather than fetching both ranges yourself.
 - For "how is attendance" / "who's been late" / a monthly attendance question, use get_attendance_month_summary. Present each person's attendance % together with its band (Excellent/Good/Needs Attention/Needs Improvement per get_attendance_month_summary's own bands, not your own judgment), and the raw days behind it ("18 of 20 scheduled days") — never a bare percentage. These bands describe attendance patterns, not disciplinary conclusions — never suggest firing or discipline from them.
-- For analysis ("why are sales down", comparisons beyond the two built-in period tools): pull the relevant windows with get_sales / get_top_products, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
+- For "how profitable / what's our food cost / margin / net profit" naming a period, use get_period_profitability — lead with net sales, contribution (or net profit if expenses are recorded), then food cost %. If it also returns a cogs_variance_cents worth mentioning, frame it as an INSIGHT ("actual ingredient cost ran ~X over what the recipes account for — likely waste or portioning, worth reviewing"), never as a proven cause.
+- For "how profitable was Order #N", use get_order_profitability with that order number.
+- For "which item/deal makes the most money", "which item has high food cost", or "what should I push/cut/reprice", use get_item_profitability / get_deal_profitability / get_menu_engineering for the period asked. Rank by CONTRIBUTION (Rupees earned), not food-cost % alone — a high-food-cost item that sells a lot can still be a Star; say so explicitly if the data shows it, rather than assuming high food cost = bad.
+- For analysis ("why are sales/margin down", comparisons beyond the built-in period tools): pull the relevant windows, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
 - Keep it short. A busy manager is reading this between tables.
 

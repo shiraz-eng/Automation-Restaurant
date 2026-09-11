@@ -33,7 +33,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v20 recipe-based inventory: variant/modifier-aware recipe explosion,
 //       weighted-average ingredient costing, per-order-line cost snapshot,
 //       waste/stock-count RPCs, partial PO receiving, kitchen->counter routing
-const SCHEMA_VERSION = 20;
+//   v21 COGS & profitability engine: stock_ledger cost-basis snapshot,
+//       expenses table, order/period/item/deal profitability + menu
+//       engineering RPCs — one authoritative calc layer for Finance page + AI
+const SCHEMA_VERSION = 21;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -628,6 +628,13 @@ create table public.stock_ledger (
   reason app.stock_reason not null,
   order_id uuid references public.orders(id) on delete set null,
   note text,
+  -- Cost basis this movement was valued at, in cents per base unit: the
+  -- actual receipt price for a purchase, the weighted-average cost at that
+  -- moment for consumption/waste/adjustment. Nullable (older rows predate
+  -- this column). This is what lets Actual COGS/purchases/waste value be
+  -- read straight off the ledger instead of reconstructing historical stock
+  -- balances (spec §8, §30 — theoretical vs actual COGS).
+  unit_cost_cents_base numeric(14,4),
   created_at timestamptz not null default now()
 );
 create index stock_ledger_item_idx on public.stock_ledger(inventory_item_id, created_at desc);
@@ -779,18 +786,19 @@ create or replace function public.adjust_stock(
   p_inventory_item_id uuid, p_delta numeric, p_reason text, p_note text default null
 ) returns numeric
 language plpgsql security definer set search_path = public, app as $$
-declare v_new numeric;
+declare v_new numeric; v_cost numeric;
 begin
   if not (app.has_perm('stock.adjust') or app.has_perm('inventory.manage')
           or (app.can_write() and app.current_member_role() is not null)) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
+  select cost_cents_per_base_unit into v_cost from public.inventory_items where id = p_inventory_item_id;
   update public.inventory_items set stock_qty = stock_qty + p_delta
    where id = p_inventory_item_id returning stock_qty into v_new;
   if not found then raise exception 'inventory_item_not_found' using errcode = 'foreign_key_violation'; end if;
   if v_new < 0 then raise exception 'would_go_negative' using errcode = 'check_violation'; end if;
-  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-  values (p_inventory_item_id, p_delta, coalesce(nullif(p_reason,''),'adjustment')::app.stock_reason, p_note);
+  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note, unit_cost_cents_base)
+  values (p_inventory_item_id, p_delta, coalesce(nullif(p_reason,''),'adjustment')::app.stock_reason, p_note, v_cost);
   return v_new;
 end $$;
 revoke all on function public.adjust_stock(uuid, numeric, text, text) from public;
@@ -802,19 +810,20 @@ create or replace function public.record_ingredient_waste(
   p_inventory_item_id uuid, p_qty numeric, p_note text
 ) returns numeric
 language plpgsql security definer set search_path = public, app as $$
-declare v_new numeric;
+declare v_new numeric; v_cost numeric;
 begin
   if not (app.has_perm('inventory.manage_waste') or app.has_perm('stock.adjust') or app.can_write()) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   if coalesce(p_qty, 0) <= 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
   if coalesce(trim(p_note), '') = '' then raise exception 'reason_required' using errcode = 'check_violation'; end if;
+  select cost_cents_per_base_unit into v_cost from public.inventory_items where id = p_inventory_item_id;
   update public.inventory_items set stock_qty = stock_qty - p_qty
    where id = p_inventory_item_id and stock_qty >= p_qty
    returning stock_qty into v_new;
   if not found then raise exception 'insufficient_stock: %', p_inventory_item_id using errcode = 'check_violation'; end if;
-  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-  values (p_inventory_item_id, -p_qty, 'spoilage', p_note);
+  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note, unit_cost_cents_base)
+  values (p_inventory_item_id, -p_qty, 'spoilage', p_note, v_cost);
   return v_new;
 end $$;
 revoke all on function public.record_ingredient_waste(uuid, numeric, text) from public;
@@ -827,18 +836,18 @@ create or replace function public.submit_stock_count(
   p_inventory_item_id uuid, p_counted_qty numeric, p_note text default null
 ) returns jsonb
 language plpgsql security definer set search_path = public, app as $$
-declare v_before numeric; v_delta numeric;
+declare v_before numeric; v_delta numeric; v_cost numeric;
 begin
   if not (app.has_perm('stock.count') or app.has_perm('stock.adjust') or app.can_write()) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   if p_counted_qty < 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
-  select stock_qty into v_before from public.inventory_items where id = p_inventory_item_id;
+  select stock_qty, cost_cents_per_base_unit into v_before, v_cost from public.inventory_items where id = p_inventory_item_id;
   if not found then raise exception 'inventory_item_not_found' using errcode = 'foreign_key_violation'; end if;
   v_delta := p_counted_qty - v_before;
   update public.inventory_items set stock_qty = p_counted_qty where id = p_inventory_item_id;
-  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-  values (p_inventory_item_id, v_delta, 'stock_take', coalesce(nullif(trim(p_note), ''), 'stock count'));
+  insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note, unit_cost_cents_base)
+  values (p_inventory_item_id, v_delta, 'stock_take', coalesce(nullif(trim(p_note), ''), 'stock count'), v_cost);
   return jsonb_build_object('before', v_before, 'counted', p_counted_qty, 'variance', v_delta);
 end $$;
 revoke all on function public.submit_stock_count(uuid, numeric, text) from public;
@@ -971,8 +980,8 @@ begin
            where id = v_comp.inventory_item_id and stock_qty >= v_need;
           get diagnostics v_upd = row_count;
           if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
-          insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
-          values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
+          insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id, unit_cost_cents_base)
+          values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id, v_cost_per_base);
         end loop;
         update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
       end loop;
@@ -1073,8 +1082,8 @@ begin
          where id = v_comp.inventory_item_id and stock_qty >= v_need;
         get diagnostics v_upd = row_count;
         if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
-        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
-        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
+        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id, unit_cost_cents_base)
+        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id, v_cost_per_base);
       end loop;
 
       -- Modifier-linked consumption (spec §12): e.g. Extra Cheese consumes
@@ -1093,8 +1102,8 @@ begin
          where id = v_comp.inventory_item_id and stock_qty >= v_need;
         get diagnostics v_upd = row_count;
         if v_upd = 0 then raise exception 'insufficient_stock: %', v_comp.inventory_item_id using errcode = 'check_violation'; end if;
-        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id)
-        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id);
+        insert into public.stock_ledger (inventory_item_id, delta_qty, reason, order_id, unit_cost_cents_base)
+        values (v_comp.inventory_item_id, -v_need, 'order_deduction', v_order_id, v_cost_per_base);
       end loop;
 
       update public.order_lines set recipe_cost_cents = v_recipe_cost where id = v_line_id;
@@ -1764,8 +1773,8 @@ begin
       update public.inventory_items
          set stock_qty = stock_qty + v_recv_base, cost_cents_per_base_unit = v_new_cost
        where id = r.inventory_item_id;
-      insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-      values (r.inventory_item_id, v_recv_base, 'restock', 'PO receipt');
+      insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note, unit_cost_cents_base)
+      values (r.inventory_item_id, v_recv_base, 'restock', 'PO receipt', v_receipt_cost_per_base);
     end if;
     update public.purchase_order_lines set received_qty = qty where id = r.id;
   end loop;
@@ -1806,8 +1815,8 @@ begin
     update public.inventory_items
        set stock_qty = stock_qty + v_recv_base, cost_cents_per_base_unit = v_new_cost
      where id = r.inventory_item_id;
-    insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note)
-    values (r.inventory_item_id, v_recv_base, 'restock', 'PO partial receipt');
+    insert into public.stock_ledger (inventory_item_id, delta_qty, reason, note, unit_cost_cents_base)
+    values (r.inventory_item_id, v_recv_base, 'restock', 'PO partial receipt', v_receipt_cost_per_base);
   end if;
   update public.purchase_order_lines set received_qty = received_qty + v_take where id = p_line_id;
 
@@ -2250,6 +2259,309 @@ begin
 end $fn$;
 revoke all on function public.reopen_business_day(date, text) from public;
 grant execute on function public.reopen_business_day(date, text) to authenticated, service_role;
+
+-- ── Operating expenses (spec §28-29 — Prime Cost / Net Profit inputs) ──────
+-- Deliberately simple: a category + amount + date. Payroll/labor stays out
+-- of scope here (spec §28 — no arbitrary per-order salary allocation); this
+-- exists so period_profitability() can reach real Net Profit, not stop at
+-- Contribution/Gross Profit.
+create table public.expenses (
+  id           uuid primary key default gen_random_uuid(),
+  category     text not null,
+  description  text,
+  amount_cents int not null check (amount_cents > 0),
+  expense_date date not null default current_date,
+  recorded_by  uuid,
+  created_at   timestamptz not null default now()
+);
+create index expenses_date_idx on public.expenses(expense_date desc);
+alter table public.expenses enable row level security;
+create policy staff_read on public.expenses for select using (app.has_perm('finance.view') or app.is_staff());
+create policy staff_insert on public.expenses for insert with check (app.has_perm('finance.create_expense') or app.can_write());
+create policy staff_update on public.expenses for update using (app.has_perm('finance.update_expense') or app.can_write()) with check (app.has_perm('finance.update_expense') or app.can_write());
+create policy staff_delete on public.expenses for delete using (app.has_perm('finance.delete_expense') or app.can_write());
+create trigger audit after insert or update or delete on public.expenses for each row execute function app.audit_row();
+
+-- ── COGS & Profitability engine (recipe/inventory/costing spec §22-31, §49) ─
+-- ONE authoritative calculation layer: the Finance page, the AI assistant,
+-- and any future report all call these same functions rather than each
+-- re-deriving gross/net/COGS/contribution with their own formula. Every
+-- number a caller can't get honestly (e.g. no recipe cost configured) comes
+-- back as null / a missing-lines count, never a guessed value (spec §64-65).
+--
+-- "Net sales" is always subtotal (gross) minus discount minus refunds —
+-- never gross alone (spec §23, §57 discount test). A deal's revenue is its
+-- own line_total_cents (the deal price actually charged), never the sum of
+-- component list prices (spec §15, §56 deal test) — that falls out for free
+-- because place_order() already prices deal components at zero and puts the
+-- deal price on the header line alone.
+--
+-- Theoretical vs Actual COGS (spec §30) is read straight off the ledger
+-- rather than reconstructed from historical stock balances: every ledger
+-- row now carries the cost basis it was valued at (unit_cost_cents_base,
+-- above), so "actual" ingredient value consumed/wasted/adjusted in a period
+-- is a straight sum, and the gap against the recipe-driven theoretical COGS
+-- is exactly the waste + shrinkage the period actually saw.
+
+create or replace function public.order_profitability(p_order_id uuid)
+returns table (
+  order_id uuid, order_number bigint, status text,
+  gross_sales_cents int, discount_cents int, refunded_cents int, tax_cents int,
+  net_sales_cents int, cogs_cents int, cogs_lines_total int, cogs_lines_missing int,
+  food_cost_pct numeric, contribution_cents int, contribution_margin_pct numeric
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('finance.view_profit') or app.has_perm('finance.view_cogs') or app.has_perm('inventory.view_cost')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    with base as (
+      select o.id, o.order_number, o.status::text as status,
+             o.subtotal_cents as gross_sales_cents, o.discount_cents,
+             coalesce(o.refunded_cents,0) as refunded_cents, o.tax_cents,
+             (o.subtotal_cents - o.discount_cents - coalesce(o.refunded_cents,0)) as net_sales_cents
+        from public.orders o where o.id = p_order_id
+    ),
+    agg as (
+      select coalesce(sum(ol.recipe_cost_cents),0)::int as cogs_cents,
+             count(*)::int as lines_total,
+             count(*) filter (where ol.recipe_cost_cents is null)::int as lines_missing
+        from public.order_lines ol where ol.order_id = p_order_id
+    )
+    select base.id, base.order_number, base.status,
+           base.gross_sales_cents, base.discount_cents, base.refunded_cents, base.tax_cents,
+           base.net_sales_cents, agg.cogs_cents, agg.lines_total, agg.lines_missing,
+           case when base.net_sales_cents > 0 then round(agg.cogs_cents::numeric / base.net_sales_cents * 1000) / 10 else null end,
+           (base.net_sales_cents - agg.cogs_cents),
+           case when base.net_sales_cents > 0 then round((base.net_sales_cents - agg.cogs_cents)::numeric / base.net_sales_cents * 1000) / 10 else null end
+      from base, agg;
+end $fn$;
+revoke all on function public.order_profitability(uuid) from public;
+grant execute on function public.order_profitability(uuid) to authenticated, service_role;
+
+-- A "sale" for period_profitability/item_profitability/deal_profitability is
+-- the same population daily-closing already uses (app.day_sales): status
+-- served or paid, bucketed by paid_at (or created_at if never paid) — the
+-- one existing authoritative definition of "this counts as a sale", not a
+-- second competing one.
+create or replace function public.period_profitability(p_from timestamptz, p_to timestamptz)
+returns table (
+  from_ts timestamptz, to_ts timestamptz,
+  orders_count int, gross_sales_cents int, discount_cents int, refunded_cents int,
+  net_sales_cents int, avg_order_cents int,
+  theoretical_cogs_cents int, cogs_lines_total int, cogs_lines_missing int,
+  gross_profit_cents int, gross_margin_pct numeric, food_cost_pct numeric,
+  consumption_ledger_cents int, waste_cents int, net_adjustment_cents int,
+  actual_cogs_cents int, cogs_variance_cents int,
+  expenses_cents int, net_profit_cents int, net_profit_margin_pct numeric
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('finance.view_profit') or app.has_perm('finance.view_cogs') or app.has_perm('inventory.view_cost')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    with sales as (
+      select o.id, o.subtotal_cents, o.discount_cents, coalesce(o.refunded_cents,0) as refunded_cents
+        from public.orders o
+       where o.status in ('served','paid')
+         and coalesce(o.paid_at, o.created_at) >= p_from and coalesce(o.paid_at, o.created_at) < p_to
+    ),
+    sales_agg as (
+      select count(*)::int as orders_count,
+             coalesce(sum(sales.subtotal_cents),0)::int as gross_sales_cents,
+             coalesce(sum(sales.discount_cents),0)::int as discount_cents,
+             coalesce(sum(sales.refunded_cents),0)::int as refunded_cents,
+             coalesce(sum(sales.subtotal_cents - sales.discount_cents - sales.refunded_cents),0)::int as net_sales_cents
+        from sales
+    ),
+    cogs_agg as (
+      select coalesce(sum(l.recipe_cost_cents),0)::int as cogs_cents,
+             count(*)::int as lines_total,
+             count(*) filter (where l.recipe_cost_cents is null)::int as lines_missing
+        from public.order_lines l join sales s on s.id = l.order_id
+    ),
+    -- Actual ingredient value moved in the period, read off the ledger's own
+    -- cost-basis snapshot (unit_cost_cents_base) rather than recomputed.
+    ledger_agg as (
+      select
+        coalesce(sum(abs(delta_qty * unit_cost_cents_base)) filter (where reason = 'order_deduction'), 0)::int as consumption_cents,
+        coalesce(sum(abs(delta_qty * unit_cost_cents_base)) filter (where reason = 'spoilage'), 0)::int as waste_cents,
+        coalesce(sum(delta_qty * unit_cost_cents_base) filter (where reason in ('adjustment','stock_take')), 0)::int as net_adjustment_cents
+        from public.stock_ledger
+       where created_at >= p_from and created_at < p_to and unit_cost_cents_base is not null
+    ),
+    exp_agg as (
+      -- expense_date is a plain date (no time-of-day); the upper bound is
+      -- inclusive so an expense dated "today" is still counted when p_to is
+      -- "now" — a strict "<" against a date-truncated timestamptz would
+      -- otherwise drop every expense recorded earlier today.
+      select coalesce(sum(amount_cents),0)::int as expenses_cents
+        from public.expenses
+       where expense_date >= p_from::date and expense_date <= p_to::date
+    )
+    select
+      p_from, p_to,
+      sales_agg.orders_count, sales_agg.gross_sales_cents, sales_agg.discount_cents, sales_agg.refunded_cents,
+      sales_agg.net_sales_cents,
+      case when sales_agg.orders_count > 0 then round(sales_agg.net_sales_cents::numeric / sales_agg.orders_count)::int else 0 end,
+      cogs_agg.cogs_cents, cogs_agg.lines_total, cogs_agg.lines_missing,
+      (sales_agg.net_sales_cents - cogs_agg.cogs_cents),
+      case when sales_agg.net_sales_cents > 0 then round((sales_agg.net_sales_cents - cogs_agg.cogs_cents)::numeric / sales_agg.net_sales_cents * 1000) / 10 else null end,
+      case when sales_agg.net_sales_cents > 0 then round(cogs_agg.cogs_cents::numeric / sales_agg.net_sales_cents * 1000) / 10 else null end,
+      ledger_agg.consumption_cents, ledger_agg.waste_cents, ledger_agg.net_adjustment_cents,
+      (ledger_agg.consumption_cents + ledger_agg.waste_cents - ledger_agg.net_adjustment_cents),
+      (ledger_agg.consumption_cents + ledger_agg.waste_cents - ledger_agg.net_adjustment_cents - cogs_agg.cogs_cents),
+      exp_agg.expenses_cents,
+      (sales_agg.net_sales_cents - cogs_agg.cogs_cents - exp_agg.expenses_cents),
+      case when sales_agg.net_sales_cents > 0 then round((sales_agg.net_sales_cents - cogs_agg.cogs_cents - exp_agg.expenses_cents)::numeric / sales_agg.net_sales_cents * 1000) / 10 else null end
+      from sales_agg, cogs_agg, ledger_agg, exp_agg;
+end $fn$;
+revoke all on function public.period_profitability(timestamptz, timestamptz) from public;
+grant execute on function public.period_profitability(timestamptz, timestamptz) to authenticated, service_role;
+
+-- Per menu item/variant, à la carte lines only (deal_id is null) — a deal's
+-- own components are costed as part of the deal, not folded into the item's
+-- own numbers here (spec §31 menu engineering needs "this item sold alone").
+create or replace function public.item_profitability(p_from timestamptz, p_to timestamptz)
+returns table (
+  menu_item_id uuid, variant_id uuid, name text,
+  qty_sold int, revenue_cents int, cogs_cents int, cogs_known boolean,
+  contribution_cents int, contribution_margin_pct numeric, food_cost_pct numeric
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('finance.view_profit') or app.has_perm('finance.view_cogs') or app.has_perm('inventory.view_cost')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    select
+      l.menu_item_id, l.variant_id, max(l.name_snapshot) as name,
+      sum(l.qty)::int as qty_sold, sum(l.line_total_cents)::int as revenue_cents,
+      coalesce(sum(l.recipe_cost_cents),0)::int as cogs_cents,
+      bool_and(l.recipe_cost_cents is not null) as cogs_known,
+      (sum(l.line_total_cents) - coalesce(sum(l.recipe_cost_cents),0))::int as contribution_cents,
+      case when sum(l.line_total_cents) > 0
+        then round((sum(l.line_total_cents) - coalesce(sum(l.recipe_cost_cents),0))::numeric / sum(l.line_total_cents) * 1000) / 10
+        else null end as contribution_margin_pct,
+      case when sum(l.line_total_cents) > 0
+        then round(coalesce(sum(l.recipe_cost_cents),0)::numeric / sum(l.line_total_cents) * 1000) / 10
+        else null end as food_cost_pct
+      from public.order_lines l
+      join public.orders o on o.id = l.order_id
+     where l.deal_id is null and l.menu_item_id is not null
+       and o.status in ('served','paid')
+       and coalesce(o.paid_at, o.created_at) >= p_from and coalesce(o.paid_at, o.created_at) < p_to
+     group by l.menu_item_id, l.variant_id
+     order by revenue_cents desc;
+end $fn$;
+revoke all on function public.item_profitability(timestamptz, timestamptz) from public;
+grant execute on function public.item_profitability(timestamptz, timestamptz) to authenticated, service_role;
+
+-- Per deal: header line(s) for revenue, that same (order_id, deal_id)'s
+-- component lines for COGS (spec §15, §56). list_value_cents/
+-- customer_saving_cents use TODAY's component menu prices — an operational
+-- estimate, since a component's list price isn't snapshotted per historical
+-- sale the way revenue and COGS are.
+create or replace function public.deal_profitability(p_from timestamptz, p_to timestamptz)
+returns table (
+  deal_id uuid, name text, qty_sold int, revenue_cents int, cogs_cents int, cogs_known boolean,
+  contribution_cents int, contribution_margin_pct numeric, food_cost_pct numeric,
+  list_value_cents int, customer_saving_cents int
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('finance.view_profit') or app.has_perm('finance.view_cogs') or app.has_perm('inventory.view_cost')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+    with header as (
+      select l.order_id, l.deal_id, l.name_snapshot as name, l.qty, l.line_total_cents
+        from public.order_lines l
+        join public.orders o on o.id = l.order_id
+       where l.deal_id is not null and l.menu_item_id is null
+         and o.status in ('served','paid')
+         and coalesce(o.paid_at, o.created_at) >= p_from and coalesce(o.paid_at, o.created_at) < p_to
+    ),
+    comp as (
+      select ol.order_id, ol.deal_id,
+             coalesce(sum(ol.recipe_cost_cents),0)::int as cogs_cents,
+             bool_and(ol.recipe_cost_cents is not null) as cogs_known
+        from public.order_lines ol
+       where ol.deal_id is not null and ol.menu_item_id is not null
+       group by ol.order_id, ol.deal_id
+    ),
+    list_price as (
+      select dc.deal_id, sum(dc.qty * coalesce(v.price_cents, mi.price_cents, 0))::int as list_value_cents
+        from public.deal_components dc
+        join public.menu_items mi on mi.id = dc.menu_item_id
+        left join public.menu_variants v on v.id = dc.variant_id
+       group by dc.deal_id
+    )
+    select
+      h.deal_id, max(h.name) as name, sum(h.qty)::int as qty_sold, sum(h.line_total_cents)::int as revenue_cents,
+      coalesce(sum(c.cogs_cents),0)::int as cogs_cents,
+      coalesce(bool_and(c.cogs_known), false) as cogs_known,
+      (sum(h.line_total_cents) - coalesce(sum(c.cogs_cents),0))::int as contribution_cents,
+      case when sum(h.line_total_cents) > 0
+        then round((sum(h.line_total_cents) - coalesce(sum(c.cogs_cents),0))::numeric / sum(h.line_total_cents) * 1000) / 10
+        else null end as contribution_margin_pct,
+      case when sum(h.line_total_cents) > 0
+        then round(coalesce(sum(c.cogs_cents),0)::numeric / sum(h.line_total_cents) * 1000) / 10
+        else null end as food_cost_pct,
+      max(lp.list_value_cents) as list_value_cents,
+      case when max(lp.list_value_cents) is not null
+        then (max(lp.list_value_cents) * sum(h.qty) - sum(h.line_total_cents))::int
+        else null end as customer_saving_cents
+      from header h
+      left join comp c on c.order_id = h.order_id and c.deal_id = h.deal_id
+      left join list_price lp on lp.deal_id = h.deal_id
+     group by h.deal_id
+     order by revenue_cents desc;
+end $fn$;
+revoke all on function public.deal_profitability(timestamptz, timestamptz) from public;
+grant execute on function public.deal_profitability(timestamptz, timestamptz) to authenticated, service_role;
+
+-- Menu engineering (spec §31): classify each à la carte item against the
+-- period's own average popularity and average contribution-per-unit —
+-- never by food-cost % alone, so a pricier-to-make item that still sells a
+-- lot and earns real Rupees per unit doesn't get flagged as "bad".
+create or replace function public.menu_engineering(p_from timestamptz, p_to timestamptz)
+returns table (
+  menu_item_id uuid, variant_id uuid, name text, qty_sold int, revenue_cents int,
+  contribution_per_unit_cents int, total_contribution_cents int, quadrant text
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+declare v_avg_qty numeric; v_avg_contrib numeric;
+begin
+  if not (app.has_perm('finance.view_profit') or app.has_perm('finance.view_cogs') or app.has_perm('inventory.view_cost')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+
+  select avg(ip.qty_sold), avg(case when ip.qty_sold > 0 then ip.contribution_cents::numeric / ip.qty_sold else 0 end)
+    into v_avg_qty, v_avg_contrib
+    from public.item_profitability(p_from, p_to) ip;
+
+  return query
+    select
+      ip.menu_item_id, ip.variant_id, ip.name, ip.qty_sold, ip.revenue_cents,
+      case when ip.qty_sold > 0 then round(ip.contribution_cents::numeric / ip.qty_sold)::int else 0 end,
+      ip.contribution_cents,
+      case
+        when ip.qty_sold >= coalesce(v_avg_qty,0) and (case when ip.qty_sold > 0 then ip.contribution_cents::numeric / ip.qty_sold else 0 end) >= coalesce(v_avg_contrib,0)
+          then 'Star (high sales, high contribution)'
+        when ip.qty_sold >= coalesce(v_avg_qty,0)
+          then 'Plowhorse (high sales, low contribution)'
+        when (case when ip.qty_sold > 0 then ip.contribution_cents::numeric / ip.qty_sold else 0 end) >= coalesce(v_avg_contrib,0)
+          then 'Puzzle (low sales, high contribution)'
+        else 'Dog (low sales, low contribution)'
+      end
+      from public.item_profitability(p_from, p_to) ip
+     order by ip.revenue_cents desc;
+end $fn$;
+revoke all on function public.menu_engineering(timestamptz, timestamptz) from public;
+grant execute on function public.menu_engineering(timestamptz, timestamptz) to authenticated, service_role;
 
 -- ── Portals (Phase 2) ────────────────────────────────────────────────────
 -- Super Admin (the owner) configures which portals exist. Each portal has its
