@@ -36,7 +36,11 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v21 COGS & profitability engine: stock_ledger cost-basis snapshot,
 //       expenses table, order/period/item/deal profitability + menu
 //       engineering RPCs — one authoritative calc layer for Finance page + AI
-const SCHEMA_VERSION = 21;
+//   v22 Supplier & payables engine: supplier price catalog + history, PO
+//       approval gate, accept/reject receiving, supplier invoices, 3-way
+//       matching with tolerance, payment holds, credit notes, payments with
+//       multi-invoice allocation, supplier_payable()/supplier_statement()
+const SCHEMA_VERSION = 22;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

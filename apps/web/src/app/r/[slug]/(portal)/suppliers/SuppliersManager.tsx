@@ -15,6 +15,10 @@ export type Supplier = {
   payment_terms: string | null;
   notes: string | null;
   created_at: string;
+  currency: string;
+  credit_period_days: number;
+  preferred_payment_method: string | null;
+  is_active: boolean;
 };
 
 const EMPTY = {
@@ -25,6 +29,9 @@ const EMPTY = {
   address: '',
   payment_terms: '',
   notes: '',
+  currency: 'USD',
+  credit_period_days: '30',
+  preferred_payment_method: '',
 };
 
 export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
@@ -60,6 +67,9 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
       address: s.address ?? '',
       payment_terms: s.payment_terms ?? '',
       notes: s.notes ?? '',
+      currency: s.currency,
+      credit_period_days: String(s.credit_period_days),
+      preferred_payment_method: s.preferred_payment_method ?? '',
     });
   }
 
@@ -77,6 +87,9 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
       address: form.address.trim() || null,
       payment_terms: form.payment_terms.trim() || null,
       notes: form.notes.trim() || null,
+      currency: form.currency.trim() || 'USD',
+      credit_period_days: Number(form.credit_period_days) || 0,
+      preferred_payment_method: form.preferred_payment_method.trim() || null,
     };
     const ok = await run(() =>
       editId
@@ -87,6 +100,10 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
       setForm(EMPTY);
       setEditId(null);
     }
+  }
+
+  async function toggleActive(s: Supplier) {
+    await run(() => supabase.from('suppliers').update({ is_active: !s.is_active }).eq('id', s.id));
   }
 
   return (
@@ -122,6 +139,24 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
           <Field label="Address">
             <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
           </Field>
+          <Field label="Credit period (days)">
+            <Input
+              type="number"
+              min="0"
+              value={form.credit_period_days}
+              onChange={(e) => set('credit_period_days', e.target.value)}
+            />
+          </Field>
+          <Field label="Currency">
+            <Input value={form.currency} onChange={(e) => set('currency', e.target.value)} placeholder="USD" />
+          </Field>
+          <Field label="Preferred payment method">
+            <Input
+              value={form.preferred_payment_method}
+              onChange={(e) => set('preferred_payment_method', e.target.value)}
+              placeholder="Bank transfer"
+            />
+          </Field>
           <div className="sm:col-span-3 flex gap-2">
             <Button type="submit" disabled={busy}>
               {editId ? 'Save changes' : 'Add supplier'}
@@ -149,13 +184,14 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
               <th className="p-3 font-semibold">Supplier</th>
               <th className="p-3 font-semibold">Contact</th>
               <th className="p-3 font-semibold">Terms</th>
+              <th className="p-3 font-semibold">Status</th>
               <th className="p-3" />
             </tr>
           </thead>
           <tbody>
             {suppliers.length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-3 text-muted">
+                <td colSpan={5} className="p-3 text-muted">
                   No suppliers yet.
                 </td>
               </tr>
@@ -170,10 +206,19 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
                     <div>{s.contact_name ?? '—'}</div>
                     <div className="text-muted">{s.email ?? s.phone ?? ''}</div>
                   </td>
-                  <td className="p-3 text-muted">{s.payment_terms ?? '—'}</td>
+                  <td className="p-3 text-muted">
+                    {s.payment_terms ?? `Net ${s.credit_period_days}`} · {s.currency}
+                    {s.preferred_payment_method ? ` · ${s.preferred_payment_method}` : ''}
+                  </td>
+                  <td className={`p-3 ${s.is_active ? 'text-ok' : 'text-muted'}`}>
+                    {s.is_active ? 'Active' : 'Inactive'}
+                  </td>
                   <td className="p-3 text-right whitespace-nowrap">
                     <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
                       Edit
+                    </Button>
+                    <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
+                      {s.is_active ? 'Deactivate' : 'Reactivate'}
                     </Button>
                     <Button
                       variant="danger"

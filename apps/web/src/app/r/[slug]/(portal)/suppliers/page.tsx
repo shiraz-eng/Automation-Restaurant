@@ -18,7 +18,9 @@ export default async function SuppliersPage({
 
   const { data, error } = await t.client
     .from('suppliers')
-    .select('id, name, contact_name, email, phone, address, payment_terms, notes, created_at')
+    .select(
+      'id, name, contact_name, email, phone, address, payment_terms, notes, created_at, currency, credit_period_days, preferred_payment_method, is_active',
+    )
     .order('name');
 
   return (

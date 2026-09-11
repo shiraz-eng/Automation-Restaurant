@@ -876,6 +876,101 @@ export const AI_TOOLS: AiTool[] = [
       return { period: label, items: data ?? [] };
     },
   },
+  // ── Supplier & payables (spec §18-27, §62-66) ───────────────────────────
+  // Every number below comes from public.supplier_payable() / .supplier_statement()
+  // — the same authoritative AP ledger the Purchasing page's "Where is our
+  // money?" table reads. AI never computes payable balances itself.
+  {
+    name: 'get_supplier_payable',
+    description:
+      'Accounts payable per supplier: invoiced, approved, on hold, paid, credited, outstanding, overdue. Omit supplier_name for every supplier ranked by outstanding balance ("who do we owe the most") — pass it to answer "how much do we owe X".',
+    needs: 'payables.view',
+    input_schema: {
+      type: 'object',
+      properties: { supplier_name: { type: 'string', description: 'Optional — partial match OK' } },
+    },
+    async run(admin, args) {
+      let supplierId: string | null = null;
+      const name = String(args.supplier_name ?? '').trim();
+      if (name) {
+        const { data: sup } = await admin.from('suppliers').select('id, name').ilike('name', `%${name}%`).limit(1).maybeSingle();
+        if (!sup) return { error: 'no_matching_supplier' };
+        supplierId = sup.id;
+      }
+      const { data, error } = await admin.rpc('supplier_payable', { p_supplier_id: supplierId });
+      if (error) return { error: error.message };
+      const rows = ((data ?? []) as Record<string, unknown>[]).filter((r) => (r.invoiced_cents as number) > 0);
+      return { suppliers: rows, note: rows.length === 0 ? 'No supplier invoices recorded yet.' : undefined };
+    },
+  },
+  {
+    name: 'get_payment_holds',
+    description:
+      'Every supplier invoice currently on payment hold, with the specific reason (quantity mismatch, price variance, missing PO link, etc.) and amount affected. Use for "what\'s on hold" / "why is this invoice on hold" questions.',
+    needs: 'payables.view',
+    input_schema: { type: 'object', properties: {} },
+    async run(admin) {
+      const { data, error } = await admin
+        .from('supplier_payment_holds')
+        .select('reason, amount_cents, created_at, supplier_invoices(supplier_invoice_number, suppliers(name))')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false });
+      if (error) return { error: error.message };
+      const rows = (data ?? []) as {
+        reason: string;
+        amount_cents: number;
+        created_at: string;
+        supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null;
+      }[];
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const holds = rows.map((r) => {
+        const inv = one(r.supplier_invoices);
+        const sup = inv ? one(inv.suppliers) : null;
+        return {
+          supplier: sup?.name ?? '—',
+          invoice: inv?.supplier_invoice_number ?? '—',
+          amount_cents: r.amount_cents,
+          reason: r.reason,
+          age_days: Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400_000),
+        };
+      });
+      return {
+        total_on_hold_cents: holds.reduce((s, h) => s + h.amount_cents, 0),
+        count: holds.length,
+        holds,
+        note: holds.length === 0 ? 'Nothing on hold.' : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_supplier_statement',
+    description:
+      'One supplier\'s transaction history (invoices, credit notes, payments) between two dates, chronological — the evidence behind "what did we buy from X" / "how much have we paid X".',
+    needs: 'payables.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        supplier_name: { type: 'string' },
+        days: { type: 'integer', description: '1-365, default 90' },
+      },
+      required: ['supplier_name'],
+    },
+    async run(admin, args) {
+      const { data: sup } = await admin
+        .from('suppliers')
+        .select('id, name')
+        .ilike('name', `%${String(args.supplier_name ?? '').trim()}%`)
+        .limit(1)
+        .maybeSingle();
+      if (!sup) return { error: 'no_matching_supplier' };
+      const days = clampInt(args.days, 90, 365);
+      const to = new Date().toISOString().slice(0, 10);
+      const from = daysAgo(days).slice(0, 10);
+      const { data, error } = await admin.rpc('supplier_statement', { p_supplier_id: sup.id, p_from: from, p_to: to });
+      if (error) return { error: error.message };
+      return { supplier: sup.name, window_days: days, transactions: data ?? [] };
+    },
+  },
 ];
 
 /**
@@ -963,6 +1058,7 @@ HOW TO ANSWER
 - For "how profitable was Order #N", use get_order_profitability with that order number.
 - For "which item/deal makes the most money", "which item has high food cost", or "what should I push/cut/reprice", use get_item_profitability / get_deal_profitability / get_menu_engineering for the period asked. Rank by CONTRIBUTION (Rupees earned), not food-cost % alone — a high-food-cost item that sells a lot can still be a Star; say so explicitly if the data shows it, rather than assuming high food cost = bad.
 - For analysis ("why are sales/margin down", comparisons beyond the built-in period tools): pull the relevant windows, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
+- For "what do we owe" / "who do we owe the most" / "how much do we owe X", use get_supplier_payable (omit supplier_name for the ranked list, pass it for one supplier). Lead with outstanding, then call out on_hold and overdue separately since money can be owed without being payable yet. For "what's on hold" / "why is this invoice on hold", use get_payment_holds and quote the specific reason verbatim — never guess why something is held. For "what did we buy from X" / "how much have we paid X", use get_supplier_statement.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
 - Keep it short. A busy manager is reading this between tables.
 
