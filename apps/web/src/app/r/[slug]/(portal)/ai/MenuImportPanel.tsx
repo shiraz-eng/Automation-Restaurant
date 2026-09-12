@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 
@@ -40,9 +40,21 @@ const STATUS_STYLE: Record<string, string> = {
   missing_price: 'bg-danger/15 text-danger',
 };
 
-export function MenuImportPanel({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function MenuImportPanel({
+  slug,
+  onClose,
+  initialFile,
+}: {
+  slug: string;
+  onClose: () => void;
+  /** Set by SmartImportPanel when the AI has already classified this file
+   *  as a menu — runs the exact same handleFile() a manual pick would,
+   *  so it goes through the same PDF-type check and menu-imports upload. */
+  initialFile?: File;
+}) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
@@ -112,6 +124,19 @@ export function MenuImportPanel({ slug, onClose }: { slug: string; onClose: () =
       setStage('idle');
     }
   }
+
+  // Auto-run once if Smart Import already picked this file for us. Guarded
+  // by a ref (not just an empty dep array) because React's Strict Mode
+  // intentionally double-invokes a mount effect in development — without
+  // this, that fires handleFile() twice and its generated upload path
+  // collides with itself (both share the same Date.now()).
+  useEffect(() => {
+    if (initialFile && !ranInitialFile.current) {
+      ranInitialFile.current = true;
+      handleFile(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setApproved((s) => {

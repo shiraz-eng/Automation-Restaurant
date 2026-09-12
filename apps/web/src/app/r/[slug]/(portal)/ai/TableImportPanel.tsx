@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -14,9 +14,18 @@ const STATUS_STYLE: Record<string, string> = { new: 'bg-ok/15 text-ok', exists: 
 
 /** The table-domain twin of the other AI import panels — create-only:
  *  a label that already exists is shown but can't be re-approved. */
-export function TableImportPanel({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function TableImportPanel({
+  slug,
+  onClose,
+  initialFile,
+}: {
+  slug: string;
+  onClose: () => void;
+  initialFile?: File;
+}) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
@@ -78,6 +87,18 @@ export function TableImportPanel({ slug, onClose }: { slug: string; onClose: () 
       setStage('idle');
     }
   }
+
+  // Guarded by a ref (not just an empty dep array) because React's Strict
+  // Mode intentionally double-invokes a mount effect in development —
+  // without this, that fires handleFile() twice, and its own generated
+  // upload path collides with itself since both share the same Date.now().
+  useEffect(() => {
+    if (initialFile && !ranInitialFile.current) {
+      ranInitialFile.current = true;
+      handleFile(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setApproved((s) => {

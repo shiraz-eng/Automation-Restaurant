@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 
@@ -27,9 +27,18 @@ const STATUS_STYLE: Record<string, string> = { ready: 'bg-ok/15 text-ok', blocke
  *  that stays a separate, human-only step in Purchasing. A line's price
  *  always comes from the supplier's own catalog, never invented; if any
  *  line in an order can't be priced, the whole order is blocked. */
-export function PoImportPanel({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function PoImportPanel({
+  slug,
+  onClose,
+  initialFile,
+}: {
+  slug: string;
+  onClose: () => void;
+  initialFile?: File;
+}) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
@@ -91,6 +100,14 @@ export function PoImportPanel({ slug, onClose }: { slug: string; onClose: () => 
       setStage('idle');
     }
   }
+
+  useEffect(() => {
+    if (initialFile && !ranInitialFile.current) {
+      ranInitialFile.current = true;
+      handleFile(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setApproved((s) => {

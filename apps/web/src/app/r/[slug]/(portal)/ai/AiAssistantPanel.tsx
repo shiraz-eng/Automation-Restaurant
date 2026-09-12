@@ -9,19 +9,21 @@ import { SupplierImportPanel } from './SupplierImportPanel';
 import { SupplierPriceImportPanel } from './SupplierPriceImportPanel';
 import { PoImportPanel } from './PoImportPanel';
 import { StaffImportPanel } from './StaffImportPanel';
+import { SmartImportPanel } from './SmartImportPanel';
 
-type ImportKind = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplierPrices' | 'purchaseOrders' | 'staff';
+type ImportKind = 'smart' | 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplierPrices' | 'purchaseOrders' | 'staff';
+// Backend classification categories — same domains, snake_case to match apps/api/src/lib/importClassifier.ts.
+type Category = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplier_prices' | 'purchase_orders' | 'staff';
 
 /**
  * Entry point for AI-driven management actions that don't fit the chat's
  * single ask/answer shape. Eight domains are wired to real backends here,
  * all built on the same shared document-to-draft engine
- * (apps/api/src/lib/aiDocumentEngine.ts) — proving the "AI should not be
- * designed as menu-import AI" pattern generalizes across the whole
- * restaurant, not just documents. A generic cross-domain planning flow
- * (one upload chaining menu -> inventory -> recipes -> suppliers) is
- * deliberately NOT built — each domain here stays its own reviewed,
- * approved step.
+ * (apps/api/src/lib/aiDocumentEngine.ts). "Smart Import" is the unified
+ * front door the spec's "one AI Operating System" vision asks for: upload
+ * anything and the model figures out which domain it is, then hands off
+ * to the exact same panel picking it manually would open — the eight
+ * explicit buttons stay too, for anyone who already knows what they have.
  */
 export function AiAssistantPanel({
   slug,
@@ -59,6 +61,18 @@ export function AiAssistantPanel({
 
   if (!options.some((o) => o.enabled)) return null;
 
+  const available: Category[] = [
+    canImportMenu && 'menu',
+    canImportInventory && 'inventory',
+    canImportRecipes && 'recipes',
+    canImportTables && 'tables',
+    canImportSuppliers && 'suppliers',
+    canImportSupplierPrices && 'supplier_prices',
+    canImportPurchaseOrders && 'purchase_orders',
+    canImportStaff && 'staff',
+  ].filter((c): c is Category => c !== false);
+
+  if (open === 'smart') return <SmartImportPanel slug={slug} onClose={() => setOpen(null)} available={available} />;
   if (open === 'menu') return <MenuImportPanel slug={slug} onClose={() => setOpen(null)} />;
   if (open === 'inventory') return <InventoryImportPanel slug={slug} onClose={() => setOpen(null)} />;
   if (open === 'recipes') return <RecipeImportPanel slug={slug} onClose={() => setOpen(null)} />;
@@ -70,6 +84,16 @@ export function AiAssistantPanel({
 
   return (
     <div className="space-y-2">
+      <button
+        onClick={() => setOpen('smart')}
+        className="w-full text-left rounded-lg border-2 border-primary/60 bg-primary/10 hover:border-primary p-3 text-xs flex items-center gap-2"
+      >
+        <span className="text-base">✨</span>
+        <span>
+          <span className="font-bold">Smart Import</span>
+          <span className="text-muted block">Upload any document — the assistant figures out which kind it is and routes it for you.</span>
+        </span>
+      </button>
       {options
         .filter((o) => o.enabled)
         .map((o) => (

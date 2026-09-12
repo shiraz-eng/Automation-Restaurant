@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -24,9 +24,18 @@ const STATUS_STYLE: Record<string, string> = { new: 'bg-ok/15 text-ok', exists: 
 /** The supplier-domain twin of the other AI import panels — create-only:
  *  an existing supplier's contact/payment details are never overwritten
  *  from a document, only ever shown as already existing and skipped. */
-export function SupplierImportPanel({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function SupplierImportPanel({
+  slug,
+  onClose,
+  initialFile,
+}: {
+  slug: string;
+  onClose: () => void;
+  initialFile?: File;
+}) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
@@ -88,6 +97,14 @@ export function SupplierImportPanel({ slug, onClose }: { slug: string; onClose: 
       setStage('idle');
     }
   }
+
+  useEffect(() => {
+    if (initialFile && !ranInitialFile.current) {
+      ranInitialFile.current = true;
+      handleFile(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setApproved((s) => {

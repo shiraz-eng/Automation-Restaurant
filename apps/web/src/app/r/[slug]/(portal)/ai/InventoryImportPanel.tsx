@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 
@@ -58,9 +58,18 @@ function Field({ label, value, existing }: { label: string; value: string | null
  * this import — only cost/threshold/target can change, and only on
  * explicit approval — so "unchanged" rows have nothing left to approve.
  */
-export function InventoryImportPanel({ slug, onClose }: { slug: string; onClose: () => void }) {
+export function InventoryImportPanel({
+  slug,
+  onClose,
+  initialFile,
+}: {
+  slug: string;
+  onClose: () => void;
+  initialFile?: File;
+}) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [filename, setFilename] = useState('');
@@ -126,6 +135,14 @@ export function InventoryImportPanel({ slug, onClose }: { slug: string; onClose:
       setStage('idle');
     }
   }
+
+  useEffect(() => {
+    if (initialFile && !ranInitialFile.current) {
+      ranInitialFile.current = true;
+      handleFile(initialFile);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function toggle(key: string) {
     setApproved((s) => {
