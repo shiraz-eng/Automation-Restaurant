@@ -99,7 +99,17 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       supplier_import_drafts (both create-only). Broadens the
 //       'ai-imports' bucket's RLS beyond inventory's own permissions so
 //       all three can actually use it.
-const SCHEMA_VERSION = 35;
+//   v36 AI Supplier Price/PO/Staff Import: three more domains.
+//       supplier_price_import_drafts (price changes go through
+//       set_supplier_item_price(), new catalog pairings are a plain
+//       insert), po_import_drafts (creates draft POs only when every
+//       line already has a price on file with that supplier, mirroring
+//       draft_purchase_order), staff_import_drafts (the one domain that
+//       creates real login credentials — exact role matching against the
+//       fixed creatable-role list, plus the same anti-escalation check
+//       POST /api/staff/access uses; an existing email is never touched).
+//       Broadens the 'ai-imports' bucket's RLS once more.
+const SCHEMA_VERSION = 36;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -16,6 +16,9 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
   const canImportRecipes = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');
   const canImportTables = can(perms, role, 'tables.update');
   const canImportSuppliers = can(perms, role, 'supplier.manage');
+  const canImportSupplierPrices = can(perms, role, 'supplier.manage');
+  const canImportPurchaseOrders = can(perms, role, 'purchases.update');
+  const canImportStaff = can(perms, role, 'staff.create');
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -33,6 +36,9 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
         canImportRecipes={canImportRecipes}
         canImportTables={canImportTables}
         canImportSuppliers={canImportSuppliers}
+        canImportSupplierPrices={canImportSupplierPrices}
+        canImportPurchaseOrders={canImportPurchaseOrders}
+        canImportStaff={canImportStaff}
       />
       <AiChat slug={slug} />
     </div>
