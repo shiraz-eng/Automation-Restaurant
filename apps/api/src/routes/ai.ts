@@ -367,7 +367,7 @@ aiRouter.post(
     const parsed = confirmSchema.safeParse(req.body);
     if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
 
-    const { admin, permissions, role, userId } = req.tenant!;
+    const { admin, permissions, role, userId, email } = req.tenant!;
     const action = AI_ACTIONS.find((a) => a.name === parsed.data.name);
     if (!action) return res.status(404).json({ error: 'unknown_action' });
     if (!permits(permissions, role, 'ai.execute_write') || !permits(permissions, role, action.needs)) {
@@ -382,6 +382,8 @@ aiRouter.post(
       await action.run(admin, parsed.data.args);
       await admin.from('audit_logs').insert({
         actor_id: userId,
+        actor_email: email,
+        actor_role: role,
         action: 'ai.action_executed',
         entity: action.name,
         after: { args: parsed.data.args, summary: described.summary },
