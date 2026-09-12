@@ -7,6 +7,7 @@ import { staffRouter } from './routes/staff';
 import { adminRouter } from './routes/admin';
 import { portalsRouter } from './routes/portals';
 import { aiRouter } from './routes/ai';
+import { menuImportRouter } from './routes/menuImport';
 import { retryFailedProvisions } from './provisioning';
 import { runLowStockSweepAllTenants } from './lib/lowStockAutomation';
 import { runRecipeCostSweepAllTenants } from './lib/recipeAutomation';
@@ -24,6 +25,7 @@ app.use('/api/staff', staffRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/portals', portalsRouter);
 app.use('/api/ai', aiRouter);
+app.use('/api/ai', menuImportRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

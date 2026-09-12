@@ -80,7 +80,11 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       changes() logs cost drift from ingredient price changes alone.
 //       Existing recipe_components rows backfilled into "Version 1, Active"
 //       recipes so nothing pre-existing loses its consumption definition.
-const SCHEMA_VERSION = 30;
+//   v31 AI menu import: menu_import_drafts (extracted_json/diff_json/
+//       status) + a private 'menu-imports' storage bucket for uploaded
+//       source documents. Applying a draft writes to the same menu_*
+//       tables the manual Menu page uses — no AI-only menu store.
+const SCHEMA_VERSION = 31;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
