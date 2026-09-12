@@ -3830,6 +3830,41 @@ end $fn$;
 create trigger audit_order after insert or update on public.orders
   for each row execute function app.audit_order();
 
+-- ── AI Approval Inbox ─────────────────────────────────────────────────────
+-- Persists every AI-proposed action (not just the one that happens to be
+-- confirmed inline, same chat, same session) so a "sensitive action"
+-- proposal is visible to any authorized approver, not lost the moment the
+-- proposing chat tab closes. Writes go through the tenant admin client
+-- (same as every other AI route) — RLS here is a defense-in-depth
+-- backstop, not the primary gate; the real permission checks live in
+-- Express (requirePortalPerm + permits(), matching every other AI route).
+create type app.ai_pending_action_status as enum ('pending', 'approved', 'rejected', 'expired', 'failed');
+
+create table public.ai_pending_actions (
+  id                 uuid primary key default gen_random_uuid(),
+  action_name        text not null,
+  args               jsonb not null,
+  summary            text not null,
+  status             app.ai_pending_action_status not null default 'pending',
+  proposed_by        uuid,
+  proposed_by_email  text,
+  proposed_by_role   text,
+  created_at         timestamptz not null default now(),
+  resolved_at        timestamptz,
+  resolved_by        uuid,
+  resolved_by_email  text,
+  result             jsonb,
+  error              text
+);
+create index ai_pending_actions_status_idx on public.ai_pending_actions(status, created_at desc);
+
+alter table public.ai_pending_actions enable row level security;
+create policy staff_read on public.ai_pending_actions for select
+  using (app.has_perm('ai.execute_write') or app.has_perm('ai.approve_sensitive_action') or app.can_write());
+create policy mgr_write on public.ai_pending_actions for all
+  using (app.has_perm('ai.execute_write') or app.has_perm('ai.approve_sensitive_action') or app.can_write())
+  with check (app.has_perm('ai.execute_write') or app.has_perm('ai.approve_sensitive_action') or app.can_write());
+
 -- ── Daily closing (P8) ───────────────────────────────────────────────────
 create table public.daily_closings (
   id                 uuid primary key default gen_random_uuid(),

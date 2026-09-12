@@ -5,7 +5,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-type PendingAction = { name: string; args: Record<string, unknown>; summary: string };
+type PendingAction = { id: string; name: string; args: Record<string, unknown>; summary: string };
 type Resolution = 'confirmed' | 'cancelled' | 'failed';
 type Msg = {
   role: 'user' | 'assistant';
@@ -94,7 +94,7 @@ export function AiChat({ slug }: { slug: string }) {
       const res = await fetch(`${API}/api/ai/confirm`, {
         method: 'POST',
         headers: await authHeader(),
-        body: JSON.stringify({ slug, name: action.name, args: action.args }),
+        body: JSON.stringify({ slug, name: action.name, args: action.args, pendingActionId: action.id || undefined }),
       });
       const body = await res.json().catch(() => ({}));
       setMsgs((m) =>
@@ -118,10 +118,19 @@ export function AiChat({ slug }: { slug: string }) {
     }
   }
 
-  function cancelAction(index: number) {
+  function cancelAction(index: number, action: PendingAction) {
     setMsgs((m) =>
       m.map((msg, i) => (i === index ? { ...msg, resolution: 'cancelled', resolutionMessage: 'Cancelled.' } : msg)),
     );
+    // Best-effort — the local UI has already moved on regardless of whether
+    // this succeeds; it just keeps the persisted Approval Inbox row (spec
+    // §29) from sitting there as "pending" forever after being cancelled
+    // right here in chat.
+    if (action.id) {
+      authHeader().then((headers) =>
+        fetch(`${API}/api/ai/pending/${action.id}/reject`, { method: 'POST', headers, body: JSON.stringify({ slug }) }).catch(() => {}),
+      );
+    }
   }
 
   return (
@@ -170,7 +179,7 @@ export function AiChat({ slug }: { slug: string }) {
                         {confirming === i ? 'Working…' : 'Confirm'}
                       </button>
                       <button
-                        onClick={() => cancelAction(i)}
+                        onClick={() => cancelAction(i, m.pendingAction!)}
                         disabled={confirming === i}
                         className="rounded border border-border px-3 py-1.5 text-xs font-semibold"
                       >

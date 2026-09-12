@@ -79,8 +79,12 @@ const bodySchema = z.object({
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 
 const MAX_TURNS = 6;
-type PendingAction = { name: string; args: Record<string, unknown>; summary: string };
+type PendingAction = { id: string; name: string; args: Record<string, unknown>; summary: string };
 type AgentResult = { reply: string; trace: { name: string; ok: boolean }[]; pendingAction?: PendingAction };
+/** Who is chatting — threaded through to proposeAction() so a persisted
+ *  ai_pending_actions row (the Approval Inbox, spec §29) always knows who
+ *  proposed it, not just who eventually confirmed it. */
+type Actor = { userId: string; email: string | null; role: string | null };
 
 /** Retry a call through transient 429/503 "high demand" from the model host. */
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -167,8 +171,9 @@ async function runGemini(
   actions: AiAction[],
   system: string,
   admin: SupabaseClient,
-  userId: string,
+  actor: Actor,
 ): Promise<AgentResult> {
+  const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
   const actionByName = new Map(actions.map((a) => [a.name, a]));
   const declared: ToolLike[] = [...tools, ...actions];
@@ -205,6 +210,7 @@ async function runGemini(
         admin,
         leadText,
         trace,
+        actor,
       );
       return pending;
     }
@@ -244,6 +250,7 @@ async function proposeAction(
   admin: SupabaseClient,
   leadText: string,
   trace: AgentResult['trace'],
+  actor: Actor,
 ): Promise<AgentResult> {
   const described = await action.describe(admin, args);
   if (!described.ok) {
@@ -251,10 +258,36 @@ async function proposeAction(
     return { reply: leadText || described.error, trace };
   }
   trace.push({ name: action.name, ok: true });
+  // Persisted immediately (spec §29 — Approval Inbox): a proposal must be
+  // visible to any authorized approver, not just retrievable from this one
+  // chat's own React state until someone happens to click Confirm here.
+  const { data: row, error: insErr } = await admin
+    .from('ai_pending_actions')
+    .insert({
+      action_name: action.name,
+      args,
+      summary: described.summary,
+      proposed_by: actor.userId,
+      proposed_by_email: actor.email,
+      proposed_by_role: actor.role,
+    })
+    .select('id')
+    .single();
+  if (insErr || !row) {
+    console.error('[ai] failed to persist pending action:', insErr);
+    // Degrade gracefully — the inline chat confirm/cancel still works from
+    // React state even if the Inbox never sees this one; never block the
+    // proposal itself over a logging-adjacent write failing.
+    return {
+      reply: leadText || 'Here is what I would do — confirm below to go ahead.',
+      trace,
+      pendingAction: { id: '', name: action.name, args, summary: described.summary },
+    };
+  }
   return {
     reply: leadText || 'Here is what I would do — confirm below to go ahead.',
     trace,
-    pendingAction: { name: action.name, args, summary: described.summary },
+    pendingAction: { id: row.id, name: action.name, args, summary: described.summary },
   };
 }
 
@@ -265,8 +298,9 @@ async function runAnthropic(
   actions: AiAction[],
   system: string,
   admin: SupabaseClient,
-  userId: string,
+  actor: Actor,
 ): Promise<AgentResult> {
+  const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
   const actionByName = new Map(actions.map((a) => [a.name, a]));
   const declared: ToolLike[] = [...tools, ...actions];
@@ -310,6 +344,7 @@ async function runAnthropic(
         admin,
         leadText,
         trace,
+        actor,
       );
     }
 
@@ -355,7 +390,7 @@ aiRouter.post(
     const parsed = bodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
 
-    const { admin, permissions, role, userId } = req.tenant!;
+    const { admin, permissions, role, userId, email } = req.tenant!;
     if (!permits(permissions, role, 'ai.execute_read')) {
       return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to run AI queries.' });
     }
@@ -367,12 +402,13 @@ aiRouter.post(
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
     const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
+    const actor: Actor = { userId, email, role };
 
     try {
       const result =
         aiProvider === 'gemini'
-          ? await runGemini(parsed.data.messages, allowedTools, allowedActions, system, admin, userId)
-          : await runAnthropic(parsed.data.messages, allowedTools, allowedActions, system, admin, userId);
+          ? await runGemini(parsed.data.messages, allowedTools, allowedActions, system, admin, actor)
+          : await runAnthropic(parsed.data.messages, allowedTools, allowedActions, system, admin, actor);
       return res.json({
         reply: result.reply,
         tools: result.trace,
@@ -390,15 +426,29 @@ const confirmSchema = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   args: z.record(z.unknown()),
+  pendingActionId: z.string().uuid().optional(),
 });
+
+/** Approving from the Approval Inbox holds a DIFFERENT permission than the
+ *  inline "confirm your own just-proposed action" chat flow (spec §29's own
+ *  distinction between proposing/executing and approving) — either is
+ *  accepted here so someone who only ever approves (never chats) can still
+ *  act from the Inbox. */
+function canActOnAiActions(permissions: string[], role: string | null): boolean {
+  return permits(permissions, role, 'ai.execute_write') || permits(permissions, role, 'ai.approve_sensitive_action');
+}
 
 /**
  * POST /api/ai/confirm — executes exactly one AI-proposed action after a
- * human taps Confirm. Re-checks the permission and re-validates the target
+ * human taps Confirm (either inline in the proposing chat, or from the
+ * Approval Inbox). Re-checks the permission and re-validates the target
  * from scratch (never trusts the request body's word that it's still valid);
  * the mutation itself still runs through the same RPC a staff member would
  * use, so it is subject to the same business rules. Logged distinctly from
- * both a normal AI read (`ai.tool`) and a normal staff edit.
+ * both a normal AI read (`ai.tool`) and a normal staff edit. When
+ * pendingActionId is given, the persisted ai_pending_actions row (spec §29)
+ * is updated to match the outcome — approved/expired/failed — so the Inbox
+ * never shows something already resolved as still pending.
  */
 aiRouter.post(
   '/confirm',
@@ -416,16 +466,24 @@ aiRouter.post(
     const { admin, permissions, role, userId, email } = req.tenant!;
     const action = AI_ACTIONS.find((a) => a.name === parsed.data.name);
     if (!action) return res.status(404).json({ error: 'unknown_action' });
-    if (!permits(permissions, role, 'ai.execute_write') || !permits(permissions, role, action.needs)) {
+    if (!canActOnAiActions(permissions, role) || !permits(permissions, role, action.needs)) {
       return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to confirm this action.' });
     }
+    const pendingId = parsed.data.pendingActionId;
 
     const described = await action.describe(admin, parsed.data.args);
     if (!described.ok) {
+      if (pendingId) {
+        await admin
+          .from('ai_pending_actions')
+          .update({ status: 'expired', error: described.error, resolved_at: new Date().toISOString(), resolved_by: userId, resolved_by_email: email })
+          .eq('id', pendingId)
+          .eq('status', 'pending');
+      }
       return res.status(409).json({ error: 'stale', message: described.error });
     }
     try {
-      await action.run(admin, parsed.data.args);
+      const result = await action.run(admin, parsed.data.args);
       await admin.from('audit_logs').insert({
         actor_id: userId,
         actor_email: email,
@@ -434,12 +492,92 @@ aiRouter.post(
         entity: action.name,
         after: { args: parsed.data.args, summary: described.summary },
       });
+      if (pendingId) {
+        // The .eq('status', 'pending') guard makes this a no-op if the row
+        // was already resolved elsewhere (e.g. rejected from the Inbox
+        // moments before this same proposal was confirmed inline in chat)
+        // — the row keeps whichever resolution landed first rather than
+        // being silently overwritten.
+        await admin
+          .from('ai_pending_actions')
+          .update({ status: 'approved', result: result ?? null, resolved_at: new Date().toISOString(), resolved_by: userId, resolved_by_email: email })
+          .eq('id', pendingId)
+          .eq('status', 'pending');
+      }
       return res.json({ ok: true, message: `Done — ${described.summary}` });
     } catch (err) {
       console.error('[ai] confirm failed:', err);
-      return res
-        .status(502)
-        .json({ error: 'action_failed', message: String((err as Error).message ?? err).slice(0, 300) });
+      const message = String((err as Error).message ?? err).slice(0, 300);
+      if (pendingId) {
+        await admin
+          .from('ai_pending_actions')
+          .update({ status: 'failed', error: message, resolved_at: new Date().toISOString(), resolved_by: userId, resolved_by_email: email })
+          .eq('id', pendingId)
+          .eq('status', 'pending');
+      }
+      return res.status(502).json({ error: 'action_failed', message });
     }
   },
 );
+
+const pendingRejectSchema = z.object({ slug: z.string().min(1) });
+
+/**
+ * POST /api/ai/pending/:id/reject — declines a persisted proposal without
+ * executing it. Lower bar than confirm (nothing is mutated), so only the
+ * broad ai.execute_write gate is required, not the specific action's own
+ * business permission or ai.approve_sensitive_action — matching how
+ * cancelling your own proposal inline in chat has always worked.
+ */
+aiRouter.post(
+  '/pending/:id/reject',
+  express.json(),
+  requirePortalPerm('ai.view'),
+  async (req: Request, res: Response) => {
+    const parsed = pendingRejectSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+    const { admin, permissions, role, userId, email } = req.tenant!;
+    if (!permits(permissions, role, 'ai.execute_write')) {
+      return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to act on AI proposals.' });
+    }
+    const { data, error } = await admin
+      .from('ai_pending_actions')
+      .update({ status: 'rejected', resolved_at: new Date().toISOString(), resolved_by: userId, resolved_by_email: email })
+      .eq('id', req.params.id)
+      .eq('status', 'pending')
+      .select('id, action_name, summary')
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: 'reject_failed', message: error.message });
+    if (!data) return res.status(409).json({ error: 'not_pending', message: 'This proposal was already resolved.' });
+    await admin.from('audit_logs').insert({
+      actor_id: userId,
+      actor_email: email,
+      actor_role: role,
+      action: 'ai.action_rejected',
+      entity: data.action_name,
+      entity_id: data.id,
+      after: { summary: data.summary },
+    });
+    return res.json({ ok: true });
+  },
+);
+
+/**
+ * GET /api/ai/pending — the Approval Inbox (spec §29): every currently
+ * pending AI-proposed action across the whole restaurant, not just the one
+ * chat that happened to propose it. Gated by ai.approve_sensitive_action —
+ * a narrower bar than ai.execute_write (which only lets you act on a
+ * proposal you already know about) — so only an authorized approver can
+ * discover the full queue.
+ */
+aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
+  const { data, error } = await admin
+    .from('ai_pending_actions')
+    .select('id, action_name, args, summary, status, proposed_by_email, proposed_by_role, created_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return res.status(500).json({ error: 'pending_fetch_failed', message: error.message });
+  return res.json({ items: data ?? [] });
+});

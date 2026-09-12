@@ -84,7 +84,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       status) + a private 'menu-imports' storage bucket for uploaded
 //       source documents. Applying a draft writes to the same menu_*
 //       tables the manual Menu page uses — no AI-only menu store.
-const SCHEMA_VERSION = 31;
+//   v32 AI Approval Inbox: ai_pending_actions persists every AI-proposed
+//       action (not just the one confirmed inline in the proposing chat)
+//       so any authorized approver can see and act on it centrally.
+const SCHEMA_VERSION = 32;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

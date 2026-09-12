@@ -12,6 +12,7 @@ import { can } from '@/lib/permissions';
 const NAV: [string, string, string?][] = [
   ['', 'Dashboard'],
   ['exceptions', 'Attention', 'orders.view'],
+  ['approvals', 'Approvals', 'ai.approve_sensitive_action'],
   ['live', 'Live ops', 'orders.view'],
   ['pos', 'Counter POS', 'orders.create'],
   ['checkout', 'Checkout', 'payments.view'],
