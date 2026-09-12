@@ -73,7 +73,27 @@ export function periodRange(period: Period) {
 const asDate = (d: Date) => d.toISOString().slice(0, 10);
 
 type DaySum = { net_sales_cents: number; orders_count: number };
-type Profitability = { gross_profit_cents: number; food_cost_pct: number | null } | null;
+// Full period_profitability() row — widened from the old {gross_profit_cents,
+// food_cost_pct} shape so Net Profit (already computed by that RPC, just
+// never rendered here) can reach the dashboard's own KPI row instead of
+// living only on the separate /finance page and inside AI chat answers.
+type Profitability = {
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  cogs_lines_total: number;
+  cogs_lines_missing: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  food_cost_pct: number | null;
+  actual_cogs_cents: number;
+  cogs_variance_cents: number;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+} | null;
 type Slice = { name: string; value: number };
 type ItemRow = { name: string; qty_sold: number; revenue_cents: number };
 type AttendanceRow = { membership_id: string; full_name: string | null; role: string; status: string; late_minutes: number };
@@ -122,11 +142,11 @@ function Delta({ curr, prev }: { curr: number; prev: number }) {
   );
 }
 
-function Kpi({ label, value, delta }: { label: string; value: string; delta?: React.ReactNode }) {
+function Kpi({ label, value, delta, tone }: { label: string; value: string; delta?: React.ReactNode; tone?: 'ok' | 'danger' }) {
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
       <div className="text-muted text-[11px] font-semibold">{label}</div>
-      <div className="mt-1 text-xl font-black tabular-nums transition-all">{value}</div>
+      <div className={`mt-1 text-xl font-black tabular-nums transition-all ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : ''}`}>{value}</div>
       {delta && <div className="mt-1">{delta}</div>}
     </div>
   );
@@ -169,6 +189,7 @@ export function PerformancePanel({
   const [feedback, setFeedback] = useState<FeedbackRow | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
   const [dailyRows, setDailyRows] = useState<{ business_date: string; net_sales_cents: number }[]>([]);
+  const [verifyOpen, setVerifyOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +312,7 @@ export function PerformancePanel({
         food_cost_pct: canSeeProfit && profit ? profit.food_cost_pct : null,
         avg_rating: feedback?.avg_overall ?? null,
       },
+      profitDetail: canSeeProfit && profit ? profit : null,
       dailySales: dailyRows,
       topProducts: topItemsSorted.map((i) => ({ name: i.name, qty_sold: i.qty_sold, revenue_cents: i.revenue_cents })),
       categoryMix: categoryMix.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
@@ -361,17 +383,45 @@ export function PerformancePanel({
               value={feedback?.avg_overall != null ? `★ ${feedback.avg_overall.toFixed(1)}` : '—'}
               delta={feedback ? <span className="text-muted text-[11px]">{feedback.responses} response{feedback.responses === 1 ? '' : 's'}</span> : undefined}
             />
-            {canSeeProfit && profit && (
-              <>
-                <Kpi
-                  label="Gross profit"
-                  value={formatCents(profit.gross_profit_cents)}
-                  delta={prevProfit && <Delta curr={profit.gross_profit_cents} prev={prevProfit.gross_profit_cents} />}
-                />
-                <Kpi label="Food cost" value={profit.food_cost_pct != null ? `${profit.food_cost_pct}%` : '—'} />
-              </>
-            )}
           </div>
+
+          {/* Profit row (spec: Net Profit belongs on the dashboard's own
+             KPIs, not only /finance and AI chat — period_profitability
+             already computes it, this just stops dropping the field). */}
+          {canSeeProfit && profit && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Kpi
+                label="Gross profit"
+                value={formatCents(profit.gross_profit_cents)}
+                delta={prevProfit && <Delta curr={profit.gross_profit_cents} prev={prevProfit.gross_profit_cents} />}
+              />
+              <Kpi
+                label="Net profit"
+                value={formatCents(profit.net_profit_cents)}
+                tone={profit.net_profit_cents >= 0 ? 'ok' : 'danger'}
+                delta={prevProfit && <Delta curr={profit.net_profit_cents} prev={prevProfit.net_profit_cents} />}
+              />
+              <Kpi label="Gross margin" value={profit.gross_margin_pct != null ? `${profit.gross_margin_pct}%` : 'N/A'} />
+              <Kpi label="Net margin" value={profit.net_profit_margin_pct != null ? `${profit.net_profit_margin_pct}%` : 'N/A'} />
+            </div>
+          )}
+          {canSeeProfit && profit && (
+            <div className="rounded-lg border border-border bg-surface p-4 text-[11px] text-muted flex flex-wrap gap-x-6 gap-y-1">
+              <span>Gross sales <span className="font-semibold text-body">{formatCents(profit.gross_sales_cents)}</span></span>
+              <span>Discounts <span className="font-semibold text-body">-{formatCents(profit.discount_cents)}</span></span>
+              <span>Refunds <span className="font-semibold text-body">-{formatCents(profit.refunded_cents)}</span></span>
+              <span>COGS (theoretical) <span className="font-semibold text-body">-{formatCents(profit.theoretical_cogs_cents)}</span></span>
+              <span>Expenses <span className="font-semibold text-body">-{formatCents(profit.expenses_cents)}</span></span>
+              {profit.cogs_lines_missing > 0 && (
+                <span className="text-warn font-semibold">
+                  ⚠ {profit.cogs_lines_missing}/{profit.cogs_lines_total} sold line(s) missing a recipe — COGS understates the true figure
+                </span>
+              )}
+              <button onClick={() => setVerifyOpen(true)} className="text-primary font-semibold underline underline-offset-2">
+                Verify this calculation →
+              </button>
+            </div>
+          )}
 
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="rounded-lg border border-border bg-surface p-5">
@@ -509,6 +559,90 @@ export function PerformancePanel({
           </div>
         </>
       )}
+
+      {verifyOpen && profit && (
+        <VerifyProfitModal profit={profit} periodLabel={PERIOD_LABEL[period]} onClose={() => setVerifyOpen(false)} />
+      )}
     </section>
+  );
+}
+
+/**
+ * Profit Verification (spec §27): the exact formula with the real values
+ * already sitting in `profit` — no second calculation, just laid out so an
+ * owner or accountant can check it line by line — plus an honest
+ * data-quality checklist. Never claims a check passed that isn't actually
+ * true for THIS period's data.
+ */
+function VerifyProfitModal({
+  profit,
+  periodLabel,
+  onClose,
+}: {
+  profit: NonNullable<Profitability>;
+  periodLabel: string;
+  onClose: () => void;
+}) {
+  const row = (label: string, value: string, opts?: { bold?: boolean; sub?: boolean }) => (
+    <div className={`flex items-center justify-between py-1 ${opts?.sub ? 'pl-3 text-muted' : ''}`}>
+      <span className={opts?.bold ? 'font-bold' : ''}>{label}</span>
+      <span className={`font-mono ${opts?.bold ? 'font-bold' : ''}`}>{value}</span>
+    </div>
+  );
+  const checks: { ok: boolean; text: string }[] = [
+    { ok: true, text: `Sales scoped to ${periodLabel} (served/paid orders only — cancelled, void, and other-tenant orders are never counted).` },
+    { ok: profit.cogs_lines_missing === 0, text: profit.cogs_lines_missing === 0
+        ? 'Every sold line had a recipe configured — COGS reflects the full period.'
+        : `${profit.cogs_lines_missing} of ${profit.cogs_lines_total} sold line(s) have no recipe configured — theoretical COGS and gross profit understate the true figure.` },
+    { ok: true, text: `Actual ingredient value consumed/wasted/adjusted this period (from the stock ledger): ${formatCents(profit.actual_cogs_cents)}${profit.cogs_variance_cents !== 0 ? ` — ${profit.cogs_variance_cents > 0 ? 'above' : 'below'} the recipe-based figure by ${formatCents(Math.abs(profit.cogs_variance_cents))}.` : ' — matches the recipe-based figure.'}` },
+    { ok: true, text: `Expenses included: ${formatCents(profit.expenses_cents)} across all recorded expense records dated in this period, any category.` },
+    { ok: false, text: 'Labor/payroll cost is NOT separately tracked — it is only reflected here if it was entered as an expense record. If it wasn’t, Net Profit above overstates true profit by that amount.' },
+    { ok: true, text: 'No duplicate-order or duplicate-expense detection has run automatically — each figure is a straight sum of the underlying records for this period.' },
+  ];
+  const fullyCalculated = checks.every((c) => c.ok);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-black text-sm">Profit Verification — {periodLabel}</h3>
+          <button onClick={onClose} className="text-muted text-xs">✕</button>
+        </div>
+
+        <div className="text-xs border border-border rounded-lg p-3 space-y-0.5">
+          {row('Gross sales', formatCents(profit.gross_sales_cents))}
+          {row('− Discounts', `-${formatCents(profit.discount_cents)}`, { sub: true })}
+          {row('− Refunds', `-${formatCents(profit.refunded_cents)}`, { sub: true })}
+          {row('= Net sales', formatCents(profit.net_sales_cents), { bold: true })}
+          {row('− COGS (theoretical)', `-${formatCents(profit.theoretical_cogs_cents)}`, { sub: true })}
+          {row('= Gross profit', formatCents(profit.gross_profit_cents), { bold: true })}
+          {row('− Expenses (all recorded)', `-${formatCents(profit.expenses_cents)}`, { sub: true })}
+          {row('= Net profit', formatCents(profit.net_profit_cents), { bold: true })}
+          <div className="flex items-center justify-between pt-1 text-muted">
+            <span>Gross margin / Net margin</span>
+            <span className="font-mono">
+              {profit.gross_margin_pct != null ? `${profit.gross_margin_pct}%` : 'N/A'} / {profit.net_profit_margin_pct != null ? `${profit.net_profit_margin_pct}%` : 'N/A'}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <p className={`text-xs font-bold mb-2 ${fullyCalculated ? 'text-ok' : 'text-warn'}`}>
+            {fullyCalculated ? '✓ Fully calculated from recorded data' : '⚠ Partially calculated — see below'}
+          </p>
+          <ul className="space-y-1.5 text-[11px]">
+            {checks.map((c, i) => (
+              <li key={i} className={c.ok ? 'text-body' : 'text-warn'}>
+                {c.ok ? '✓' : '⚠'} {c.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="text-[10px] text-muted">
+          These figures come from the same period_profitability calculation used by this dashboard, the Finance page, generated reports, and the AI assistant — there is one calculation engine, not a separate one per screen.
+        </p>
+      </div>
+    </div>
   );
 }

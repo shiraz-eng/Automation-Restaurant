@@ -24,10 +24,32 @@ export type ReportFeedback = {
 };
 export type ReportAttendance = { full_name: string | null; status: string };
 
+// The full period_profitability() row (same RPC the dashboard, /finance,
+// and the AI assistant already call) — optional so a caller without
+// finance permission still gets a valid report, just without this section,
+// exactly like the dashboard already silently omits it for that role.
+export type ReportProfitDetail = {
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  cogs_lines_total: number;
+  cogs_lines_missing: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  actual_cogs_cents: number;
+  cogs_variance_cents: number;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+} | null;
+
 export type ReportData = {
   restaurantName: string;
   periodLabel: string;
   kpis: ReportKpis;
+  profitDetail?: ReportProfitDetail;
   dailySales: ReportDay[]; // empty for a single-day period — no chart/table drawn
   topProducts: ReportItem[];
   categoryMix: ReportSlice[];
@@ -44,6 +66,8 @@ const PRIMARY: [number, number, number] = [234, 88, 12];
 const MUTED: [number, number, number] = [100, 116, 139];
 const BODY: [number, number, number] = [15, 23, 42];
 const BORDER: [number, number, number] = [226, 232, 240];
+const OK: [number, number, number] = [22, 163, 74];
+const WARN: [number, number, number] = [217, 119, 6];
 
 function pct(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 1000) / 10}%` : '—';
@@ -93,6 +117,10 @@ export function generateReportPdf(data: ReportData): void {
   ];
   if (data.kpis.gross_profit_cents != null) summaryRows.push(['Gross Profit', formatCents(data.kpis.gross_profit_cents)]);
   if (data.kpis.food_cost_pct != null) summaryRows.push(['Food Cost %', `${data.kpis.food_cost_pct}%`]);
+  if (data.profitDetail) {
+    summaryRows.push(['Net Profit', formatCents(data.profitDetail.net_profit_cents)]);
+    summaryRows.push(['Net Profit Margin', data.profitDetail.net_profit_margin_pct != null ? `${data.profitDetail.net_profit_margin_pct}%` : 'N/A']);
+  }
   if (data.kpis.avg_rating != null) summaryRows.push(['Customer Rating', `${data.kpis.avg_rating.toFixed(1)} / 5`]);
 
   autoTable(doc, {
@@ -105,6 +133,92 @@ export function generateReportPdf(data: ReportData): void {
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   y = (doc as any).lastAutoTable.finalY + 8;
+
+  // ── Profit & Loss waterfall + verification (spec §3, §7, §37) ────────
+  // Every value below comes straight from period_profitability() — the
+  // SAME authoritative RPC the dashboard, /finance, and the AI assistant
+  // already call. This section never recomputes anything; it only lays
+  // the bridge out so it can be checked line by line.
+  if (data.profitDetail) {
+    const pd = data.profitDetail;
+    y = ensureSpace(doc, y, 60);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Profit & Loss', MARGIN, y);
+    y += 3;
+    // Plain ASCII hyphens, not U+2212 MINUS SIGN — jsPDF's standard 14
+    // fonts only cover WinAnsiEncoding (~Latin-1 + cp1252 extras like em
+    // dash), which does NOT include the mathematical minus sign; that
+    // glyph would silently fail to render rather than throw.
+    const bridgeRows: [string, string, boolean][] = [
+      ['Gross Sales', formatCents(pd.gross_sales_cents), true],
+      ['- Discounts', `-${formatCents(pd.discount_cents)}`, false],
+      ['- Refunds', `-${formatCents(pd.refunded_cents)}`, false],
+      ['= Net Sales', formatCents(pd.net_sales_cents), true],
+      ['- COGS (theoretical, from recipes)', `-${formatCents(pd.theoretical_cogs_cents)}`, false],
+      ['= Gross Profit', formatCents(pd.gross_profit_cents), true],
+      ['- Expenses (all recorded)', `-${formatCents(pd.expenses_cents)}`, false],
+      ['= NET PROFIT', formatCents(pd.net_profit_cents), true],
+    ];
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.6 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { halign: 'right' } },
+      body: bridgeRows.map(([label, value, bold]) => [
+        { content: label, styles: bold ? { fontStyle: 'bold', textColor: BODY } : {} },
+        { content: value, styles: bold ? { fontStyle: 'bold', textColor: BODY } : {} },
+      ]),
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 2;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTED);
+    doc.text(
+      `Gross margin ${pd.gross_margin_pct != null ? `${pd.gross_margin_pct}%` : 'N/A'} · Net margin ${pd.net_profit_margin_pct != null ? `${pd.net_profit_margin_pct}%` : 'N/A'}`,
+      MARGIN,
+      y + 4,
+    );
+    y += 12;
+
+    // Verification — an honest checklist, never a claim the data doesn't
+    // actually support (spec §26-27).
+    y = ensureSpace(doc, y, 40);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(...BODY);
+    doc.text('Profit Calculation Verification', MARGIN, y);
+    y += 5;
+    const checks: [boolean, string][] = [
+      [true, `Sales scoped to ${data.periodLabel} — served/paid orders only.`],
+      [pd.cogs_lines_missing === 0, pd.cogs_lines_missing === 0
+        ? 'Every sold line had a recipe configured — COGS reflects the full period.'
+        : `${pd.cogs_lines_missing} of ${pd.cogs_lines_total} sold line(s) have no recipe configured — COGS and gross profit understate the true figure.`],
+      [true, `Actual ingredient value consumed/wasted/adjusted (stock ledger): ${formatCents(pd.actual_cogs_cents)}${pd.cogs_variance_cents !== 0 ? `, ${pd.cogs_variance_cents > 0 ? 'above' : 'below'} the recipe-based figure by ${formatCents(Math.abs(pd.cogs_variance_cents))}.` : ', matching the recipe-based figure.'}`],
+      [true, `Expenses included: ${formatCents(pd.expenses_cents)} across all recorded expense records dated in this period.`],
+      [false, 'Labor/payroll cost is not separately tracked — only reflected above if entered as an expense record. Net Profit may overstate true profit if it was not.'],
+    ];
+    const fullyCalculated = checks.every(([ok]) => ok);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...(fullyCalculated ? OK : WARN));
+    doc.text(fullyCalculated ? 'Status: Fully calculated from recorded data' : 'Status: Partially calculated — see below', MARGIN, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    checks.forEach(([ok, text]) => {
+      y = ensureSpace(doc, y, 10);
+      doc.setTextColor(...(ok ? BODY : WARN));
+      // Same WinAnsi constraint as above — no checkmark/warning glyphs.
+      const lines = doc.splitTextToSize(`${ok ? '[OK]' : '[!]'} ${text}`, CONTENT_W);
+      doc.text(lines, MARGIN, y);
+      y += lines.length * 4 + 1.5;
+    });
+    y += 4;
+  }
 
   // ── Sales trend (hand-drawn vector bars — not a screenshot) ─────────
   if (data.dailySales.length > 1) {

@@ -2178,9 +2178,10 @@ export const AI_ACTIONS: AiAction[] = [
       const resolved = await buildReportData(admin, args);
       if (!resolved.ok) return resolved;
       const k = resolved.data.kpis;
+      const pd = resolved.data.profitDetail;
       return {
         ok: true,
-        summary: `Generate a PDF report for ${resolved.data.periodLabel}: ${k.orders_count} orders, ${formatCentsPlain(k.net_sales_cents)} net sales${k.avg_rating != null ? `, ${k.avg_rating.toFixed(1)}★ average rating` : ''}. Opens as a real PDF in your browser — nothing is changed or saved anywhere.`,
+        summary: `Generate a PDF report for ${resolved.data.periodLabel}: ${k.orders_count} orders, ${formatCentsPlain(k.net_sales_cents)} net sales${pd ? `, ${formatCentsPlain(pd.net_profit_cents)} net profit` : ''}${k.avg_rating != null ? `, ${k.avg_rating.toFixed(1)}★ average rating` : ''}. Includes the full profit & loss breakdown and calculation verification. Opens as a real PDF in your browser — nothing is changed or saved anywhere.`,
       };
     },
     async run(admin, args) {
@@ -2503,10 +2504,23 @@ async function resolveShift(
  *  "one authoritative calculation" rule the rest of this file follows;
  *  generateReportPdf already renders correctly with them empty (it just
  *  omits that section) rather than needing a placeholder. */
+type FullProfitRow = {
+  gross_sales_cents: number; discount_cents: number; refunded_cents: number;
+  net_sales_cents: number; orders_count: number; avg_order_cents: number;
+  theoretical_cogs_cents: number; cogs_lines_total: number; cogs_lines_missing: number;
+  gross_profit_cents: number; gross_margin_pct: number | null; food_cost_pct: number | null;
+  actual_cogs_cents: number; cogs_variance_cents: number;
+  expenses_cents: number; net_profit_cents: number; net_profit_margin_pct: number | null;
+};
+
 type BuiltReportData = {
   restaurantName: string;
   periodLabel: string;
   kpis: { net_sales_cents: number; orders_count: number; aov_cents: number; gross_profit_cents: number | null; food_cost_pct: number | null; avg_rating: number | null };
+  // The full period_profitability() row for the PDF's Profit & Loss
+  // waterfall + verification section (spec §3, §37) — same call already
+  // made below for kpis, just no longer dropping the rest of its columns.
+  profitDetail: Omit<FullProfitRow, 'orders_count' | 'avg_order_cents' | 'food_cost_pct'> | null;
   dailySales: { business_date: string; net_sales_cents: number }[];
   topProducts: { name: string; qty_sold: number; revenue_cents: number }[];
   categoryMix: { name: string; revenue_cents: number }[];
@@ -2534,7 +2548,7 @@ async function buildReportData(
   ]);
   const topProducts = await topItems(admin, from.toISOString(), 10);
 
-  const profit = (profitRes.data as { net_sales_cents: number; orders_count: number; avg_order_cents: number; gross_profit_cents: number; food_cost_pct: number | null }[] | null)?.[0];
+  const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
   const canSeeProfit = !profitRes.error && !!profit;
   const daily = (dailyRes.data as { business_date: string; net_sales_cents: number }[] | null) ?? [];
   const feedback = (feedbackRes.data as { responses: number; avg_overall: number | null; avg_food: number | null; avg_service: number | null; avg_cleanliness: number | null; avg_speed: number | null; avg_ambiance: number | null }[] | null)?.[0] ?? null;
@@ -2560,6 +2574,24 @@ async function buildReportData(
         food_cost_pct: canSeeProfit ? profit!.food_cost_pct : null,
         avg_rating: feedback?.avg_overall ?? null,
       },
+      profitDetail: canSeeProfit
+        ? {
+            gross_sales_cents: profit!.gross_sales_cents,
+            discount_cents: profit!.discount_cents,
+            refunded_cents: profit!.refunded_cents,
+            net_sales_cents: profit!.net_sales_cents,
+            theoretical_cogs_cents: profit!.theoretical_cogs_cents,
+            cogs_lines_total: profit!.cogs_lines_total,
+            cogs_lines_missing: profit!.cogs_lines_missing,
+            gross_profit_cents: profit!.gross_profit_cents,
+            gross_margin_pct: profit!.gross_margin_pct,
+            actual_cogs_cents: profit!.actual_cogs_cents,
+            cogs_variance_cents: profit!.cogs_variance_cents,
+            expenses_cents: profit!.expenses_cents,
+            net_profit_cents: profit!.net_profit_cents,
+            net_profit_margin_pct: profit!.net_profit_margin_pct,
+          }
+        : null,
       dailySales: daily,
       topProducts: topProducts.map((p) => ({ name: p.name, qty_sold: p.units, revenue_cents: p.revenue_cents })),
       categoryMix: [],
