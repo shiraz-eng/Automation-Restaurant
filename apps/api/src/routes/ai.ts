@@ -9,6 +9,33 @@ import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, type AiTool, type AiAction } from 
 /** Anything the model can be offered as a callable function — a read tool or a proposable action. */
 type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
 
+/** The model is never told "today" by its training — without this it has no
+ *  way to resolve "tonight" / "tomorrow" / "this Friday" into a real date
+ *  (matters for create_reservation and anything else date-relative). Reads
+ *  the restaurant's own configured timezone (business_settings), the same
+ *  one promotion scheduling and reporting already reason in, rather than
+ *  assuming server-local or UTC. */
+async function currentTimeLine(admin: SupabaseClient): Promise<string> {
+  const { data } = await admin.from('business_settings').select('timezone').eq('id', true).maybeSingle();
+  const tz = data?.timezone || 'UTC';
+  const now = new Date();
+  let formatted: string;
+  try {
+    formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(now);
+  } catch {
+    formatted = now.toISOString();
+  }
+  return `Current date/time at this restaurant: ${formatted} (${tz}). Resolve "tonight" / "tomorrow" / "this Friday" etc. against this, never against your own training cutoff.`;
+}
+
 export const aiRouter = express.Router();
 
 aiRouter.use((req: Request, res: Response, next: NextFunction) => {
@@ -320,7 +347,7 @@ aiRouter.post(
     const allowedActions = permits(permissions, role, 'ai.execute_write')
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
-    const system = SYSTEM_PROMPT(req.tenant!.slug);
+    const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
 
     try {
       const result =
