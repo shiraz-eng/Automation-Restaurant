@@ -13,6 +13,9 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
   const { role, perms } = await gatePortalPage(t.client, slug, 'ai.view');
   const canImportMenu = can(perms, role, 'menu.create');
   const canImportInventory = can(perms, role, 'stock.update');
+  const canImportRecipes = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');
+  const canImportTables = can(perms, role, 'tables.update');
+  const canImportSuppliers = can(perms, role, 'supplier.manage');
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -23,7 +26,14 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
           your permissions — it can&apos;t change anything without your confirmation.
         </p>
       </div>
-      <AiAssistantPanel slug={slug} canImportMenu={canImportMenu} canImportInventory={canImportInventory} />
+      <AiAssistantPanel
+        slug={slug}
+        canImportMenu={canImportMenu}
+        canImportInventory={canImportInventory}
+        canImportRecipes={canImportRecipes}
+        canImportTables={canImportTables}
+        canImportSuppliers={canImportSuppliers}
+      />
       <AiChat slug={slug} />
     </div>
   );

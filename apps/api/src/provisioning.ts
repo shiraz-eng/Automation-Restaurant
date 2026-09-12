@@ -93,7 +93,13 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v34 AI Inventory Import: inventory_import_drafts + a generic
 //       'ai-imports' bucket — the document-to-draft pattern proven a
 //       second time (menu was the first), reusing aiDocumentEngine.ts.
-const SCHEMA_VERSION = 34;
+//   v35 AI Recipe/Table/Supplier Import: three more domains on the same
+//       shared engine. recipe_import_drafts (applies only through
+//       create_recipe() — never a raw insert), table_import_drafts and
+//       supplier_import_drafts (both create-only). Broadens the
+//       'ai-imports' bucket's RLS beyond inventory's own permissions so
+//       all three can actually use it.
+const SCHEMA_VERSION = 35;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

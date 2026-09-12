@@ -1332,11 +1332,102 @@ create policy mgr_write on public.inventory_import_drafts for all
 insert into storage.buckets (id, name, public)
 values ('ai-imports', 'ai-imports', false)
 on conflict (id) do nothing;
+-- Shared by every AI import domain (inventory, recipes, tables,
+-- suppliers, ...) — broadened as each one lands rather than kept
+-- inventory-only, since the whole point of this bucket's generic name is
+-- that one upload surface serves all of them.
 create policy "ai-imports staff read" on storage.objects for select
-  using (bucket_id = 'ai-imports' and (app.has_perm('stock.view') or app.is_staff()));
+  using (bucket_id = 'ai-imports' and (
+    app.has_perm('stock.view') or app.has_perm('menu.view') or
+    app.has_perm('supplier.view') or app.has_perm('tables.view') or
+    app.is_staff()
+  ));
 create policy "ai-imports staff write" on storage.objects for all
-  using (bucket_id = 'ai-imports' and (app.has_perm('stock.update') or app.can_write()))
-  with check (bucket_id = 'ai-imports' and (app.has_perm('stock.update') or app.can_write()));
+  using (bucket_id = 'ai-imports' and (
+    app.has_perm('stock.update') or app.has_perm('inventory.manage_recipes') or
+    app.has_perm('finance.manage_recipes') or app.has_perm('tables.update') or
+    app.has_perm('supplier.manage') or app.can_write()
+  ))
+  with check (bucket_id = 'ai-imports' and (
+    app.has_perm('stock.update') or app.has_perm('inventory.manage_recipes') or
+    app.has_perm('finance.manage_recipes') or app.has_perm('tables.update') or
+    app.has_perm('supplier.manage') or app.can_write()
+  ));
+
+-- ── AI Recipe Import ──────────────────────────────────────────────────────
+-- Third domain on the shared engine (menu, then inventory, now recipes).
+-- Creates recipes ONLY through create_recipe() — never a raw table insert
+-- — so it always lands as a draft, subject to the same validation and
+-- permission checks as the manual Recipes page and the AI chat's
+-- draft_recipe action. Never edits an existing recipe.
+create type app.recipe_import_status as enum ('draft', 'ready_for_review', 'applied', 'rejected', 'failed');
+create table public.recipe_import_drafts (
+  id              uuid primary key default gen_random_uuid(),
+  source_filename text not null,
+  storage_path    text not null,
+  extracted_json  jsonb not null,
+  diff_json       jsonb not null,
+  status          app.recipe_import_status not null default 'ready_for_review',
+  error           text,
+  created_by      uuid,
+  created_at      timestamptz not null default now(),
+  applied_at      timestamptz,
+  applied_by      uuid
+);
+alter table public.recipe_import_drafts enable row level security;
+create policy staff_read on public.recipe_import_drafts for select
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.is_staff());
+create policy mgr_write on public.recipe_import_drafts for all
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write())
+  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write());
+
+-- ── AI Table Import ───────────────────────────────────────────────────────
+-- Create-only — a table label that already exists is left alone rather
+-- than having its seat count silently overwritten from a document.
+create type app.table_import_status as enum ('draft', 'ready_for_review', 'applied', 'rejected', 'failed');
+create table public.table_import_drafts (
+  id              uuid primary key default gen_random_uuid(),
+  source_filename text not null,
+  storage_path    text not null,
+  extracted_json  jsonb not null,
+  diff_json       jsonb not null,
+  status          app.table_import_status not null default 'ready_for_review',
+  error           text,
+  created_by      uuid,
+  created_at      timestamptz not null default now(),
+  applied_at      timestamptz,
+  applied_by      uuid
+);
+alter table public.table_import_drafts enable row level security;
+create policy staff_read on public.table_import_drafts for select using (app.has_perm('tables.view') or app.is_staff());
+create policy mgr_write on public.table_import_drafts for all
+  using (app.has_perm('tables.update') or app.can_write())
+  with check (app.has_perm('tables.update') or app.can_write());
+
+-- ── AI Supplier Import ────────────────────────────────────────────────────
+-- Create-only — contact/payment details on an existing supplier (matched
+-- by name) are never silently overwritten from a document; that's exactly
+-- the kind of field a wrong overwrite could misdirect a real order or
+-- payment to.
+create type app.supplier_import_status as enum ('draft', 'ready_for_review', 'applied', 'rejected', 'failed');
+create table public.supplier_import_drafts (
+  id              uuid primary key default gen_random_uuid(),
+  source_filename text not null,
+  storage_path    text not null,
+  extracted_json  jsonb not null,
+  diff_json       jsonb not null,
+  status          app.supplier_import_status not null default 'ready_for_review',
+  error           text,
+  created_by      uuid,
+  created_at      timestamptz not null default now(),
+  applied_at      timestamptz,
+  applied_by      uuid
+);
+alter table public.supplier_import_drafts enable row level security;
+create policy staff_read on public.supplier_import_drafts for select using (app.has_perm('supplier.view') or app.is_staff());
+create policy mgr_write on public.supplier_import_drafts for all
+  using (app.has_perm('supplier.manage') or app.can_write())
+  with check (app.has_perm('supplier.manage') or app.can_write());
 
 -- orders / order_lines: staff read + update (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
