@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, type AiTool, type AiAction } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, type AiTool, type AiAction } from '../lib/aiTools';
 
 /** Anything the model can be offered as a callable function — a read tool or a proposable action. */
 type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
@@ -44,10 +44,29 @@ aiRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return void res.sendStatus(204);
   next();
+});
+
+/**
+ * GET /api/ai/attention — the Exception Center (spec §11): the SAME
+ * computeAttentionItems() the AI's get_attention_items tool and morning
+ * get_daily_brief already use, exposed as a plain endpoint so the portal
+ * can show it as a real page a manager can glance at without opening chat.
+ * One authoritative computation, two consumption points — never a second,
+ * UI-side reimplementation of the same exception logic (spec §54).
+ */
+aiRouter.get('/attention', requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
+  try {
+    const items = await computeAttentionItems(admin);
+    res.json({ items });
+  } catch (err) {
+    console.error('[ai] attention fetch failed:', err);
+    res.status(500).json({ error: 'attention_fetch_failed' });
+  }
 });
 
 const bodySchema = z.object({

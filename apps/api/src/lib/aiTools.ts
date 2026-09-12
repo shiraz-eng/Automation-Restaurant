@@ -137,8 +137,8 @@ async function topItems(admin: SupabaseClient, sinceIso: string, n: number) {
 // judgment call, and each category is independently permission-gated by
 // its own existing RLS policy or RPC check — a caller without access to a
 // category simply gets no items from it.
-type AttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
-async function computeAttentionItems(admin: SupabaseClient): Promise<AttentionItem[]> {
+export type AttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
+export async function computeAttentionItems(admin: SupabaseClient): Promise<AttentionItem[]> {
   const items: AttentionItem[] = [];
   const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
 

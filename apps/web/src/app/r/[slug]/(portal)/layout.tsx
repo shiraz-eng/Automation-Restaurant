@@ -11,6 +11,7 @@ import { can } from '@/lib/permissions';
 // '*' grant) see everything; a scoped permission array hides what it lacks.
 const NAV: [string, string, string?][] = [
   ['', 'Dashboard'],
+  ['exceptions', 'Attention', 'orders.view'],
   ['live', 'Live ops', 'orders.view'],
   ['pos', 'Counter POS', 'orders.create'],
   ['checkout', 'Checkout', 'payments.view'],
