@@ -87,7 +87,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v32 AI Approval Inbox: ai_pending_actions persists every AI-proposed
 //       action (not just the one confirmed inline in the proposing chat)
 //       so any authorized approver can see and act on it centrally.
-const SCHEMA_VERSION = 32;
+//   v33 Exception lifecycle: exception_states lets a manager acknowledge/
+//       resolve/ignore an item from the Exception Center, keyed on the
+//       exception's own category+message text (it has no row of its own).
+const SCHEMA_VERSION = 33;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

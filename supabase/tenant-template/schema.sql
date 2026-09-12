@@ -3865,6 +3865,37 @@ create policy mgr_write on public.ai_pending_actions for all
   using (app.has_perm('ai.execute_write') or app.has_perm('ai.approve_sensitive_action') or app.can_write())
   with check (app.has_perm('ai.execute_write') or app.has_perm('ai.approve_sensitive_action') or app.can_write());
 
+-- ── Exception lifecycle state ─────────────────────────────────────────────
+-- computeAttentionItems() (the Exception Center / AI's own "what needs my
+-- attention") is deliberately stateless — it recomputes fresh every call,
+-- which is exactly right for detecting a problem, but gives a manager no
+-- way to note "seen this, handling it" without the exact same message
+-- reappearing as if untouched. An exception has no natural row of its own
+-- to attach state to (it's a computed fact, not a table), so the state is
+-- keyed on the exact "category::message" text the item itself carries —
+-- the moment the underlying condition changes even slightly (stock moves
+-- further, a hold gets a new reason), that's a materially different
+-- exception and correctly starts unacknowledged again, matching spec
+-- intent ("notify again when the condition changes") without any separate
+-- fingerprinting scheme to keep in sync.
+create type app.exception_state_status as enum ('acknowledged', 'resolved', 'ignored');
+
+create table public.exception_states (
+  fingerprint  text primary key,
+  status       app.exception_state_status not null,
+  note         text,
+  actor_id     uuid,
+  actor_email  text,
+  actor_role   text,
+  updated_at   timestamptz not null default now()
+);
+
+alter table public.exception_states enable row level security;
+create policy staff_read on public.exception_states for select using (app.has_perm('orders.view') or app.is_staff());
+create policy mgr_write on public.exception_states for all
+  using (app.has_perm('orders.view') or app.can_write())
+  with check (app.has_perm('orders.view') or app.can_write());
+
 -- ── Daily closing (P8) ───────────────────────────────────────────────────
 create table public.daily_closings (
   id                 uuid primary key default gen_random_uuid(),

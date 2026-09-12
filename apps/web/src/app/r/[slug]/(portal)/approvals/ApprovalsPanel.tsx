@@ -67,6 +67,17 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
         setError(body.message ?? body.error ?? 'Could not approve that.');
         return;
       }
+      // generate_report doesn't mutate anything — its result IS the report
+      // data, turned into a real PDF client-side here (same generateReportPdf()
+      // the Dashboard's own button and AiChat.tsx's inline confirm both use).
+      if (item.action_name === 'generate_report' && body.result) {
+        try {
+          const { generateReportPdf } = await import('@/lib/generateReport');
+          generateReportPdf(body.result);
+        } catch (err) {
+          console.error('PDF generation failed:', err);
+        }
+      }
       setItems((cur) => (cur ?? []).filter((x) => x.id !== item.id));
     } catch {
       setError('Network error.');

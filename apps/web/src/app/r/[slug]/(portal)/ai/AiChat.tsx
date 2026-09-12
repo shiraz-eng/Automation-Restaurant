@@ -97,6 +97,19 @@ export function AiChat({ slug }: { slug: string }) {
         body: JSON.stringify({ slug, name: action.name, args: action.args, pendingActionId: action.id || undefined }),
       });
       const body = await res.json().catch(() => ({}));
+      // generate_report is the one action that doesn't mutate anything —
+      // its "result" is the report data itself, which this component turns
+      // into a real PDF client-side (the same generateReportPdf() the
+      // Dashboard's own "Generate Report" button calls), rather than the
+      // server trying to produce/host a file.
+      if (res.ok && action.name === 'generate_report' && body.result) {
+        try {
+          const { generateReportPdf } = await import('@/lib/generateReport');
+          generateReportPdf(body.result);
+        } catch (err) {
+          console.error('PDF generation failed:', err);
+        }
+      }
       setMsgs((m) =>
         m.map((msg, i) =>
           i === index

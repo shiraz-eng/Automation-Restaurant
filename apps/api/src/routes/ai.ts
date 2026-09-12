@@ -58,15 +58,73 @@ aiRouter.use((req: Request, res: Response, next: NextFunction) => {
  * One authoritative computation, two consumption points — never a second,
  * UI-side reimplementation of the same exception logic (spec §54).
  */
+/** The exact same "category::message" the exception itself carries is its
+ *  fingerprint — no separate ID scheme to keep in sync, and the moment the
+ *  condition changes even slightly, that's honestly a different exception
+ *  and correctly starts unacknowledged. */
+function exceptionFingerprint(item: { category: string; message: string }): string {
+  return `${item.category}::${item.message}`;
+}
+
 aiRouter.get('/attention', requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
   const { admin } = req.tenant!;
   try {
     const items = await computeAttentionItems(admin);
-    res.json({ items });
+    const fingerprints = items.map(exceptionFingerprint);
+    const { data: states } =
+      fingerprints.length > 0
+        ? await admin.from('exception_states').select('fingerprint, status, note, actor_email, updated_at').in('fingerprint', fingerprints)
+        : { data: [] };
+    const byFingerprint = new Map((states ?? []).map((s) => [s.fingerprint, s]));
+    const withState = items.map((item) => ({ ...item, state: byFingerprint.get(exceptionFingerprint(item)) ?? null }));
+    res.json({ items: withState });
   } catch (err) {
     console.error('[ai] attention fetch failed:', err);
     res.status(500).json({ error: 'attention_fetch_failed' });
   }
+});
+
+const attentionStateSchema = z.object({
+  slug: z.string().min(1),
+  category: z.string().min(1),
+  message: z.string().min(1),
+  status: z.enum(['acknowledged', 'resolved', 'ignored']),
+  note: z.string().max(500).optional(),
+});
+
+/**
+ * POST /api/ai/attention/state — records a manager's decision on one
+ * exception (spec §11: ACKNOWLEDGE / RESOLVE / IGNORE). Gated the same as
+ * viewing the Exception Center itself (orders.view) — this only records
+ * that a human looked at it, it doesn't mutate the underlying condition,
+ * so it doesn't need a stricter bar than seeing the exception in the
+ * first place.
+ */
+aiRouter.post('/attention/state', express.json(), requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
+  const parsed = attentionStateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+  const { admin, userId, email, role } = req.tenant!;
+  const fingerprint = exceptionFingerprint({ category: parsed.data.category, message: parsed.data.message });
+  const { error } = await admin.from('exception_states').upsert({
+    fingerprint,
+    status: parsed.data.status,
+    note: parsed.data.note ?? null,
+    actor_id: userId,
+    actor_email: email,
+    actor_role: role,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) return res.status(500).json({ error: 'state_update_failed', message: error.message });
+  await admin.from('audit_logs').insert({
+    actor_id: userId,
+    actor_email: email,
+    actor_role: role,
+    action: `exception.${parsed.data.status}`,
+    entity: 'exception_states',
+    entity_id: fingerprint,
+    after: { category: parsed.data.category, message: parsed.data.message, note: parsed.data.note ?? null },
+  });
+  return res.json({ ok: true });
 });
 
 const bodySchema = z.object({
@@ -484,6 +542,14 @@ aiRouter.post(
     }
     try {
       const result = await action.run(admin, parsed.data.args);
+      // generate_report can't know the restaurant's display name (the
+      // tenant DB has no such field, same gap SYSTEM_PROMPT already works
+      // around with the slug) — this route has the real slug in scope, the
+      // action doesn't, so it's patched in here rather than threading a
+      // new parameter through every action's signature for one action's sake.
+      if (action.name === 'generate_report' && result && typeof result === 'object' && 'restaurantName' in result) {
+        (result as { restaurantName: string }).restaurantName = req.tenant!.slug;
+      }
       await admin.from('audit_logs').insert({
         actor_id: userId,
         actor_email: email,
@@ -504,7 +570,7 @@ aiRouter.post(
           .eq('id', pendingId)
           .eq('status', 'pending');
       }
-      return res.json({ ok: true, message: `Done — ${described.summary}` });
+      return res.json({ ok: true, message: `Done — ${described.summary}`, result: result ?? null });
     } catch (err) {
       console.error('[ai] confirm failed:', err);
       const message = String((err as Error).message ?? err).slice(0, 300);
