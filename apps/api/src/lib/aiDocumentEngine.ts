@@ -1,0 +1,158 @@
+import { PDFParse } from 'pdf-parse';
+import Anthropic from '@anthropic-ai/sdk';
+import { env, aiProvider } from '../env';
+
+/**
+ * The reusable core of "document -> AI understands -> structured draft"
+ * (master prompt: "AI should not be designed as menu-import AI. It should
+ * become a general restaurant-management action engine."). Everything
+ * domain-specific — what the extraction prompt asks for, what shape the
+ * result must match, how to sanitize it, how to diff it against live data,
+ * how to apply an approved draft — stays in each domain's own module
+ * (menuImport.ts, inventoryImport.ts, ...). This file only owns the parts
+ * that are genuinely identical across every domain: pulling text out of a
+ * file, wrapping it as untrusted data, calling whichever AI provider is
+ * configured with a schema that constrains its output, and retrying a
+ * bounded number of times on a raw JSON-syntax failure. A new domain
+ * (recipes, suppliers, staff, ...) plugs in its own prompt/schema/sanitize
+ * function and gets the same reliability and injection-resistance this
+ * already earned for menu import — it does not reimplement any of this.
+ */
+
+export async function extractPdfText(buffer: Buffer): Promise<string> {
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return result.text;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+/** CSV/plain-text files are already text — no extraction step needed,
+ *  just decode. Kept as its own named function (rather than inlining
+ *  buffer.toString()) so a domain's upload handler reads the same either
+ *  way regardless of which extractor a given file type needs, and so a
+ *  future format (e.g. .xlsx) has an obvious place to add a real decoder
+ *  without touching every call site that already works. */
+export function extractPlainText(buffer: Buffer): string {
+  return buffer.toString('utf8');
+}
+
+const UNTRUSTED_PREFIX = '<untrusted_document_content>\n';
+const UNTRUSTED_SUFFIX = '\n</untrusted_document_content>\n\nExtract the structure from the document content above and return it as the single JSON object described in your instructions.';
+
+/** The document is DATA, never instructions — wrapped in an unambiguous
+ *  delimiter the extraction system prompt is told never to treat as
+ *  commands (spec: prompt-injection defense applies to every domain, not
+ *  just menu PDFs). */
+export function wrapUntrustedDocument(rawText: string): string {
+  return `${UNTRUSTED_PREFIX}${rawText.slice(0, 40_000)}${UNTRUSTED_SUFFIX}`;
+}
+
+function stripJsonFence(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/i, '');
+}
+
+async function callAnthropicStructured(systemPrompt: string, userText: string): Promise<string> {
+  const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
+  const resp = await anthropic.messages.create({
+    model: env.AI_MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userText }],
+  });
+  return resp.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n');
+}
+
+// Direct REST, matching routes/ai.ts's geminiGenerate — this module stays
+// independent of the chat route's internals rather than importing a route
+// file's local function. responseSchema constrains Gemini's decoding to
+// the caller's exact shape (Gemini's own OBJECT/STRING/ARRAY/NUMBER/
+// BOOLEAN + "nullable" dialect, not JSON Schema proper) — this is what
+// actually stops the model from e.g. splicing a bare string into an array
+// where an object belongs when confused by adversarial input (observed
+// live for menu import); responseMimeType alone only asks for JSON, it
+// doesn't constrain the token-level structure the way responseSchema does.
+async function callGeminiStructured(systemPrompt: string, userText: string, responseSchema: object): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userText }] }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema },
+      }),
+    },
+  );
+  const json = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    error?: { code?: number; message?: string };
+  };
+  if (!res.ok || json.error) {
+    throw new Error(json.error?.message ?? `gemini ${res.status}`);
+  }
+  return (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\n');
+}
+
+// Observed live (menu import): the model occasionally emits JSON that
+// fails to parse at all — an ordinary LLM-output hiccup, more likely when
+// the source text contains something unusual like an embedded injection
+// attempt. Bounded retries before failing outright; never a different
+// prompt on retry (no "try harder" escalation that could change what's
+// extracted), and never more attempts just because a domain "seems
+// important" — the same budget applies everywhere.
+const MAX_STRUCTURE_ATTEMPTS = 3;
+
+/**
+ * The one call every domain's "structure this document" function makes.
+ * `sanitize` is the domain's own defense-in-depth pass (spec: never trust
+ * raw AI output to actually match the shape it was asked for) — run even
+ * though responseSchema already constrains Gemini's output, because
+ * Anthropic has no equivalent constraint and because a single layer of
+ * defense is never assumed sufficient. Throws 'ai_not_configured' if
+ * neither provider is set up, matching every other AI feature's fallback.
+ */
+export async function structureDocumentWithSchema<T>(
+  rawText: string,
+  systemPrompt: string,
+  responseSchema: object,
+  sanitize: (raw: unknown) => T,
+): Promise<T> {
+  const userText = wrapUntrustedDocument(rawText);
+  const callOnce = async (): Promise<T> => {
+    const text =
+      aiProvider === 'gemini'
+        ? await callGeminiStructured(systemPrompt, userText, responseSchema)
+        : aiProvider === 'anthropic'
+          ? await callAnthropicStructured(systemPrompt, userText)
+          : (() => {
+              throw new Error('ai_not_configured');
+            })();
+    let raw: unknown;
+    try {
+      raw = JSON.parse(stripJsonFence(text));
+    } catch {
+      throw new Error('extraction_not_valid_json');
+    }
+    return sanitize(raw);
+  };
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_STRUCTURE_ATTEMPTS; attempt++) {
+    try {
+      return await callOnce();
+    } catch (err) {
+      lastErr = err;
+      if ((err as Error).message !== 'extraction_not_valid_json') throw err;
+    }
+  }
+  throw lastErr;
+}

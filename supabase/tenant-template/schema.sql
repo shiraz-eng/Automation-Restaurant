@@ -1298,6 +1298,46 @@ create policy "menu-imports staff write" on storage.objects for all
   using (bucket_id = 'menu-imports' and (app.has_perm('menu.create') or app.has_perm('menu.update') or app.can_write()))
   with check (bucket_id = 'menu-imports' and (app.has_perm('menu.create') or app.has_perm('menu.update') or app.can_write()));
 
+-- ── AI Inventory Import ───────────────────────────────────────────────────
+-- The SAME document-to-draft pattern as AI Menu Import (spec: "AI should
+-- not be designed as menu-import AI. It should become a general
+-- restaurant-management action engine"), proven a second time: file (PDF
+-- or CSV text) -> LLM structuring (aiDocumentEngine.ts, shared with menu
+-- import) -> validation -> diff against LIVE inventory_items -> owner
+-- review -> selective apply. Applying writes to the SAME inventory_items
+-- table the manual Inventory page uses. Uses the generically-named
+-- 'ai-imports' bucket (not 'menu-imports') since this is the first of
+-- presumably several non-menu domains to land here.
+create type app.inventory_import_status as enum ('draft', 'ready_for_review', 'applied', 'rejected', 'failed');
+
+create table public.inventory_import_drafts (
+  id              uuid primary key default gen_random_uuid(),
+  source_filename text not null,
+  storage_path    text not null,
+  extracted_json  jsonb not null,
+  diff_json       jsonb not null,
+  status          app.inventory_import_status not null default 'ready_for_review',
+  error           text,
+  created_by      uuid,
+  created_at      timestamptz not null default now(),
+  applied_at      timestamptz,
+  applied_by      uuid
+);
+alter table public.inventory_import_drafts enable row level security;
+create policy staff_read on public.inventory_import_drafts for select using (app.has_perm('stock.view') or app.is_staff());
+create policy mgr_write on public.inventory_import_drafts for all
+  using (app.has_perm('stock.update') or app.can_write())
+  with check (app.has_perm('stock.update') or app.can_write());
+
+insert into storage.buckets (id, name, public)
+values ('ai-imports', 'ai-imports', false)
+on conflict (id) do nothing;
+create policy "ai-imports staff read" on storage.objects for select
+  using (bucket_id = 'ai-imports' and (app.has_perm('stock.view') or app.is_staff()));
+create policy "ai-imports staff write" on storage.objects for all
+  using (bucket_id = 'ai-imports' and (app.has_perm('stock.update') or app.can_write()))
+  with check (bucket_id = 'ai-imports' and (app.has_perm('stock.update') or app.can_write()));
+
 -- orders / order_lines: staff read + update (KDS, counter). Inserts via place_order().
 alter table public.orders enable row level security;
 create policy staff_read on public.orders for select using (app.has_perm('orders.view') or app.is_staff());

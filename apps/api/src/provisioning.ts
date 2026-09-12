@@ -90,7 +90,10 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //   v33 Exception lifecycle: exception_states lets a manager acknowledge/
 //       resolve/ignore an item from the Exception Center, keyed on the
 //       exception's own category+message text (it has no row of its own).
-const SCHEMA_VERSION = 33;
+//   v34 AI Inventory Import: inventory_import_drafts + a generic
+//       'ai-imports' bucket — the document-to-draft pattern proven a
+//       second time (menu was the first), reusing aiDocumentEngine.ts.
+const SCHEMA_VERSION = 34;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
