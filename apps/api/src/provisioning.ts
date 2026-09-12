@@ -71,7 +71,16 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       app.promotion_is_valid_now()) and branches on kind. Code-required
 //       in v1 — auto-apply BOGO is deferred (needs cart contents,
 //       best_auto_promotion() only ever sees a subtotal)
-const SCHEMA_VERSION = 29;
+//   v30 Recipe Management: recipes/recipe_versions/recipe_ingredients/
+//       recipe_cost_log — a named, versioned, statused authoring layer
+//       ABOVE recipe_components (which stays exactly what place_order()
+//       reads, untouched). activate_recipe_version() resolves sub-recipes
+//       (semi_finished/preparation types) down to raw inventory quantities
+//       and syncs them into recipe_components; snapshot_recipe_cost_
+//       changes() logs cost drift from ingredient price changes alone.
+//       Existing recipe_components rows backfilled into "Version 1, Active"
+//       recipes so nothing pre-existing loses its consumption definition.
+const SCHEMA_VERSION = 30;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

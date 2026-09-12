@@ -247,6 +247,23 @@ async function computeAttentionItems(admin: SupabaseClient): Promise<AttentionIt
     }
   }
 
+  // Recipe cost alerts (spec §35) — reads the SAME evidence
+  // recipe_recent_cost_changes() gives the AI assistant for "why did my
+  // recipe cost change" questions; the RPC's own inventory.view_cost check
+  // silently empties this for a caller without cost visibility.
+  const costChanges = await admin.rpc('recipe_recent_cost_changes', { p_min_pct: 5 });
+  if (!costChanges.error) {
+    for (const r of (costChanges.data ?? []) as { name: string; previous_cost_cents: number; new_cost_cents: number; change_pct: number | null }[]) {
+      const pctText = r.change_pct != null ? `${r.change_pct > 0 ? '+' : ''}${r.change_pct}%` : '';
+      items.push({
+        severity: r.change_pct != null && Math.abs(r.change_pct) >= 15 ? 'HIGH' : 'MEDIUM',
+        category: 'recipes',
+        message: `${r.name} recipe cost changed from ${formatCentsPlain(r.previous_cost_cents)} to ${formatCentsPlain(r.new_cost_cents)} (${pctText}).`,
+        open_in: 'Recipes',
+      });
+    }
+  }
+
   const order: Record<AttentionItem['severity'], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
   items.sort((a, b) => order[a.severity] - order[b.severity]);
   return items;
@@ -538,6 +555,184 @@ export const AI_TOOLS: AiTool[] = [
         }
       }
       return { results: out };
+    },
+  },
+  {
+    name: 'list_recipes',
+    description:
+      'All active recipes with their current cost, food cost % against the linked menu item\'s price, and status. Use for "which recipes cost me the most/least", "show recipes above X% food cost", "which menu item has the highest contribution". Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: {
+        min_food_cost_pct: { type: 'number', description: 'Only recipes at or above this food cost %, e.g. 30' },
+        sort: { type: 'string', enum: ['cost_desc', 'cost_asc', 'food_cost_pct_desc', 'contribution_asc'], description: 'Default cost_desc' },
+      },
+    },
+    async run(admin, args) {
+      const { data: recipes, error } = await admin
+        .from('recipes')
+        .select('id, name, recipe_type, status, current_version_id, menu_items(price_cents)')
+        .eq('status', 'active');
+      if (error) return { error: error.message };
+      const rows = (recipes ?? []) as { id: string; name: string; recipe_type: string; current_version_id: string | null; menu_items: { price_cents: number } | { price_cents: number }[] | null }[];
+      const out: Record<string, unknown>[] = [];
+      for (const r of rows) {
+        if (!r.current_version_id) continue;
+        const { data: costCents } = await admin.rpc('recipe_version_cost_per_yield_unit', { p_recipe_version_id: r.current_version_id });
+        const price = (Array.isArray(r.menu_items) ? r.menu_items[0] : r.menu_items)?.price_cents ?? null;
+        const cost = typeof costCents === 'number' ? costCents : 0;
+        const foodCostPct = price && price > 0 ? Math.round((cost / price) * 1000) / 10 : null;
+        out.push({
+          recipe: r.name,
+          type: r.recipe_type,
+          cost_cents: cost,
+          menu_price_cents: price,
+          food_cost_pct: foodCostPct,
+          contribution_cents: price ? price - cost : null,
+        });
+      }
+      const minPct = typeof args.min_food_cost_pct === 'number' ? args.min_food_cost_pct : null;
+      let filtered = minPct != null ? out.filter((r) => typeof r.food_cost_pct === 'number' && (r.food_cost_pct as number) >= minPct) : out;
+      const sort = String(args.sort ?? 'cost_desc');
+      filtered = filtered.sort((a, b) => {
+        const av = (k: string) => (a[k] as number | null) ?? -Infinity;
+        const bv = (k: string) => (b[k] as number | null) ?? -Infinity;
+        if (sort === 'cost_asc') return av('cost_cents') - bv('cost_cents');
+        if (sort === 'food_cost_pct_desc') return bv('food_cost_pct') - av('food_cost_pct');
+        if (sort === 'contribution_asc') return av('contribution_cents') - bv('contribution_cents');
+        return bv('cost_cents') - av('cost_cents');
+      });
+      return { recipes: filtered };
+    },
+  },
+  {
+    name: 'get_recipe_detail',
+    description:
+      'Full detail for one named recipe: ingredients with per-line cost, yield, current version number, status, and profitability against its linked menu item\'s price. Use for "what\'s in the recipe for X" / "food cost of my chicken burger" when a fuller breakdown than get_recipe_cost is useful. Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: { recipe_name: { type: 'string', description: 'Recipe name, partial match OK' } },
+      required: ['recipe_name'],
+    },
+    async run(admin, args) {
+      const { data: recipe, error } = await admin
+        .from('recipes')
+        .select('id, name, recipe_type, status, instructions, current_version_id, menu_items(name, price_cents), menu_variants(name)')
+        .ilike('name', `%${String(args.recipe_name ?? '').trim()}%`)
+        .neq('status', 'archived')
+        .limit(1)
+        .maybeSingle();
+      if (error) return { error: error.message };
+      if (!recipe || !recipe.current_version_id) return { error: 'no_matching_active_recipe' };
+      const [{ data: version }, { data: ingredients }] = await Promise.all([
+        admin.from('recipe_versions').select('version, yield_qty, yield_unit').eq('id', recipe.current_version_id).single(),
+        admin
+          .from('recipe_ingredients')
+          .select('qty_base, inventory_items(name, unit, cost_cents_per_base_unit), recipes!recipe_ingredients_sub_recipe_id_fkey(name)')
+          .eq('recipe_version_id', recipe.current_version_id)
+          .order('sort_order'),
+      ]);
+      const one = <T,>(v: T | T[] | null) => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const price = one(recipe.menu_items as { price_cents: number } | { price_cents: number }[] | null)?.price_cents ?? null;
+      const lines = (ingredients ?? []).map((l: Record<string, unknown>) => {
+        const ii = one(l.inventory_items as { name: string; unit: string; cost_cents_per_base_unit: number } | { name: string; unit: string; cost_cents_per_base_unit: number }[] | null);
+        const sub = one(l.recipes as { name: string } | { name: string }[] | null);
+        const cost = ii ? Math.round((l.qty_base as number) * ii.cost_cents_per_base_unit) : null;
+        return { ingredient: ii?.name ?? (sub ? `${sub.name} (sub-recipe)` : '—'), qty: l.qty_base, unit: ii?.unit ?? version?.yield_unit ?? '', cost_cents: cost };
+      });
+      const { data: totalCost } = await admin.rpc('recipe_version_cost_per_yield_unit', { p_recipe_version_id: recipe.current_version_id });
+      const cost = typeof totalCost === 'number' ? totalCost : null;
+      return {
+        recipe: recipe.name,
+        type: recipe.recipe_type,
+        status: recipe.status,
+        version: version?.version,
+        yield: `${version?.yield_qty ?? 1} ${version?.yield_unit ?? 'serving'}`,
+        instructions: untrusted(recipe.instructions),
+        ingredients: lines,
+        recipe_cost_cents: cost,
+        menu_price_cents: price,
+        food_cost_pct: price && cost != null && price > 0 ? Math.round((cost / price) * 1000) / 10 : null,
+        contribution_cents: price && cost != null ? price - cost : null,
+      };
+    },
+  },
+  {
+    name: 'compare_recipes',
+    description:
+      'Side-by-side cost/food-cost comparison of two named recipes, e.g. "compare regular and double chicken burger". Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: {
+        recipe_name_a: { type: 'string' },
+        recipe_name_b: { type: 'string' },
+      },
+      required: ['recipe_name_a', 'recipe_name_b'],
+    },
+    async run(admin, args) {
+      const lookup = async (name: string) => {
+        const { data } = await admin
+          .from('recipes')
+          .select('id, name, current_version_id, menu_items(price_cents)')
+          .ilike('name', `%${String(name ?? '').trim()}%`)
+          .neq('status', 'archived')
+          .limit(1)
+          .maybeSingle();
+        if (!data || !data.current_version_id) return null;
+        const { data: cost } = await admin.rpc('recipe_version_cost_per_yield_unit', { p_recipe_version_id: data.current_version_id });
+        const one = <T,>(v: T | T[] | null) => (Array.isArray(v) ? (v[0] ?? null) : v);
+        const price = one(data.menu_items as { price_cents: number } | { price_cents: number }[] | null)?.price_cents ?? null;
+        const c = typeof cost === 'number' ? cost : null;
+        return { recipe: data.name, cost_cents: c, menu_price_cents: price, food_cost_pct: price && c != null && price > 0 ? Math.round((c / price) * 1000) / 10 : null };
+      };
+      const [a, b] = await Promise.all([lookup(String(args.recipe_name_a ?? '')), lookup(String(args.recipe_name_b ?? ''))]);
+      if (!a || !b) return { error: 'no_matching_active_recipe', found_a: !!a, found_b: !!b };
+      return { a, b, cost_difference_cents: a.cost_cents != null && b.cost_cents != null ? a.cost_cents - b.cost_cents : null };
+    },
+  },
+  {
+    name: 'explain_recipe_cost_change',
+    description:
+      'Why a recipe\'s cost recently changed: the logged cost delta plus which of its ingredients had a price change, so the answer can point at the actual cause rather than guessing. Use for "why did my chicken burger cost increase" questions. Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: { recipe_name: { type: 'string', description: 'Recipe name, partial match OK' } },
+      required: ['recipe_name'],
+    },
+    async run(admin, args) {
+      const { data: recipe } = await admin
+        .from('recipes')
+        .select('id, name, current_version_id')
+        .ilike('name', `%${String(args.recipe_name ?? '').trim()}%`)
+        .neq('status', 'archived')
+        .limit(1)
+        .maybeSingle();
+      if (!recipe || !recipe.current_version_id) return { error: 'no_matching_active_recipe' };
+      const { data: changes } = await admin.rpc('recipe_recent_cost_changes', { p_min_pct: 0 });
+      const change = ((changes ?? []) as { recipe_id: string; previous_cost_cents: number; new_cost_cents: number; change_pct: number | null }[]).find(
+        (c) => c.recipe_id === recipe.id,
+      );
+      if (!change) return { recipe: recipe.name, note: 'No logged cost change for this recipe yet — cost has been stable since tracking began.' };
+      const { data: ingredients } = await admin
+        .from('recipe_ingredients')
+        .select('inventory_items(name, cost_cents_per_base_unit)')
+        .eq('recipe_version_id', recipe.current_version_id);
+      const one = <T,>(v: T | T[] | null) => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const ingredientNames = ((ingredients ?? []) as { inventory_items: { name: string } | { name: string }[] | null }[])
+        .map((r) => one(r.inventory_items)?.name)
+        .filter((n): n is string => !!n);
+      return {
+        recipe: recipe.name,
+        previous_cost_cents: change.previous_cost_cents,
+        new_cost_cents: change.new_cost_cents,
+        change_pct: change.change_pct,
+        recipe_ingredients: ingredientNames,
+        note: 'This is the logged recipe-cost delta. Cross-check get_ingredient_usage or recent purchase prices for the specific ingredient whose cost moved — do not assume which one without checking.',
+      };
     },
   },
   {
@@ -1337,6 +1532,108 @@ export const AI_ACTIONS: AiAction[] = [
       return { ok: true };
     },
   },
+  {
+    name: 'draft_recipe',
+    description:
+      'Propose a new DRAFT recipe for a menu item with a named ingredient list and quantities (spec: "create a recipe draft for a chicken burger"). NEVER activated automatically — it stays a draft until a manager reviews and activates it in Recipes. Every ingredient must match an existing inventory item; any that don\'t are reported back rather than invented.',
+    needs: 'inventory.manage_recipes',
+    input_schema: {
+      type: 'object',
+      properties: {
+        recipe_name: { type: 'string' },
+        menu_item_name: { type: 'string', description: 'The menu item this recipe is for, partial match OK.' },
+        variant_name: { type: 'string', description: 'Optional — the specific variant, if this recipe is variant-specific.' },
+        ingredients: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              inventory_item_name: { type: 'string' },
+              qty_base: { type: 'number', description: "Quantity in that ingredient's own base/stock unit (e.g. grams for a gram-based item)." },
+            },
+            required: ['inventory_item_name', 'qty_base'],
+          },
+        },
+        instructions: { type: 'string', description: 'Optional prep instructions.' },
+      },
+      required: ['recipe_name', 'menu_item_name', 'ingredients'],
+    },
+    async describe(admin, args) {
+      const menuItemName = String(args.menu_item_name ?? '').trim();
+      const { data: item } = await admin
+        .from('menu_items')
+        .select('id, name, menu_variants(id, name)')
+        .ilike('name', `%${menuItemName}%`)
+        .limit(1)
+        .maybeSingle();
+      if (!item) return { ok: false, error: `No menu item matching "${menuItemName}".` };
+      let variantLabel = '';
+      if (args.variant_name) {
+        const variants = (item.menu_variants ?? []) as { id: string; name: string }[];
+        const v = variants.find((x) => x.name.toLowerCase().includes(String(args.variant_name).toLowerCase()));
+        if (!v) return { ok: false, error: `No variant matching "${args.variant_name}" on ${item.name}.` };
+        variantLabel = ` · ${v.name}`;
+      }
+      const ingredientsArg = (args.ingredients as { inventory_item_name: string; qty_base: number }[]) ?? [];
+      if (ingredientsArg.length === 0) return { ok: false, error: 'At least one ingredient is required.' };
+      const unmatched: string[] = [];
+      const lines: string[] = [];
+      for (const ing of ingredientsArg) {
+        const { data: inv } = await admin
+          .from('inventory_items')
+          .select('name, unit')
+          .ilike('name', `%${ing.inventory_item_name}%`)
+          .limit(1)
+          .maybeSingle();
+        if (!inv) unmatched.push(ing.inventory_item_name);
+        else lines.push(`${ing.qty_base}${inv.unit} ${inv.name}`);
+      }
+      if (unmatched.length > 0) {
+        return { ok: false, error: `No inventory item matching: ${unmatched.join(', ')}. Nothing will be drafted until every ingredient resolves.` };
+      }
+      return {
+        ok: true,
+        summary: `Create a DRAFT recipe "${String(args.recipe_name)}" for ${item.name}${variantLabel}: ${lines.join(', ')}. This will NOT be activated — it stays a draft until reviewed and activated in Recipes.`,
+      };
+    },
+    async run(admin, args) {
+      const menuItemName = String(args.menu_item_name ?? '').trim();
+      const { data: item } = await admin
+        .from('menu_items')
+        .select('id, menu_variants(id, name)')
+        .ilike('name', `%${menuItemName}%`)
+        .limit(1)
+        .maybeSingle();
+      if (!item) throw new Error('menu_item_not_found');
+      let variantId: string | null = null;
+      if (args.variant_name) {
+        const variants = (item.menu_variants ?? []) as { id: string; name: string }[];
+        variantId = variants.find((x) => x.name.toLowerCase().includes(String(args.variant_name).toLowerCase()))?.id ?? null;
+      }
+      const ingredientsArg = (args.ingredients as { inventory_item_name: string; qty_base: number }[]) ?? [];
+      const resolvedIngredients: { inventory_item_id: string; qty_base: number }[] = [];
+      for (const ing of ingredientsArg) {
+        const { data: inv } = await admin.from('inventory_items').select('id').ilike('name', `%${ing.inventory_item_name}%`).limit(1).maybeSingle();
+        if (!inv) throw new Error(`ingredient_not_found: ${ing.inventory_item_name}`);
+        resolvedIngredients.push({ inventory_item_id: inv.id, qty_base: ing.qty_base });
+      }
+      const { data, error } = await admin.rpc('create_recipe', {
+        p_name: String(args.recipe_name),
+        p_description: null,
+        p_notes: 'Created by the AI assistant as a draft — review before activating.',
+        p_recipe_type: variantId ? 'variant' : 'menu_item',
+        p_menu_item_id: item.id,
+        p_variant_id: variantId,
+        p_instructions: args.instructions ? String(args.instructions) : null,
+        p_yield_qty: 1,
+        p_yield_unit: null,
+        p_ingredients: resolvedIngredients,
+      });
+      if (error) throw new Error(error.message);
+      const row = Array.isArray(data) ? data[0] : data;
+      return { ok: true, recipe_id: row?.recipe_id, cost_cents: row?.cost_cents, status: 'draft' };
+    },
+  },
 ];
 
 export const SYSTEM_PROMPT = (restaurant: string) => `You are the operations assistant for "${restaurant}" inside the Automation Restaurant platform. You help the owner and managers run the restaurant.
@@ -1363,6 +1660,8 @@ HOW TO ANSWER
 - For "what do we owe" / "who do we owe the most" / "how much do we owe X", use get_supplier_payable (omit supplier_name for the ranked list, pass it for one supplier). Lead with outstanding, then call out on_hold and overdue separately since money can be owed without being payable yet. For "what's on hold" / "why is this invoice on hold", use get_payment_holds and quote the specific reason verbatim — never guess why something is held. For "what did we buy from X" / "how much have we paid X", use get_supplier_statement.
 - For "did you email anyone about low stock" / "which suppliers were contacted" / "what did you ask X for", use get_supplier_communications — this is AI Management's own automation log (a deterministic SQL trigger decides when it fires, not you), so answer strictly from what it returns, including a failed send's actual reason (e.g. no email provider configured) rather than implying it went out.
 - For "how is [promo/deal code] doing" / "which promo gets used most" / "how much have we discounted", use get_promotion_performance. If a promo has a usage_limit_total, say how much of it is used up ("6 of 10 used"), not just the raw redemption count — a code nearing its cap is worth flagging.
+- For "which recipes cost me the most/least" / "show recipes above X% food cost" / "which menu item has the highest contribution", use list_recipes. For "what's in the recipe for X" / a fuller breakdown of one item's food cost than get_recipe_cost gives, use get_recipe_detail. For "compare regular and double [X]" or comparing two named recipes, use compare_recipes. For "why did my [X] cost increase/change", use explain_recipe_cost_change — it returns the logged delta and that recipe's own ingredient list; name the ingredient(s) actually implicated only if you've checked their current cost (get_recipe_cost / get_ingredient_usage / recent purchase prices), never by assuming which one moved. If a recipe has no logged change yet, say plainly that cost has been stable, don't invent a story.
+- To draft a new recipe from a description ("create a recipe for a chicken burger using chicken, bun, cheese..."), use the draft_recipe action — it always creates a DRAFT that a manager must review and activate themselves; never claim a recipe is live/active from this action, and never call any activation step yourself (there isn't an AI action for it, by design). If an ingredient name doesn't match anything in inventory, the action reports exactly which — relay that rather than guessing a substitute.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
 - Keep it short. A busy manager is reading this between tables.
 

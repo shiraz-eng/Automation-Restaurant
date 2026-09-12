@@ -9,6 +9,7 @@ import { portalsRouter } from './routes/portals';
 import { aiRouter } from './routes/ai';
 import { retryFailedProvisions } from './provisioning';
 import { runLowStockSweepAllTenants } from './lib/lowStockAutomation';
+import { runRecipeCostSweepAllTenants } from './lib/recipeAutomation';
 
 const app = express();
 
@@ -45,3 +46,12 @@ const LOW_STOCK_SWEEP_INTERVAL_MS = 15 * 60_000;
 setInterval(() => {
   runLowStockSweepAllTenants().catch((err) => console.error('[low-stock] sweep error:', err));
 }, LOW_STOCK_SWEEP_INTERVAL_MS).unref();
+
+// Recipe Management's cost-change detection sweep (spec §24, §35) — logs a
+// recipe_cost_log row whenever an active recipe's computed cost has moved
+// since it was last recorded, so a supplier price change alone (no recipe
+// edit) still shows up in cost history / AI Management's attention items.
+const RECIPE_COST_SWEEP_INTERVAL_MS = 15 * 60_000;
+setInterval(() => {
+  runRecipeCostSweepAllTenants().catch((err) => console.error('[recipe-cost] sweep error:', err));
+}, RECIPE_COST_SWEEP_INTERVAL_MS).unref();

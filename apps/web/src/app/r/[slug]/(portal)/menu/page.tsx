@@ -31,7 +31,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
           {error.message}
         </div>
       ) : (
-        <MenuManager categories={categories ?? []} items={items ?? []} ingredients={ingredients ?? []} />
+        <MenuManager slug={slug} categories={categories ?? []} items={items ?? []} ingredients={ingredients ?? []} />
       )}
     </div>
   );

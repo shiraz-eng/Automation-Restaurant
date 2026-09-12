@@ -23,6 +23,7 @@ const NAV: [string, string, string?][] = [
   ['deals', 'Deals', 'deals.view'],
   ['promotions', 'Promotions', 'menu.view'],
   ['inventory', 'Inventory', 'stock.view'],
+  ['recipes', 'Recipes', 'menu.view'],
   ['suppliers', 'Suppliers', 'supplier.view'],
   ['purchasing', 'Purchasing', 'purchases.view'],
   ['staff', 'Staff', 'staff.view'],
