@@ -138,7 +138,28 @@ type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 
 const MAX_TURNS = 6;
 type PendingAction = { id: string; name: string; args: Record<string, unknown>; summary: string };
-type AgentResult = { reply: string; trace: { name: string; ok: boolean }[]; pendingAction?: PendingAction };
+// The exact period_profitability() row plus the resolved date range and
+// label — captured verbatim from get_period_profitability's own tool
+// result (never recomputed) so the chat UI can render a real, clickable
+// drill-down card tied to precisely the figures the model just talked
+// about, using the SAME ProfitDrilldownModal the Dashboard/Finance pages
+// already use, without a second fetch that could drift from what was said.
+type ProfitCard = {
+  period: string;
+  from_ts: string;
+  to_ts: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+};
+type AgentResult = { reply: string; trace: { name: string; ok: boolean }[]; pendingAction?: PendingAction; profitCard?: ProfitCard };
 /** Who is chatting — threaded through to proposeAction() so a persisted
  *  ai_pending_actions row (the Approval Inbox, spec §29) always knows who
  *  proposed it, not just who eventually confirmed it. */
@@ -167,6 +188,7 @@ async function callTool(
   userId: string,
   trace: { name: string; ok: boolean }[],
   name: string,
+  capture: { profitCard?: ProfitCard },
 ): Promise<unknown> {
   if (!tool) {
     trace.push({ name, ok: false });
@@ -175,6 +197,12 @@ async function callTool(
   try {
     const out = await tool.run(admin, input);
     trace.push({ name, ok: true });
+    // Last one wins if the model calls this more than once in a turn (e.g.
+    // comparing two periods) — the card always matches the LATEST period
+    // it actually reported on in its final reply.
+    if (name === 'get_period_profitability' && out && typeof out === 'object' && 'net_profit_cents' in out) {
+      capture.profitCard = out as ProfitCard;
+    }
     await admin
       .from('audit_logs')
       .insert({ actor_id: userId, action: 'ai.tool', entity: name, after: { input } });
@@ -240,6 +268,7 @@ async function runGemini(
     parts: [{ text: m.content }],
   }));
   const trace: AgentResult['trace'] = [];
+  const capture: { profitCard?: ProfitCard } = {};
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const content = await withRetry(() => geminiGenerate(contents, declared, system));
@@ -252,7 +281,7 @@ async function runGemini(
         .map((p) => p.text)
         .join('\n')
         .trim();
-      return { reply: text || '(no answer)', trace };
+      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard };
     }
 
     const leadText = content.parts
@@ -283,6 +312,7 @@ async function runGemini(
         userId,
         trace,
         c.functionCall.name,
+        capture,
       );
       const response =
         out !== null && typeof out === 'object' && !Array.isArray(out)
@@ -292,7 +322,7 @@ async function runGemini(
     }
     contents.push({ role: 'user', parts });
   }
-  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace };
+  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard };
 }
 
 /**
@@ -365,6 +395,7 @@ async function runAnthropic(
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const trace: AgentResult['trace'] = [];
+  const capture: { profitCard?: ProfitCard } = {};
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await anthropic.messages.create({
@@ -384,7 +415,7 @@ async function runAnthropic(
         .map((b) => b.text)
         .join('\n')
         .trim();
-      return { reply: text || '(no answer)', trace };
+      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard };
     }
 
     const leadText = resp.content
@@ -417,6 +448,7 @@ async function runAnthropic(
         userId,
         trace,
         block.name,
+        capture,
       );
       results.push({
         type: 'tool_result',
@@ -426,7 +458,7 @@ async function runAnthropic(
     }
     convo.push({ role: 'user', content: results });
   }
-  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace };
+  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard };
 }
 
 /**
@@ -472,6 +504,7 @@ aiRouter.post(
         tools: result.trace,
         provider: aiProvider,
         pendingAction: result.pendingAction ?? null,
+        profitCard: result.profitCard ?? null,
       });
     } catch (err) {
       console.error('[ai] chat failed:', err);

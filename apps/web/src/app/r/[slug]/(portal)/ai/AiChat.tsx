@@ -2,11 +2,32 @@
 
 import { useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
+import { formatCents } from '@/lib/format';
+import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 type PendingAction = { id: string; name: string; args: Record<string, unknown>; summary: string };
 type Resolution = 'confirmed' | 'cancelled' | 'failed';
+// The exact period_profitability() row get_period_profitability returned
+// to the model, captured verbatim server-side (routes/ai.ts) — never a
+// second client-side fetch, so this card can never say something
+// different from what the assistant's own reply just said.
+type ProfitCard = {
+  period: string;
+  from_ts: string;
+  to_ts: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+};
 type Msg = {
   role: 'user' | 'assistant';
   content: string;
@@ -14,6 +35,7 @@ type Msg = {
   pendingAction?: PendingAction;
   resolution?: Resolution;
   resolutionMessage?: string;
+  profitCard?: ProfitCard;
 };
 
 const SUGGESTIONS = [
@@ -32,6 +54,7 @@ export function AiChat({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drilldownCard, setDrilldownCard] = useState<ProfitCard | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   function scrollDown() {
@@ -78,6 +101,7 @@ export function AiChat({ slug }: { slug: string }) {
           content: body.reply ?? '(no answer)',
           tools: (body.tools ?? []).map((x: { name: string }) => x.name),
           pendingAction: body.pendingAction ?? undefined,
+          profitCard: body.profitCard ?? undefined,
         },
       ]);
       scrollDown();
@@ -179,6 +203,33 @@ export function AiChat({ slug }: { slug: string }) {
                   · {m.tools.join(' · ')}
                 </div>
               )}
+              {m.profitCard && (
+                <button
+                  onClick={() => setDrilldownCard(m.profitCard!)}
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted font-semibold">{m.profitCard.period}</span>
+                    <span className="text-primary font-semibold">View breakdown →</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-1">
+                    <div>
+                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(m.profitCard.net_sales_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">Gross profit</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(m.profitCard.gross_profit_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">Net profit</div>
+                      <div className={`font-mono font-bold text-sm ${m.profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
+                        {formatCents(m.profitCard.net_profit_cents)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )}
               {m.pendingAction && (
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
@@ -241,6 +292,16 @@ export function AiChat({ slug }: { slug: string }) {
           Ask
         </button>
       </form>
+
+      {drilldownCard && (
+        <ProfitDrilldownModal
+          profit={drilldownCard}
+          from={new Date(drilldownCard.from_ts)}
+          to={new Date(drilldownCard.to_ts)}
+          periodLabel={drilldownCard.period}
+          onClose={() => setDrilldownCard(null)}
+        />
+      )}
     </div>
   );
 }
