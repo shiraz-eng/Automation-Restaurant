@@ -37,8 +37,8 @@ const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const KITCHEN_ACTIVE = ['pending', 'in_kitchen', 'ready'];
 
 // ── Sales period presets (spec §6, §21, §46) ────────────────────────────────
-type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
-function periodRange(period: Period) {
+export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+export function periodRange(period: Period) {
   const startOfDay = (d: Date) => {
     const x = new Date(d);
     x.setHours(0, 0, 0, 0);

@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, type AiTool, type AiAction } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 
 /** Anything the model can be offered as a callable function — a read tool or a proposable action. */
 type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
@@ -669,8 +669,10 @@ aiRouter.post(
  * proposal you already know about) — so only an authorized approver can
  * discover the full queue.
  */
+const REPORT_PERIODS = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'];
+
 aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async (req: Request, res: Response) => {
-  const { admin } = req.tenant!;
+  const { admin, permissions, role } = req.tenant!;
   const { data, error } = await admin
     .from('ai_pending_actions')
     .select('id, action_name, args, summary, status, proposed_by_email, proposed_by_role, created_at')
@@ -678,5 +680,29 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) return res.status(500).json({ error: 'pending_fetch_failed', message: error.message });
-  return res.json({ items: data ?? [] });
+  const items = data ?? [];
+
+  // For a pending generate_report proposal, an approver should see the
+  // real numbers before approving it, not just the summary sentence —
+  // same drill-down card the AI chat shows on its own profitability
+  // answers (spec: one calculation, several surfaces). Fetched here
+  // rather than stored on the row itself, so it's always current as of
+  // the moment someone actually opens the Inbox, not stale from whenever
+  // it was proposed. Silently omitted if the approver can't see profit —
+  // the row (and Approve/Reject) still works either way.
+  if (permits(permissions, role, 'finance.view_profit') || permits(permissions, role, 'finance.view_cogs') || permits(permissions, role, 'inventory.view_cost')) {
+    await Promise.all(
+      items.map(async (item) => {
+        if (item.action_name !== 'generate_report') return;
+        const period = String((item.args as Record<string, unknown> | null)?.period ?? '');
+        if (!REPORT_PERIODS.includes(period)) return;
+        const { from, to, label } = periodRange(period as Period);
+        const { data: rows } = await admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() });
+        const row = (rows as Record<string, unknown>[] | null)?.[0];
+        if (row) (item as Record<string, unknown>).profitCard = { period: label, from_ts: from.toISOString(), to_ts: to.toISOString(), ...row };
+      }),
+    );
+  }
+
+  return res.json({ items });
 });

@@ -2,9 +2,30 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatCents } from '@/lib/format';
+import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+// The exact period_profitability() row, captured server-side (routes/ai.ts's
+// GET /pending) for a pending generate_report proposal specifically — never
+// recomputed here, so an approver drilling in sees precisely what the
+// report they're about to approve would actually contain.
+type ProfitCard = {
+  period: string;
+  from_ts: string;
+  to_ts: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+};
 
 type PendingItem = {
   id: string;
@@ -14,6 +35,7 @@ type PendingItem = {
   proposed_by_email: string | null;
   proposed_by_role: string | null;
   created_at: string;
+  profitCard?: ProfitCard;
 };
 
 export function ApprovalsPanel({ slug }: { slug: string }) {
@@ -22,6 +44,7 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [drilldownCard, setDrilldownCard] = useState<ProfitCard | null>(null);
 
   async function authHeader() {
     const {
@@ -129,6 +152,33 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
                 {item.proposed_by_email && <span>· by {item.proposed_by_email}</span>}
               </div>
               <p>{item.summary}</p>
+              {item.profitCard && (
+                <button
+                  onClick={() => setDrilldownCard(item.profitCard!)}
+                  className="w-full block rounded-lg border border-primary/40 bg-main hover:border-primary p-2.5 text-left"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted font-semibold">{item.profitCard.period}</span>
+                    <span className="text-primary font-semibold">View breakdown →</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-1">
+                    <div>
+                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(item.profitCard.net_sales_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">Gross profit</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(item.profitCard.gross_profit_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">Net profit</div>
+                      <div className={`font-mono font-bold text-sm ${item.profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
+                        {formatCents(item.profitCard.net_profit_cents)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => approve(item)}
@@ -148,6 +198,16 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
             </div>
           ))}
         </div>
+      )}
+
+      {drilldownCard && (
+        <ProfitDrilldownModal
+          profit={drilldownCard}
+          from={new Date(drilldownCard.from_ts)}
+          to={new Date(drilldownCard.to_ts)}
+          periodLabel={drilldownCard.period}
+          onClose={() => setDrilldownCard(null)}
+        />
       )}
     </div>
   );
