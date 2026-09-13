@@ -101,6 +101,59 @@ function pctChange(curr: number, prev: number): number | null {
   return Math.round(((curr - prev) / prev) * 1000) / 10;
 }
 
+// ── Restaurant Performance & Owner Activity Intelligence helpers ───────────
+// Shared by the synthesis tools further down so each stays a thin composition
+// of the SAME authoritative sources, never a second calculation.
+/** Same validate-or-default period parsing every period-scoped tool above
+ *  repeats inline, pulled into one helper now that several more tools need
+ *  it — and (unlike periodRange() alone) also returns which Period name was
+ *  actually used, so a tool can pass that name on to another tool it calls. */
+function resolvePeriod(raw: unknown, fallback: Period = 'this_month') {
+  const period: Period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(String(raw))
+    ? (raw as Period)
+    : fallback;
+  return { ...periodRange(period), period };
+}
+/** Lets one AI_TOOLS entry reuse another's exact run() rather than
+ *  re-querying — e.g. analyze_restaurant composing get_owner_scorecard,
+ *  get_positive_highlights, get_areas_to_review and get_owner_activity into
+ *  one call. Safe to reference AI_TOOLS here even though this function is
+ *  defined before the array literal: by the time anything actually calls a
+ *  tool's run(), the module has finished evaluating and AI_TOOLS is bound. */
+async function runToolByName(admin: SupabaseClient, name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  const tool = AI_TOOLS.find((t) => t.name === name);
+  if (!tool) throw new Error(`unknown_tool:${name}`);
+  return tool.run(admin, args);
+}
+/** Ingredient waste cost between two exact dates, valued at the cost basis
+ *  each ledger row was actually recorded at — the same source
+ *  get_wastage_summary reads (reason='spoilage'), just parameterized by an
+ *  explicit range instead of "last N days" so period-over-period comparisons
+ *  (get_positive_highlights) can query last period's exact window too. */
+async function wasteCostBetween(admin: SupabaseClient, from: Date, to: Date): Promise<number> {
+  const { data } = await admin
+    .from('stock_ledger')
+    .select('delta_qty, unit_cost_cents_base')
+    .eq('reason', 'spoilage')
+    .gte('created_at', from.toISOString())
+    .lt('created_at', to.toISOString());
+  return Math.round(((data ?? []) as { delta_qty: number; unit_cost_cents_base: number | null }[]).reduce(
+    (s, r) => s + Math.abs(r.delta_qty) * (r.unit_cost_cents_base ?? 0),
+    0,
+  ));
+}
+/** Total purchase-order value created between two exact dates — the same
+ *  subtotal_cents get_purchasing_summary sums, parameterized for
+ *  period-over-period comparison in get_areas_to_review. */
+async function purchasingTotalBetween(admin: SupabaseClient, from: Date, to: Date): Promise<number> {
+  const { data } = await admin
+    .from('purchase_orders')
+    .select('subtotal_cents')
+    .gte('created_at', from.toISOString())
+    .lt('created_at', to.toISOString());
+  return ((data ?? []) as { subtotal_cents: number }[]).reduce((s, r) => s + (r.subtotal_cents ?? 0), 0);
+}
+
 // ── Attendance bands (spec §18, §36) ────────────────────────────────────────
 type Bands = { excellent: number; good: number; attention: number };
 function attendanceBand(pct: number | null, bands: Bands): string | null {
@@ -1592,6 +1645,749 @@ export const AI_TOOLS: AiTool[] = [
           sent_at: r.sent_at ?? r.created_at,
         })),
         note: rows.length === 0 ? 'No supplier reorder emails in this window.' : undefined,
+      };
+    },
+  },
+  // ── Restaurant Performance & Owner Activity Intelligence ────────────────
+  // The tools below are the synthesis layer: they never recompute a number
+  // another tool/RPC already owns — each one calls the SAME authoritative
+  // source (period_profitability, supplier_payable, the stock ledger, the
+  // real audit trail) and only combines/compares what's already there. Not
+  // one of these invents a figure — a metric this schema genuinely can't
+  // support honestly (e.g. "invoice approved" has no timestamp anywhere) is
+  // left out rather than approximated from a nearby-but-wrong field.
+  {
+    name: 'get_purchasing_summary',
+    description:
+      'What was purchased in a period: total purchase value, purchase orders by status, received vs still-pending value, spending by supplier and by ingredient, and any supplier price increases recorded in the window. Use for "how much did I purchase", "what did I buy from X", "which ingredient got more expensive" questions.',
+    needs: 'purchases.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const { from, to, label } = resolvePeriod(args.period);
+      const [poRes, priceRes] = await Promise.all([
+        admin
+          .from('purchase_orders')
+          .select(
+            'po_number, status, subtotal_cents, expected_at, received_at, created_at, suppliers(name), purchase_order_lines(qty, received_qty, unit_cost_cents, inventory_items(name))',
+          )
+          .gte('created_at', from.toISOString())
+          .lt('created_at', to.toISOString()),
+        admin
+          .from('supplier_price_history')
+          .select('old_price_cents, new_price_cents, pct_change, effective_date, supplier_items(purchase_unit_label, inventory_items(name), suppliers(name))')
+          .gte('effective_date', from.toISOString().slice(0, 10))
+          .lt('effective_date', to.toISOString().slice(0, 10))
+          .order('pct_change', { ascending: false }),
+      ]);
+      if (poRes.error) return { error: poRes.error.message };
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      type Line = { qty: number; received_qty: number; unit_cost_cents: number; inventory_items: { name: string } | { name: string }[] | null };
+      const pos = (poRes.data ?? []) as {
+        po_number: number; status: string; subtotal_cents: number; expected_at: string | null; received_at: string | null; created_at: string;
+        suppliers: { name: string } | { name: string }[] | null; purchase_order_lines: Line[];
+      }[];
+
+      const byStatus: Record<string, number> = {};
+      const bySupplier: Record<string, number> = {};
+      const byIngredient: Record<string, number> = {};
+      let totalCents = 0, receivedCents = 0, pendingCents = 0;
+      for (const po of pos) {
+        byStatus[po.status] = (byStatus[po.status] ?? 0) + 1;
+        const supName = one(po.suppliers)?.name ?? '—';
+        bySupplier[supName] = (bySupplier[supName] ?? 0) + po.subtotal_cents;
+        totalCents += po.subtotal_cents;
+        for (const l of po.purchase_order_lines) {
+          const itemName = one(l.inventory_items)?.name ?? '—';
+          byIngredient[itemName] = (byIngredient[itemName] ?? 0) + l.qty * l.unit_cost_cents;
+          receivedCents += l.received_qty * l.unit_cost_cents;
+          pendingCents += (l.qty - l.received_qty) * l.unit_cost_cents;
+        }
+      }
+
+      const priceChanges = ((priceRes.data ?? []) as {
+        old_price_cents: number | null; new_price_cents: number; pct_change: number | null; effective_date: string;
+        supplier_items:
+          | { purchase_unit_label: string | null; inventory_items: { name: string } | { name: string }[] | null; suppliers: { name: string } | { name: string }[] | null }
+          | { purchase_unit_label: string | null; inventory_items: { name: string } | { name: string }[] | null; suppliers: { name: string } | { name: string }[] | null }[]
+          | null;
+      }[]).map((r) => {
+        const si = one(r.supplier_items);
+        return {
+          ingredient: si ? (one(si.inventory_items)?.name ?? '—') : '—',
+          supplier: si ? (one(si.suppliers)?.name ?? '—') : '—',
+          old_price_cents: r.old_price_cents,
+          new_price_cents: r.new_price_cents,
+          pct_change: r.pct_change,
+          effective_date: r.effective_date,
+        };
+      });
+
+      return {
+        period: label,
+        total_purchases_cents: totalCents,
+        purchase_orders: pos.length,
+        by_status: byStatus,
+        received_value_cents: receivedCents,
+        pending_value_cents: pendingCents,
+        by_supplier: Object.entries(bySupplier).map(([supplier, cents]) => ({ supplier, cents })).sort((a, b) => b.cents - a.cents),
+        by_ingredient: Object.entries(byIngredient).map(([ingredient, cents]) => ({ ingredient, cents })).sort((a, b) => b.cents - a.cents).slice(0, 15),
+        price_increases: priceChanges.filter((p) => (p.pct_change ?? 0) > 0),
+        note: pos.length === 0 ? 'No purchase orders created in this period.' : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_supplier_performance',
+    description:
+      'Compares suppliers on price, fill rate (accepted vs ordered quantity), on-time delivery and lead time — never on price alone. Pass ingredient_name to narrow to suppliers who actually supply that ingredient (e.g. "which supplier is better for chicken"). Omit both filters for every supplier with purchase or catalog activity.',
+    needs: 'supplier.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        supplier_name: { type: 'string', description: 'Optional — partial match OK' },
+        ingredient_name: { type: 'string', description: 'Optional — narrow to suppliers of this ingredient' },
+      },
+    },
+    async run(admin, args) {
+      let supplierId: string | null = null;
+      const supName = String(args.supplier_name ?? '').trim();
+      if (supName) {
+        const { data: sup } = await admin.from('suppliers').select('id').ilike('name', `%${supName}%`).limit(1).maybeSingle();
+        if (!sup) return { error: 'no_matching_supplier' };
+        supplierId = sup.id;
+      }
+      let itemId: string | null = null;
+      const ingName = String(args.ingredient_name ?? '').trim();
+      if (ingName) {
+        const item = await findInventoryItem(admin, ingName);
+        if (!item) return { error: 'no_matching_ingredient' };
+        itemId = item.id;
+      }
+
+      let poQuery = admin
+        .from('purchase_orders')
+        .select('supplier_id, expected_at, sent_at, received_at, suppliers(name), purchase_order_lines(qty, received_qty, rejected_qty, inventory_item_id)')
+        .neq('status', 'draft');
+      if (supplierId) poQuery = poQuery.eq('supplier_id', supplierId);
+      const { data: poData, error } = await poQuery;
+      if (error) return { error: error.message };
+
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      type Line = { qty: number; received_qty: number; rejected_qty: number; inventory_item_id: string | null };
+      const pos = (poData ?? []) as {
+        supplier_id: string; expected_at: string | null; sent_at: string | null; received_at: string | null;
+        suppliers: { name: string } | { name: string }[] | null; purchase_order_lines: Line[];
+      }[];
+
+      type Acc = {
+        name: string; orderedQty: number; acceptedQty: number; rejectedQty: number;
+        onTimeCount: number; deliveredCount: number; leadTimeDaysSum: number; leadTimeCount: number;
+        // Only meaningful when narrowed to one ingredient (itemId set) — a
+        // supplier catalog can list many items at many prices, so a single
+        // "current price" is well-defined only per-ingredient. catalogItems
+        // covers the unscoped case instead of silently showing whichever
+        // supplier_items row happened to be read last.
+        currentPriceCents: number | null; configuredLeadTimeDays: number | null; purchaseUnitLabel: string | null;
+        catalogItems: number;
+      };
+      const bySupplier: Record<string, Acc> = {};
+      const acc = (id: string, name: string): Acc =>
+        (bySupplier[id] ??= {
+          name, orderedQty: 0, acceptedQty: 0, rejectedQty: 0, onTimeCount: 0, deliveredCount: 0,
+          leadTimeDaysSum: 0, leadTimeCount: 0, currentPriceCents: null, configuredLeadTimeDays: null, purchaseUnitLabel: null,
+          catalogItems: 0,
+        });
+
+      for (const po of pos) {
+        const lines = itemId ? po.purchase_order_lines.filter((l) => l.inventory_item_id === itemId) : po.purchase_order_lines;
+        if (itemId && lines.length === 0) continue;
+        const s = acc(po.supplier_id, one(po.suppliers)?.name ?? '—');
+        for (const l of lines) {
+          s.orderedQty += l.qty;
+          s.acceptedQty += Math.max(0, l.received_qty - l.rejected_qty);
+          s.rejectedQty += l.rejected_qty;
+        }
+        if (po.received_at) {
+          s.deliveredCount += 1;
+          if (po.expected_at && new Date(po.received_at) <= new Date(`${po.expected_at}T23:59:59`)) s.onTimeCount += 1;
+          if (po.sent_at) {
+            s.leadTimeDaysSum += (new Date(po.received_at).getTime() - new Date(po.sent_at).getTime()) / 86400_000;
+            s.leadTimeCount += 1;
+          }
+        }
+      }
+
+      // Current catalog price + configured lead time — supplier_items is the
+      // one place a price is deliberately maintained per supplier/ingredient
+      // (spec §4), never re-derived from PO history.
+      let priceQuery = admin.from('supplier_items').select('supplier_id, current_price_cents, lead_time_days, purchase_unit_label, suppliers(name)');
+      if (supplierId) priceQuery = priceQuery.eq('supplier_id', supplierId);
+      if (itemId) priceQuery = priceQuery.eq('inventory_item_id', itemId);
+      const { data: priceData } = await priceQuery;
+      for (const r of (priceData ?? []) as {
+        supplier_id: string; current_price_cents: number; lead_time_days: number | null; purchase_unit_label: string | null;
+        suppliers: { name: string } | { name: string }[] | null;
+      }[]) {
+        const s = acc(r.supplier_id, one(r.suppliers)?.name ?? '—');
+        s.catalogItems += 1;
+        // A single scalar price/lead-time is only meaningful once narrowed
+        // to one ingredient — with no ingredient filter, a supplier can have
+        // many catalog rows at many prices, so leave both null rather than
+        // silently keep whichever row the loop happened to see last.
+        if (itemId) {
+          s.currentPriceCents = r.current_price_cents;
+          s.configuredLeadTimeDays = r.lead_time_days;
+          s.purchaseUnitLabel = r.purchase_unit_label;
+        }
+      }
+
+      const suppliers = Object.values(bySupplier).map((s) => ({
+        supplier: s.name,
+        current_price_cents: itemId ? s.currentPriceCents : undefined,
+        purchase_unit: itemId ? s.purchaseUnitLabel : undefined,
+        catalog_items: itemId ? undefined : s.catalogItems,
+        fill_rate_pct: s.orderedQty > 0 ? Math.round((s.acceptedQty / s.orderedQty) * 1000) / 10 : null,
+        rejected_qty: s.rejectedQty,
+        on_time_pct: s.deliveredCount > 0 ? Math.round((s.onTimeCount / s.deliveredCount) * 1000) / 10 : null,
+        avg_lead_time_days: s.leadTimeCount > 0 ? Math.round((s.leadTimeDaysSum / s.leadTimeCount) * 10) / 10 : null,
+        configured_lead_time_days: itemId ? s.configuredLeadTimeDays : undefined,
+        deliveries: s.deliveredCount,
+      }));
+
+      return {
+        ingredient: ingName || undefined,
+        suppliers: suppliers.sort((a, b) => (b.fill_rate_pct ?? -1) - (a.fill_rate_pct ?? -1)),
+        note: suppliers.length === 0 ? 'No purchase order or catalog activity found for the given filter.' : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_money_flow',
+    description:
+      'Separates PROFIT (net sales minus COGS minus expenses — an accounting result) from actual CASH MOVEMENT (money that physically came in from customers and went out to suppliers/expenses) for a period. These are NOT the same number. Use for "where did my money go" / cash-flow questions — never to answer "how profitable", which is get_period_profitability.',
+    needs: 'finance.view_profit',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const { from, to, label } = resolvePeriod(args.period);
+      const fromIso = from.toISOString();
+      const toIso = to.toISOString();
+      const [profitRes, paymentsRes, refundsRes, supplierPaymentsRes, expensesRes] = await Promise.all([
+        admin.rpc('period_profitability', { p_from: fromIso, p_to: toIso }),
+        admin.from('payments').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('refunds').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('supplier_payments').select('amount_cents').gte('paid_at', fromIso).lt('paid_at', toIso),
+        admin.from('expenses').select('amount_cents').gte('expense_date', fromIso.slice(0, 10)).lt('expense_date', toIso.slice(0, 10)),
+      ]);
+      const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
+      const canSeeProfit = !profitRes.error && !!profit;
+      const collectedCents = (paymentsRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0);
+      const refundedCents = (refundsRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0);
+      const supplierPaidCents = (supplierPaymentsRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0);
+      const expensePaidCents = (expensesRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0);
+      const netCashMovementCents = collectedCents - refundedCents - supplierPaidCents - expensePaidCents;
+      return {
+        period: label,
+        profit: canSeeProfit
+          ? {
+              net_sales_cents: profit!.net_sales_cents,
+              cogs_cents: profit!.theoretical_cogs_cents,
+              gross_profit_cents: profit!.gross_profit_cents,
+              expenses_cents: profit!.expenses_cents,
+              net_profit_cents: profit!.net_profit_cents,
+            }
+          : undefined,
+        cash_movement: {
+          customer_collections_cents: collectedCents,
+          refunds_paid_cents: refundedCents,
+          supplier_payments_cents: supplierPaidCents,
+          expense_payments_cents: expensePaidCents,
+          net_cash_movement_cents: netCashMovementCents,
+        },
+        note:
+          'Profit is an accounting result (revenue earned minus costs incurred, regardless of when cash moves); cash movement is money that actually moved in this window. They differ whenever a sale, expense, or purchase is recorded in a different period than when cash changes hands. Expense payments above use each expense record\'s recorded date, since this system does not separately track an expense\'s payment date from its recognition date.',
+      };
+    },
+  },
+  {
+    name: 'get_inventory_reconciliation',
+    description:
+      'Reconciles ingredient inventory movement for a period — real purchases, consumption, waste and physical stock-count variance, read from the stock ledger — against the current total inventory value. Flags a genuine reconciliation issue only when an actual physical stock count found a variance; never forces numbers to balance. Not visible to roles without inventory.view_cost.',
+    needs: 'inventory.view_cost',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const { from, to, label } = resolvePeriod(args.period);
+      const [ledgerRes, invRes] = await Promise.all([
+        admin.from('stock_ledger').select('delta_qty, reason, unit_cost_cents_base').gte('created_at', from.toISOString()).lt('created_at', to.toISOString()),
+        admin.from('inventory_items').select('stock_qty, cost_cents_per_base_unit'),
+      ]);
+      if (ledgerRes.error) return { error: ledgerRes.error.message };
+      const rows = (ledgerRes.data ?? []) as { delta_qty: number; reason: string; unit_cost_cents_base: number | null }[];
+      const sum = (reason: string, signed: boolean) =>
+        rows
+          .filter((r) => r.reason === reason)
+          .reduce((s, r) => s + (signed ? r.delta_qty : Math.abs(r.delta_qty)) * (r.unit_cost_cents_base ?? 0), 0);
+      const purchasesCents = Math.round(sum('restock', false));
+      const consumptionCents = Math.round(sum('order_deduction', false));
+      const wasteCents = Math.round(sum('spoilage', false));
+      const adjustmentsCents = Math.round(sum('adjustment', true));
+      const stockTakeVarianceCents = Math.round(sum('stock_take', true));
+      const closingValueCents = Math.round(
+        (invRes.data ?? []).reduce((s, i) => s + Number(i.stock_qty) * Number(i.cost_cents_per_base_unit), 0),
+      );
+      const netMovementCents = purchasesCents - consumptionCents - wasteCents + adjustmentsCents + stockTakeVarianceCents;
+      const impliedOpeningValueCents = Math.round(closingValueCents - netMovementCents);
+      // A negative "opening value" is physically impossible — it means this
+      // period's recorded movements exceed the current closing value, which
+      // happens when some stock change in the window never went through the
+      // ledger (a direct correction, or dirty historical data). Never
+      // present that as a real figure — flag it as non-derivable instead of
+      // forcing the numbers to balance (spec: "never force the numbers to
+      // balance").
+      const openingReliable = impliedOpeningValueCents >= 0;
+      return {
+        period: label,
+        purchases_cents: purchasesCents,
+        consumption_cents: consumptionCents,
+        waste_cents: wasteCents,
+        adjustments_cents: adjustmentsCents,
+        closing_value_cents: closingValueCents,
+        implied_opening_value_cents: openingReliable ? impliedOpeningValueCents : null,
+        stock_count_variance_cents: stockTakeVarianceCents,
+        reconciliation_issue:
+          !openingReliable
+            ? `This period's recorded purchases/consumption/waste/adjustments exceed the current inventory value by ${formatCentsPlain(Math.abs(impliedOpeningValueCents))} — some stock change in this window likely was not recorded on the ledger (a direct correction, or unreliable historical cost data). Opening value could not be reliably derived.`
+            : Math.abs(stockTakeVarianceCents) > 0
+              ? `A physical stock count recorded a net variance of ${formatCentsPlain(Math.abs(stockTakeVarianceCents))} ${stockTakeVarianceCents < 0 ? 'below' : 'above'} what the system expected during this period.`
+              : undefined,
+        note:
+          "Opening value is derived algebraically from the current closing value and this period's recorded movements — there is no stored daily inventory snapshot to compare it against independently, so it is null whenever that derivation is not physically possible. The stock-count variance above, by contrast, IS an independent physical count and is the genuine reconciliation check.",
+      };
+    },
+  },
+  {
+    name: 'get_owner_activity',
+    description:
+      'What management actually did in a period, grouped by area (purchasing, suppliers, inventory, menu, promotions, expenses, supplier payments, staff) — every count comes from a real audit or activity record, never inferred from a data change alone. Use for "what did I do this month" questions.',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const { from, to, label } = resolvePeriod(args.period);
+      const fromIso = from.toISOString();
+      const toIso = to.toISOString();
+      const fromDate = fromIso.slice(0, 10);
+      const toDate = toIso.slice(0, 10);
+
+      const [
+        posCreated, posReceived, priceUpdates, supplierPaymentsRes, invoicesRecorded,
+        stockAdjustments, stockCounts, lowStockOpened, menuAuditRes, promotionsCreated,
+        expensesRes, holdsResolved, attendanceMarks, shiftChanges,
+      ] = await Promise.all([
+        admin.from('purchase_orders').select('id', { count: 'exact', head: true }).gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('purchase_orders').select('id', { count: 'exact', head: true }).eq('status', 'received').gte('received_at', fromIso).lt('received_at', toIso),
+        admin.from('supplier_price_history').select('id', { count: 'exact', head: true }).eq('source', 'manual').gte('effective_date', fromDate).lt('effective_date', toDate),
+        admin.from('supplier_payments').select('amount_cents').gte('paid_at', fromIso).lt('paid_at', toIso),
+        admin.from('supplier_invoices').select('id', { count: 'exact', head: true }).gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('stock_ledger').select('id', { count: 'exact', head: true }).eq('reason', 'adjustment').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('stock_ledger').select('id', { count: 'exact', head: true }).eq('reason', 'stock_take').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('low_stock_events').select('id', { count: 'exact', head: true }).gte('opened_at', fromIso).lt('opened_at', toIso),
+        admin.from('audit_logs').select('entity, action, before, after').in('entity', ['menu_items', 'menu_variants']).gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('promotions').select('id', { count: 'exact', head: true }).gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('expenses').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('supplier_payment_holds').select('id', { count: 'exact', head: true }).eq('status', 'resolved').gte('resolved_at', fromIso).lt('resolved_at', toIso),
+        admin.from('audit_logs').select('id', { count: 'exact', head: true }).eq('action', 'attendance.mark').gte('created_at', fromIso).lt('created_at', toIso),
+        admin.from('audit_logs').select('id', { count: 'exact', head: true }).eq('entity', 'shifts').gte('created_at', fromIso).lt('created_at', toIso),
+      ]);
+
+      const menuRows = (menuAuditRes.data ?? []) as {
+        entity: string; action: string;
+        before: Record<string, unknown> | null; after: Record<string, unknown> | null;
+      }[];
+      const itemsAdded = menuRows.filter((r) => r.entity === 'menu_items' && r.action === 'INSERT').length;
+      const updates = menuRows.filter((r) => r.action === 'UPDATE');
+      const priceChanges = updates.filter(
+        (r) => r.entity === 'menu_variants' && r.before && r.after && r.before.price_cents !== r.after.price_cents,
+      ).length;
+      const madeUnavailable = updates.filter(
+        (r) => r.before?.is_available === true && r.after?.is_available === false,
+      ).length;
+
+      return {
+        period: label,
+        purchasing: { purchase_orders_created: posCreated.count ?? 0, purchase_orders_received: posReceived.count ?? 0 },
+        suppliers: {
+          price_updates: priceUpdates.count ?? 0,
+          payments_made: (supplierPaymentsRes.data ?? []).length,
+          payments_total_cents: (supplierPaymentsRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0),
+          invoices_recorded: invoicesRecorded.count ?? 0,
+          payment_holds_resolved: holdsResolved.count ?? 0,
+        },
+        inventory: {
+          stock_adjustments: stockAdjustments.count ?? 0,
+          stock_counts: stockCounts.count ?? 0,
+          low_stock_events_opened: lowStockOpened.count ?? 0,
+        },
+        menu: { items_added: itemsAdded, updates: updates.length, price_changes: priceChanges, made_unavailable: madeUnavailable },
+        promotions: { created: promotionsCreated.count ?? 0 },
+        expenses: {
+          recorded: (expensesRes.data ?? []).length,
+          total_cents: (expensesRes.data ?? []).reduce((s, r) => s + (r.amount_cents ?? 0), 0),
+        },
+        staff: { attendance_marks: attendanceMarks.count ?? 0, schedule_changes: shiftChanges.count ?? 0 },
+      };
+    },
+  },
+  {
+    name: 'get_positive_highlights',
+    description:
+      '"What am I doing well" — real, period-over-period improvements only (net sales, margins, AOV, waste cost, customer rating), each with the actual before/after figures. Never invents an improvement; a metric that did not improve is simply absent from the list. Use to balance out get_attention_items so the AI isn\'t only a warning system.',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const r = resolvePeriod(args.period);
+      const [curr, prev, feedCurr, feedPrev] = await Promise.all([
+        admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+      ]);
+      const c = (curr.data as FullProfitRow[] | null)?.[0];
+      const p = (prev.data as FullProfitRow[] | null)?.[0];
+      const fc = (feedCurr.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const fp = (feedPrev.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const highlights: string[] = [];
+
+      if (c && p) {
+        const salesChange = pctChange(c.net_sales_cents, p.net_sales_cents);
+        if (salesChange != null && salesChange >= 3) highlights.push(`Net sales increased ${salesChange}% vs the prior period (${formatCentsPlain(p.net_sales_cents)} -> ${formatCentsPlain(c.net_sales_cents)}).`);
+        if (c.gross_margin_pct != null && p.gross_margin_pct != null && c.gross_margin_pct - p.gross_margin_pct >= 1) {
+          highlights.push(`Gross margin improved from ${p.gross_margin_pct}% to ${c.gross_margin_pct}%.`);
+        }
+        if (c.net_profit_margin_pct != null && p.net_profit_margin_pct != null && c.net_profit_margin_pct - p.net_profit_margin_pct >= 1) {
+          highlights.push(`Net profit margin improved from ${p.net_profit_margin_pct}% to ${c.net_profit_margin_pct}%.`);
+        }
+        if (c.orders_count > 0 && p.orders_count > 0) {
+          const aovChange = pctChange(c.avg_order_cents, p.avg_order_cents);
+          if (aovChange != null && aovChange >= 3) highlights.push(`Average order value increased ${aovChange}% vs the prior period.`);
+        }
+      }
+      const wasteCurr = await wasteCostBetween(admin, r.from, r.to);
+      const wastePrev = await wasteCostBetween(admin, r.prevFrom, r.prevTo);
+      if (wastePrev > 0) {
+        const wasteChange = pctChange(wasteCurr, wastePrev);
+        if (wasteChange != null && wasteChange <= -10) highlights.push(`Recorded waste cost decreased ${Math.abs(wasteChange)}% vs the prior period (${formatCentsPlain(wastePrev)} -> ${formatCentsPlain(wasteCurr)}).`);
+      }
+      if (fc && fp && fc.responses >= 2 && fp.responses >= 2 && fc.avg_overall != null && fp.avg_overall != null) {
+        const ratingUp = fc.avg_overall - fp.avg_overall;
+        if (ratingUp >= 0.2) highlights.push(`Customer rating improved from ${fp.avg_overall.toFixed(1)} to ${fc.avg_overall.toFixed(1)} (${fc.responses} response${fc.responses === 1 ? '' : 's'}).`);
+      }
+
+      return { period: r.label, highlights, note: highlights.length === 0 ? 'No clear period-over-period improvements found yet.' : undefined };
+    },
+  },
+  {
+    name: 'get_areas_to_review',
+    description:
+      '"What could be improved" — careful, evidence-based observations (never accusatory) such as discounts growing faster than sales, purchasing growing faster than sales, a deal/promotion with below-average margin, a supplier price increase, or a rating decline. Each item states the fact and a suggested next step, never a claim of blame or unproven causation.',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const r = resolvePeriod(args.period);
+      const [curr, prev, feedCurr, feedPrev, dealsRes, purchCurr, purchPrev, priceHikes] = await Promise.all([
+        admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+        admin.rpc('deal_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        purchasingTotalBetween(admin, r.from, r.to),
+        purchasingTotalBetween(admin, r.prevFrom, r.prevTo),
+        admin
+          .from('supplier_price_history')
+          .select('pct_change, effective_date, supplier_items(inventory_items(name), suppliers(name))')
+          .gt('pct_change', 0)
+          .gte('effective_date', r.from.toISOString().slice(0, 10))
+          .lt('effective_date', r.to.toISOString().slice(0, 10))
+          .order('pct_change', { ascending: false })
+          .limit(5),
+      ]);
+      const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+      const c = (curr.data as FullProfitRow[] | null)?.[0];
+      const p = (prev.data as FullProfitRow[] | null)?.[0];
+      const fc = (feedCurr.data as { responses: number; avg_overall: number | null; avg_speed: number | null }[] | null)?.[0];
+      const fp = (feedPrev.data as { responses: number; avg_overall: number | null; avg_speed: number | null }[] | null)?.[0];
+      const areas: { area: string; evidence: string; recommendation: string }[] = [];
+
+      if (c && p) {
+        const discountChange = pctChange(c.discount_cents, p.discount_cents);
+        const salesChange = pctChange(c.net_sales_cents, p.net_sales_cents);
+        if (discountChange != null && salesChange != null && discountChange > salesChange + 5 && c.discount_cents > p.discount_cents) {
+          areas.push({
+            area: 'Discounts grew faster than sales',
+            evidence: `Discounts changed ${discountChange}% vs net sales at ${salesChange}% over the same comparison.`,
+            recommendation: 'Review which promotions/discounts drove this before extending or increasing them.',
+          });
+        }
+      }
+      if (purchCurr > 0 && purchPrev > 0 && c && p) {
+        const purchChange = pctChange(purchCurr, purchPrev);
+        const salesChange = pctChange(c.net_sales_cents, p.net_sales_cents);
+        if (purchChange != null && salesChange != null && purchChange > salesChange + 10) {
+          areas.push({
+            area: 'Purchasing grew faster than sales',
+            evidence: `Total purchasing changed ${purchChange}% (${formatCentsPlain(purchPrev)} -> ${formatCentsPlain(purchCurr)}) while net sales changed ${salesChange}%.`,
+            recommendation: 'Review consumption, waste and closing stock before increasing future purchase quantities.',
+          });
+        }
+      }
+      const deals = (dealsRes.data ?? []) as { name: string; contribution_margin_pct: number | null; qty_sold: number }[];
+      if (deals.length > 0 && c?.gross_margin_pct != null) {
+        for (const d of deals) {
+          if (d.contribution_margin_pct != null && d.contribution_margin_pct < c.gross_margin_pct - 15) {
+            areas.push({
+              area: `"${d.name}" has below-average margin`,
+              evidence: `${d.name} sold ${d.qty_sold} time(s) at ${d.contribution_margin_pct}% contribution margin, vs ${c.gross_margin_pct}% overall gross margin this period.`,
+              recommendation: 'Review this deal\'s component pricing or discount depth — high volume alone does not mean it is working.',
+            });
+          }
+        }
+      }
+      const hikes = (priceHikes.data ?? []) as {
+        pct_change: number | null; effective_date: string;
+        supplier_items: { inventory_items: { name: string } | { name: string }[] | null; suppliers: { name: string } | { name: string }[] | null } | { inventory_items: { name: string } | { name: string }[] | null; suppliers: { name: string } | { name: string }[] | null }[] | null;
+      }[];
+      for (const h of hikes) {
+        const si = one(h.supplier_items);
+        const ingredient = si ? (one(si.inventory_items)?.name ?? '—') : '—';
+        const supplier = si ? (one(si.suppliers)?.name ?? '—') : '—';
+        areas.push({
+          area: `${ingredient} price increased`,
+          evidence: `${supplier} raised the price of ${ingredient} by ${h.pct_change}% (effective ${h.effective_date}).`,
+          recommendation: `Review recipes using ${ingredient} for updated food cost, and consider comparing other suppliers.`,
+        });
+      }
+      if (fc && fp && fc.responses >= 2 && fp.responses >= 2 && fc.avg_overall != null && fp.avg_overall != null) {
+        const drop = fp.avg_overall - fc.avg_overall;
+        if (drop >= 0.2) {
+          areas.push({
+            area: 'Customer rating declined',
+            evidence: `Overall rating dropped from ${fp.avg_overall.toFixed(1)} to ${fc.avg_overall.toFixed(1)} (${fc.responses} response(s)).`,
+            recommendation: 'Read the recent comments for a pattern before making any operational change.',
+          });
+        }
+        if (fc.avg_speed != null && fp.avg_speed != null && fp.avg_speed - fc.avg_speed >= 0.2) {
+          areas.push({
+            area: 'Speed rating declined',
+            evidence: `Speed rating dropped from ${fp.avg_speed.toFixed(1)} to ${fc.avg_speed.toFixed(1)}.`,
+            recommendation: 'Review kitchen workload during peak hours.',
+          });
+        }
+      }
+
+      return { period: r.label, areas, note: areas.length === 0 ? 'No notable concerns found in this period.' : undefined };
+    },
+  },
+  {
+    name: 'get_owner_scorecard',
+    description:
+      'A per-domain health scorecard (Sales, Profitability, Inventory, Purchasing, Suppliers, Customers, Staff, Kitchen, Cash Flow) — each status backed by real evidence from the same tools/RPCs used elsewhere, never an arbitrary score. Use for "how healthy is my restaurant across the board" / "give me a scorecard".',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const r = resolvePeriod(args.period);
+      type Row = { domain: string; status: 'Healthy' | 'Stable' | 'Watch' | 'Needs Attention'; evidence: string[] };
+      const rows: Row[] = [];
+
+      const [curr, prev, lowStock, payable, holds, feedCurr, feedPrev, kitchen, overduePos, attendance] = await Promise.all([
+        admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+        admin.from('low_stock_events').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+        admin.rpc('supplier_payable'),
+        admin.from('supplier_payment_holds').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+        admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+        admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE),
+        admin.from('purchase_orders').select('id', { count: 'exact', head: true }).lt('expected_at', new Date().toISOString().slice(0, 10)).in('status', ['sent', 'partial']),
+        runToolByName(admin, 'get_attendance_month_summary', {}),
+      ]);
+
+      const c = (curr.data as FullProfitRow[] | null)?.[0];
+      const p = (prev.data as FullProfitRow[] | null)?.[0];
+      // pctChange() returns null both when there is truly no prior baseline
+      // (prev === 0) and — confusingly — that reads the same as "no
+      // change" if worded carelessly; say plainly when a comparison isn't
+      // meaningful rather than claiming "unchanged" over a $0 baseline.
+      const salesChange = c && p ? pctChange(c.net_sales_cents, p.net_sales_cents) : null;
+      rows.push({
+        domain: 'Sales',
+        status: salesChange == null ? 'Stable' : salesChange >= 0 ? 'Healthy' : salesChange >= -10 ? 'Watch' : 'Needs Attention',
+        evidence: [
+          !c || !p
+            ? 'Not enough sales history to compare periods.'
+            : salesChange != null
+              ? `Net sales changed ${salesChange}% vs the prior period (${formatCentsPlain(p.net_sales_cents)} -> ${formatCentsPlain(c.net_sales_cents)}).`
+              : `No prior-period sales to compare against (${formatCentsPlain(p.net_sales_cents)} -> ${formatCentsPlain(c.net_sales_cents)}).`,
+        ],
+      });
+
+      const marginDelta = c?.net_profit_margin_pct != null && p?.net_profit_margin_pct != null ? c.net_profit_margin_pct - p.net_profit_margin_pct : null;
+      rows.push({
+        domain: 'Profitability',
+        status: marginDelta == null ? 'Stable' : marginDelta >= 0 ? 'Healthy' : marginDelta >= -3 ? 'Watch' : 'Needs Attention',
+        evidence: [c ? `Net profit margin is ${c.net_profit_margin_pct != null ? `${c.net_profit_margin_pct}%` : 'N/A'}${marginDelta != null ? ` (${marginDelta >= 0 ? '+' : ''}${Math.round(marginDelta * 10) / 10} pts vs prior period)` : ''}.` : 'No profit data for this period.'],
+      });
+
+      const lowStockCount = lowStock.count ?? 0;
+      rows.push({
+        domain: 'Inventory',
+        status: lowStockCount === 0 ? 'Healthy' : lowStockCount <= 2 ? 'Watch' : 'Needs Attention',
+        evidence: [`${lowStockCount} ingredient(s) currently at or below their reorder threshold.`],
+      });
+
+      const overduePosCount = overduePos.count ?? 0;
+      rows.push({
+        domain: 'Purchasing',
+        status: overduePosCount === 0 ? 'Healthy' : 'Needs Attention',
+        evidence: [overduePosCount === 0 ? 'No purchase orders are past their expected delivery date.' : `${overduePosCount} purchase order(s) are past their expected delivery date and not yet fully received.`],
+      });
+
+      const payableRows = (payable.data ?? []) as { overdue_cents: number }[];
+      const totalOverdue = payableRows.reduce((s, x) => s + (x.overdue_cents ?? 0), 0);
+      const openHolds = holds.count ?? 0;
+      rows.push({
+        domain: 'Suppliers',
+        status: totalOverdue === 0 && openHolds === 0 ? 'Healthy' : openHolds > 0 || totalOverdue > 0 ? 'Needs Attention' : 'Watch',
+        evidence: [`${formatCentsPlain(totalOverdue)} overdue payable across suppliers; ${openHolds} invoice(s) currently on payment hold.`],
+      });
+
+      const fc = (feedCurr.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const fp = (feedPrev.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const ratingDelta = fc?.avg_overall != null && fp?.avg_overall != null && fc.responses >= 2 && fp.responses >= 2 ? fc.avg_overall - fp.avg_overall : null;
+      rows.push({
+        domain: 'Customers',
+        status: !fc || fc.responses === 0 ? 'Stable' : ratingDelta == null ? 'Stable' : ratingDelta >= 0 ? 'Healthy' : ratingDelta >= -0.3 ? 'Watch' : 'Needs Attention',
+        evidence: [fc && fc.responses > 0 ? `Average rating ${fc.avg_overall?.toFixed(1)}/5 from ${fc.responses} response(s) this period.` : 'No customer feedback recorded this period.'],
+      });
+
+      const staffRows = (attendance as { staff: { attendance_pct: number | null }[] }).staff ?? [];
+      const validPct = staffRows.map((s) => s.attendance_pct).filter((v): v is number => typeof v === 'number');
+      const avgAttendance = validPct.length > 0 ? Math.round((validPct.reduce((s, v) => s + v, 0) / validPct.length) * 10) / 10 : null;
+      rows.push({
+        domain: 'Staff',
+        status: avgAttendance == null ? 'Stable' : avgAttendance >= 90 ? 'Healthy' : avgAttendance >= 75 ? 'Watch' : 'Needs Attention',
+        evidence: [avgAttendance != null ? `Average attendance ${avgAttendance}% across ${staffRows.length} active staff this month.` : 'No attendance data for this period.'],
+      });
+
+      const oldest = (kitchen.data ?? []).reduce((m, o) => Math.max(m, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)), 0);
+      rows.push({
+        domain: 'Kitchen',
+        status: oldest >= 40 ? 'Needs Attention' : oldest >= 20 ? 'Watch' : 'Healthy',
+        evidence: [`Oldest active kitchen ticket right now is ${oldest} minute(s) old.`],
+      });
+
+      rows.push({
+        domain: 'Cash Flow',
+        status: totalOverdue > 0 ? 'Needs Attention' : 'Healthy',
+        evidence: [totalOverdue > 0 ? `${formatCentsPlain(totalOverdue)} in overdue supplier payables reduces available cash.` : 'No overdue supplier payables right now.'],
+      });
+
+      return { period: r.label, scorecard: rows };
+    },
+  },
+  {
+    name: 'analyze_restaurant',
+    description:
+      'THE master command for "analyze my restaurant" / "how is my restaurant performing overall" / "give me my monthly management report". Combines the executive P&L summary, the owner scorecard, the top attention items, the top positive highlights, the top areas to review, and a headline of management activity into one call — everything the model needs to write the full executive narrative without a second round of tool calls. Every figure inside is captured verbatim from the same authoritative tools/RPCs used elsewhere.',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+      },
+    },
+    async run(admin, args) {
+      const r = resolvePeriod(args.period);
+      const period = r.period;
+      const [profitRes, purchasing, payable, supplierPaymentsRes, feedback, scorecard, attention, positives, areas, activity] = await Promise.all([
+        admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        runToolByName(admin, 'get_purchasing_summary', { period }),
+        admin.rpc('supplier_payable'),
+        admin.from('supplier_payments').select('amount_cents').gte('paid_at', r.from.toISOString()).lt('paid_at', r.to.toISOString()),
+        admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        runToolByName(admin, 'get_owner_scorecard', { period }),
+        computeActiveAttentionItems(admin),
+        runToolByName(admin, 'get_positive_highlights', { period }),
+        runToolByName(admin, 'get_areas_to_review', { period }),
+        runToolByName(admin, 'get_owner_activity', { period }),
+      ]);
+      const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
+      const wasteCents = await wasteCostBetween(admin, r.from, r.to);
+      const payableRows = (payable.data ?? []) as { outstanding_cents: number }[];
+      const outstandingPayableCents = payableRows.reduce((s, x) => s + (x.outstanding_cents ?? 0), 0);
+      const supplierPaymentsCents = ((supplierPaymentsRes.data ?? []) as { amount_cents: number }[]).reduce((s, x) => s + (x.amount_cents ?? 0), 0);
+      const fb = (feedback.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
+      const scorecardRows = (scorecard as { scorecard: { domain: string; status: string }[] }).scorecard;
+      const worst = scorecardRows.some((s) => s.status === 'Needs Attention')
+        ? 'Needs Attention'
+        : scorecardRows.some((s) => s.status === 'Watch')
+          ? 'Watch'
+          : 'Healthy';
+
+      return {
+        period: r.label,
+        overall_status: worst,
+        executive_summary: profit
+          ? {
+              gross_sales_cents: profit.gross_sales_cents,
+              net_sales_cents: profit.net_sales_cents,
+              gross_profit_cents: profit.gross_profit_cents,
+              net_profit_cents: profit.net_profit_cents,
+              food_cost_pct: profit.food_cost_pct,
+              purchasing_cents: (purchasing as { total_purchases_cents: number }).total_purchases_cents,
+              supplier_payments_cents: supplierPaymentsCents,
+              outstanding_payables_cents: outstandingPayableCents,
+              waste_cents: wasteCents,
+              customer_rating: fb?.avg_overall ?? null,
+            }
+          : { note: 'No sales recorded in this period.' },
+        scorecard: scorecardRows,
+        attention_items: attention.slice(0, 5),
+        positive_highlights: (positives as { highlights: string[] }).highlights.slice(0, 5),
+        areas_to_review: (areas as { areas: { area: string; evidence: string; recommendation: string }[] }).areas.slice(0, 5),
+        management_activity_headline: activity,
       };
     },
   },
