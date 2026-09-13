@@ -4,6 +4,7 @@ import { StatCard } from '@/components/StatCard';
 import { Card } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 import { ExpenseForm } from './ExpenseForm';
+import { FinanceProfitCards } from './FinanceProfitCards';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,27 +135,7 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
         <>
           <section>
             <h2 className="font-bold text-sm mb-3">Profitability (30d) — estimated, from recipe costs</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard label="Net sales" value={formatCents(p.net_sales_cents)} hint={`${p.orders_count} orders`} />
-              <StatCard
-                label="Theoretical food cost"
-                value={pct(p.food_cost_pct)}
-                hint={formatCents(p.theoretical_cogs_cents)}
-                tone={p.cogs_lines_missing > 0 ? 'warn' : 'default'}
-              />
-              <StatCard
-                label="Gross profit"
-                value={formatCents(p.gross_profit_cents)}
-                hint={`${pct(p.gross_margin_pct)} margin`}
-                tone="ok"
-              />
-              <StatCard
-                label="Net profit"
-                value={formatCents(p.net_profit_cents)}
-                hint={`after ${formatCents(p.expenses_cents)} expenses`}
-                tone={p.net_profit_cents >= 0 ? 'ok' : 'danger'}
-              />
-            </div>
+            <FinanceProfitCards profit={p} fromIso={since.toISOString()} toIso={now.toISOString()} periodLabel="Last 30 days" />
             {p.cogs_lines_missing > 0 && (
               <p className="text-warn text-[11px] mt-2">
                 {p.cogs_lines_missing} of {p.cogs_lines_total} sold line(s) have no recipe configured — food cost

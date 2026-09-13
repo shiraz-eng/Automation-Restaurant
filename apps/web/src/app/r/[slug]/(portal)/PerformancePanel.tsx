@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { generateReportPdf } from '@/lib/generateReport';
-import { ProfitDrilldownModal } from './ProfitDrilldown';
+import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import {
   ResponsiveContainer,
   BarChart,
@@ -577,7 +577,8 @@ export function PerformancePanel({
       {drilldownLevel && profit && (
         <ProfitDrilldownModal
           profit={profit}
-          period={period}
+          from={periodRange(period).from}
+          to={periodRange(period).to}
           periodLabel={PERIOD_LABEL[period]}
           initialLevel={drilldownLevel}
           onClose={() => setDrilldownLevel(null)}

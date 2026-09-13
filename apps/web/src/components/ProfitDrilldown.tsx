@@ -3,16 +3,20 @@
 import { useEffect, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
-import { periodRange, type Period } from './PerformancePanel';
 
 /**
  * Net Profit drill-down (spec §8-10, §28, §51): the owner clicks Net
- * Profit and walks DOWN through the exact same numbers already on the
- * dashboard — Gross Profit / Expenses, then Net Sales / COGS, then a
- * per-item COGS breakdown, then a single item's actual recipe
- * ingredients — never a second, re-derived calculation. Each level
- * lazy-fetches only what it needs (no upfront "download everything"),
- * using the same RPCs/tables the rest of the app already reads.
+ * Profit and walks DOWN through the exact same numbers already shown —
+ * Gross Profit / Expenses, then Net Sales / COGS, then a per-item COGS
+ * breakdown, then a single item's actual recipe ingredients — never a
+ * second, re-derived calculation. Each level lazy-fetches only what it
+ * needs (no upfront "download everything"), using the same RPCs/tables
+ * the rest of the app already reads.
+ *
+ * Takes a plain `from`/`to` Date range rather than a named Period so it
+ * can be shared by both the Dashboard (a named period like "this_month")
+ * and the /finance page (a fixed rolling 30-day window) without either
+ * caller reshaping its own period concept to fit this component.
  */
 
 type ProfitRow = {
@@ -71,13 +75,15 @@ function DrillButton({ label, value, onClick }: { label: string; value: string; 
 
 export function ProfitDrilldownModal({
   profit,
-  period,
+  from,
+  to,
   periodLabel,
   onClose,
   initialLevel = 'net_profit',
 }: {
   profit: ProfitRow;
-  period: Period;
+  from: Date;
+  to: Date;
   periodLabel: string;
   onClose: () => void;
   initialLevel?: 'net_profit' | 'gross_profit';
@@ -154,9 +160,9 @@ export function ProfitDrilldownModal({
           </div>
         )}
 
-        {current.kind === 'expenses' && <ExpensesLevel period={period} totalCents={profit.expenses_cents} />}
+        {current.kind === 'expenses' && <ExpensesLevel from={from} to={to} totalCents={profit.expenses_cents} />}
         {current.kind === 'cogs' && (
-          <CogsLevel period={period} totalCents={profit.theoretical_cogs_cents} onSelectItem={(l) => push(l)} />
+          <CogsLevel from={from} to={to} totalCents={profit.theoretical_cogs_cents} onSelectItem={(l) => push(l)} />
         )}
         {current.kind === 'item' && <ItemLevel menuItemId={current.menuItemId} variantId={current.variantId} />}
       </div>
@@ -164,14 +170,13 @@ export function ProfitDrilldownModal({
   );
 }
 
-function ExpensesLevel({ period, totalCents }: { period: Period; totalCents: number }) {
+function ExpensesLevel({ from, to, totalCents }: { from: Date; to: Date; totalCents: number }) {
   const supabase = usePortalSupabase();
   const [rows, setRows] = useState<{ category: string; description: string | null; amount_cents: number; expense_date: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const { from, to } = periodRange(period);
     supabase
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
@@ -186,7 +191,8 @@ function ExpensesLevel({ period, totalCents }: { period: Period; totalCents: num
     return () => {
       cancelled = true;
     };
-  }, [period, supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from.getTime(), to.getTime(), supabase]);
 
   if (error) return <p className="text-danger text-xs">{error}</p>;
   if (!rows) return <p className="text-muted text-xs">Loading expense records…</p>;
@@ -230,11 +236,13 @@ function ExpensesLevel({ period, totalCents }: { period: Period; totalCents: num
 }
 
 function CogsLevel({
-  period,
+  from,
+  to,
   totalCents,
   onSelectItem,
 }: {
-  period: Period;
+  from: Date;
+  to: Date;
   totalCents: number;
   onSelectItem: (level: { kind: 'item'; menuItemId: string; variantId: string; name: string }) => void;
 }) {
@@ -246,7 +254,6 @@ function CogsLevel({
 
   useEffect(() => {
     let cancelled = false;
-    const { from, to } = periodRange(period);
     supabase
       .rpc('item_profitability', { p_from: from.toISOString(), p_to: to.toISOString() })
       .then(({ data, error: err }) => {
@@ -257,7 +264,8 @@ function CogsLevel({
     return () => {
       cancelled = true;
     };
-  }, [period, supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from.getTime(), to.getTime(), supabase]);
 
   if (error) return <p className="text-danger text-xs">{error}</p>;
   if (!rows) return <p className="text-muted text-xs">Loading item cost breakdown…</p>;
