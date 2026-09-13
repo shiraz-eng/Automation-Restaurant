@@ -96,7 +96,14 @@ type Profitability = {
   net_profit_margin_pct: number | null;
 } | null;
 type Slice = { name: string; value: number };
-type ItemRow = { name: string; qty_sold: number; revenue_cents: number };
+type ItemRow = {
+  name: string;
+  qty_sold: number;
+  revenue_cents: number;
+  cogs_cents: number;
+  contribution_cents: number;
+  contribution_margin_pct: number | null;
+};
 type AttendanceRow = { membership_id: string; full_name: string | null; role: string; status: string; late_minutes: number };
 type FeedbackRow = {
   responses: number;
@@ -267,9 +274,7 @@ export function PerformancePanel({
             value: r.revenue_cents / 100,
           })),
         );
-        setTopItems(
-          ((itemRes.data as { name: string; qty_sold: number; revenue_cents: number }[]) ?? []).slice(0, 8),
-        );
+        setTopItems(((itemRes.data as ItemRow[]) ?? []).slice(0, 8));
         setFeedback((fbRes.data as FeedbackRow[] | null)?.[0] ?? null);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -309,7 +314,21 @@ export function PerformancePanel({
     value: topSort === 'revenue_cents' ? i.revenue_cents / 100 : i.qty_sold,
   }));
 
-  function handleGenerateReport() {
+  async function handleGenerateReport() {
+    // Expense records aren't otherwise fetched by this panel (only their
+    // period_profitability total is) — pulled fresh here, only when
+    // actually generating a report, rather than on every page load.
+    let expenseRecords: { category: string; description: string | null; amount_cents: number; expense_date: string }[] | undefined;
+    if (canSeeProfit && profit) {
+      const { from, to } = periodRange(period);
+      const { data } = await supabase
+        .from('expenses')
+        .select('category, description, amount_cents, expense_date')
+        .gte('expense_date', from.toISOString().slice(0, 10))
+        .lte('expense_date', to.toISOString().slice(0, 10));
+      expenseRecords = data ?? [];
+    }
+
     generateReportPdf({
       restaurantName,
       periodLabel: PERIOD_LABEL[period],
@@ -323,7 +342,15 @@ export function PerformancePanel({
       },
       profitDetail: canSeeProfit && profit ? profit : null,
       dailySales: dailyRows,
-      topProducts: topItemsSorted.map((i) => ({ name: i.name, qty_sold: i.qty_sold, revenue_cents: i.revenue_cents })),
+      topProducts: topItemsSorted.map((i) => ({
+        name: i.name,
+        qty_sold: i.qty_sold,
+        revenue_cents: i.revenue_cents,
+        cogs_cents: i.cogs_cents,
+        contribution_cents: i.contribution_cents,
+        contribution_margin_pct: i.contribution_margin_pct,
+      })),
+      expenseRecords,
       categoryMix: categoryMix.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
       paymentMix: paymentMixData.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
       feedback,

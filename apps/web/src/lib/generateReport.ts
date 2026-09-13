@@ -11,8 +11,19 @@ export type ReportKpis = {
   avg_rating: number | null;
 };
 export type ReportDay = { business_date: string; net_sales_cents: number };
-export type ReportItem = { name: string; qty_sold: number; revenue_cents: number };
+// cogs_cents/contribution_cents/contribution_margin_pct are optional — a
+// caller without cost visibility (or the simpler pre-profitability
+// product list) still renders a valid, if plainer, table (spec §33).
+export type ReportItem = {
+  name: string;
+  qty_sold: number;
+  revenue_cents: number;
+  cogs_cents?: number;
+  contribution_cents?: number;
+  contribution_margin_pct?: number | null;
+};
 export type ReportSlice = { name: string; revenue_cents: number };
+export type ReportExpenseRecord = { category: string; description: string | null; amount_cents: number; expense_date: string };
 export type ReportFeedback = {
   responses: number;
   avg_overall: number | null;
@@ -52,6 +63,10 @@ export type ReportData = {
   profitDetail?: ReportProfitDetail;
   dailySales: ReportDay[]; // empty for a single-day period — no chart/table drawn
   topProducts: ReportItem[];
+  // Individual expense records dated in the period (spec §36) — omitted
+  // (undefined) for a caller without expense visibility, distinct from an
+  // empty array (visible, genuinely none recorded).
+  expenseRecords?: ReportExpenseRecord[];
   categoryMix: ReportSlice[];
   paymentMix: ReportSlice[];
   feedback: ReportFeedback | null;
@@ -256,24 +271,106 @@ export function generateReportPdf(data: ReportData): void {
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Top products ─────────────────────────────────────────────────────
+  // ── Product profitability (spec §33) — a richer table (COGS,
+  // contribution, margin) when that data is present, falling back to the
+  // plain units/revenue table for a caller without cost visibility. ────
   if (data.topProducts.length > 0) {
+    const hasCogs = data.topProducts.some((p) => p.cogs_cents != null);
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
-    doc.text('Top Products', MARGIN, y);
+    doc.text(hasCogs ? 'Product Profitability' : 'Top Products', MARGIN, y);
     y += 3;
-    autoTable(doc, {
-      startY: y,
-      margin: { left: MARGIN, right: MARGIN },
-      head: [['Item', 'Units sold', 'Revenue']],
-      body: data.topProducts.map((p) => [p.name, String(p.qty_sold), formatCents(p.revenue_cents)]),
-      styles: { fontSize: 9, cellPadding: 1.6 },
-      headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-    });
+    if (hasCogs) {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Item', 'Units', 'Revenue', 'COGS', 'Contribution', 'Margin']],
+        body: data.topProducts.map((p) => [
+          p.name,
+          String(p.qty_sold),
+          formatCents(p.revenue_cents),
+          p.cogs_cents != null ? formatCents(p.cogs_cents) : '—',
+          p.contribution_cents != null ? formatCents(p.contribution_cents) : '—',
+          p.contribution_margin_pct != null ? `${p.contribution_margin_pct}%` : 'N/A',
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 1.5 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      });
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Item', 'Units sold', 'Revenue']],
+        body: data.topProducts.map((p) => [p.name, String(p.qty_sold), formatCents(p.revenue_cents)]),
+        styles: { fontSize: 9, cellPadding: 1.6 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      });
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ── Expense breakdown (spec §36) — category totals as a % of net
+  // sales, then every underlying record, so an expense line is never a
+  // mystery number. Undefined means "no visibility into expenses" and
+  // omits the section entirely; an empty array means "genuinely none
+  // recorded" and says so explicitly rather than skipping silently. ────
+  if (data.expenseRecords) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Expenses', MARGIN, y);
+    y += 3;
+    if (data.expenseRecords.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No expense records dated in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      const byCategory = data.expenseRecords.reduce<Record<string, number>>((acc, r) => {
+        acc[r.category] = (acc[r.category] ?? 0) + r.amount_cents;
+        return acc;
+      }, {});
+      const netSales = data.profitDetail?.net_sales_cents ?? data.kpis.net_sales_cents;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Category', 'Amount', '% of Net Sales']],
+        body: Object.entries(byCategory)
+          .sort((a, b) => b[1] - a[1])
+          .map(([cat, cents]) => [cat, formatCents(cents), pct(cents, netSales)]),
+        styles: { fontSize: 9, cellPadding: 1.6 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 4;
+      y = ensureSpace(doc, y, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...BODY);
+      doc.text('Individual records', MARGIN, y);
+      y += 2;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Date', 'Category', 'Description', 'Amount']],
+        body: data.expenseRecords
+          .slice()
+          .sort((a, b) => b.amount_cents - a.amount_cents)
+          .map((r) => [r.expense_date, r.category, r.description ?? '—', formatCents(r.amount_cents)]),
+        styles: { fontSize: 8, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 3: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
   }
 
   // ── Revenue mix / payment mix side by side (as tables) ──────────────

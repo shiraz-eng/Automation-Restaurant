@@ -2522,7 +2522,11 @@ type BuiltReportData = {
   // made below for kpis, just no longer dropping the rest of its columns.
   profitDetail: Omit<FullProfitRow, 'orders_count' | 'avg_order_cents' | 'food_cost_pct'> | null;
   dailySales: { business_date: string; net_sales_cents: number }[];
-  topProducts: { name: string; qty_sold: number; revenue_cents: number }[];
+  topProducts: { name: string; qty_sold: number; revenue_cents: number; cogs_cents?: number; contribution_cents?: number; contribution_margin_pct?: number | null }[];
+  // Individual expense records dated in the period (spec §36) — undefined
+  // when the caller can't see profit (no cost/finance permission), an
+  // empty array when they can but genuinely none are recorded this period.
+  expenseRecords?: { category: string; description: string | null; amount_cents: number; expense_date: string }[];
   categoryMix: { name: string; revenue_cents: number }[];
   paymentMix: { name: string; revenue_cents: number }[];
   feedback: { responses: number; avg_overall: number | null; avg_food: number | null; avg_service: number | null; avg_cleanliness: number | null; avg_speed: number | null; avg_ambiance: number | null } | null;
@@ -2540,22 +2544,41 @@ async function buildReportData(
   }
   const { from, to, label } = periodRange(period);
 
-  const [profitRes, dailyRes, feedbackRes, attendanceRes] = await Promise.all([
+  const [profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('sales_by_day', { p_from: from.toISOString().slice(0, 10), p_to: to.toISOString().slice(0, 10) }),
     admin.rpc('feedback_summary', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('attendance_roster', {}),
+    // Same authoritative RPC the Dashboard/Finance/AI-chat product tables
+    // already use (spec §33) — used here in preference to the plainer
+    // topItems() helper below whenever cost visibility is available, so
+    // the PDF's product table matches everywhere else it's shown.
+    admin.rpc('item_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
+    admin
+      .from('expenses')
+      .select('category, description, amount_cents, expense_date')
+      .gte('expense_date', from.toISOString().slice(0, 10))
+      .lte('expense_date', to.toISOString().slice(0, 10)),
   ]);
-  const topProducts = await topItems(admin, from.toISOString(), 10);
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
   const canSeeProfit = !profitRes.error && !!profit;
   const daily = (dailyRes.data as { business_date: string; net_sales_cents: number }[] | null) ?? [];
   const feedback = (feedbackRes.data as { responses: number; avg_overall: number | null; avg_food: number | null; avg_service: number | null; avg_cleanliness: number | null; avg_speed: number | null; avg_ambiance: number | null }[] | null)?.[0] ?? null;
   const attendance = (attendanceRes.data as { full_name: string | null; status: string }[] | null) ?? null;
+  const itemProf = (itemProfRes.data as { name: string; qty_sold: number; revenue_cents: number; cogs_cents: number; contribution_cents: number; contribution_margin_pct: number | null }[] | null) ?? [];
+  const expenseRecords = (expensesRes.data as { category: string; description: string | null; amount_cents: number; expense_date: string }[] | null) ?? [];
 
   const netSalesCents = canSeeProfit ? profit!.net_sales_cents : 0;
   const ordersCount = canSeeProfit ? profit!.orders_count : 0;
+
+  const topProducts = canSeeProfit && itemProf.length > 0
+    ? itemProf
+        .slice()
+        .sort((a, b) => b.revenue_cents - a.revenue_cents)
+        .slice(0, 10)
+        .map((p) => ({ name: p.name, qty_sold: p.qty_sold, revenue_cents: p.revenue_cents, cogs_cents: p.cogs_cents, contribution_cents: p.contribution_cents, contribution_margin_pct: p.contribution_margin_pct }))
+    : (await topItems(admin, from.toISOString(), 10)).map((p) => ({ name: p.name, qty_sold: p.units, revenue_cents: p.revenue_cents }));
 
   return {
     ok: true,
@@ -2593,7 +2616,8 @@ async function buildReportData(
           }
         : null,
       dailySales: daily,
-      topProducts: topProducts.map((p) => ({ name: p.name, qty_sold: p.units, revenue_cents: p.revenue_cents })),
+      topProducts,
+      expenseRecords: canSeeProfit ? expenseRecords : undefined,
       categoryMix: [],
       paymentMix: [],
       feedback,
