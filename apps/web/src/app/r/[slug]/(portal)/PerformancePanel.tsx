@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { generateReportPdf } from '@/lib/generateReport';
+import { ProfitDrilldownModal } from './ProfitDrilldown';
 import {
   ResponsiveContainer,
   BarChart,
@@ -142,13 +143,20 @@ function Delta({ curr, prev }: { curr: number; prev: number }) {
   );
 }
 
-function Kpi({ label, value, delta, tone }: { label: string; value: string; delta?: React.ReactNode; tone?: 'ok' | 'danger' }) {
+function Kpi({ label, value, delta, tone, onClick }: { label: string; value: string; delta?: React.ReactNode; tone?: 'ok' | 'danger'; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <div className="text-muted text-[11px] font-semibold">{label}</div>
+    <Tag
+      onClick={onClick}
+      className={`rounded-lg border border-border bg-surface p-4 text-left w-full ${onClick ? 'hover:border-primary/50 cursor-pointer' : ''}`}
+    >
+      <div className="text-muted text-[11px] font-semibold flex items-center gap-1">
+        {label}
+        {onClick && <span className="text-primary">↴</span>}
+      </div>
       <div className={`mt-1 text-xl font-black tabular-nums transition-all ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : ''}`}>{value}</div>
       {delta && <div className="mt-1">{delta}</div>}
-    </div>
+    </Tag>
   );
 }
 
@@ -190,6 +198,7 @@ export function PerformancePanel({
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
   const [dailyRows, setDailyRows] = useState<{ business_date: string; net_sales_cents: number }[]>([]);
   const [verifyOpen, setVerifyOpen] = useState(false);
+  const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -394,12 +403,14 @@ export function PerformancePanel({
                 label="Gross profit"
                 value={formatCents(profit.gross_profit_cents)}
                 delta={prevProfit && <Delta curr={profit.gross_profit_cents} prev={prevProfit.gross_profit_cents} />}
+                onClick={() => setDrilldownLevel('gross_profit')}
               />
               <Kpi
                 label="Net profit"
                 value={formatCents(profit.net_profit_cents)}
                 tone={profit.net_profit_cents >= 0 ? 'ok' : 'danger'}
                 delta={prevProfit && <Delta curr={profit.net_profit_cents} prev={prevProfit.net_profit_cents} />}
+                onClick={() => setDrilldownLevel('net_profit')}
               />
               <Kpi label="Gross margin" value={profit.gross_margin_pct != null ? `${profit.gross_margin_pct}%` : 'N/A'} />
               <Kpi label="Net margin" value={profit.net_profit_margin_pct != null ? `${profit.net_profit_margin_pct}%` : 'N/A'} />
@@ -562,6 +573,15 @@ export function PerformancePanel({
 
       {verifyOpen && profit && (
         <VerifyProfitModal profit={profit} periodLabel={PERIOD_LABEL[period]} onClose={() => setVerifyOpen(false)} />
+      )}
+      {drilldownLevel && profit && (
+        <ProfitDrilldownModal
+          profit={profit}
+          period={period}
+          periodLabel={PERIOD_LABEL[period]}
+          initialLevel={drilldownLevel}
+          onClose={() => setDrilldownLevel(null)}
+        />
       )}
     </section>
   );
