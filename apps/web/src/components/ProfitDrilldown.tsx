@@ -86,7 +86,7 @@ export function ProfitDrilldownModal({
   to: Date;
   periodLabel: string;
   onClose: () => void;
-  initialLevel?: 'net_profit' | 'gross_profit';
+  initialLevel?: 'net_profit' | 'gross_profit' | 'expenses';
 }) {
   const [stack, setStack] = useState<Level[]>([{ kind: initialLevel }]);
   const current = stack[stack.length - 1]!;

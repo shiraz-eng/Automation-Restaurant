@@ -245,7 +245,13 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
 
       <section>
         <h2 className="font-bold text-sm mb-3">Expenses</h2>
-        <ExpenseForm recent={(expenses as Expense[] | null) ?? []} />
+        <ExpenseForm
+          recent={(expenses as Expense[] | null) ?? []}
+          profit={p ?? undefined}
+          fromIso={since.toISOString()}
+          toIso={now.toISOString()}
+          periodLabel="last 30 days"
+        />
       </section>
     </div>
   );

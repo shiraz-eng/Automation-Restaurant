@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
+import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 
 type Expense = {
   id: string;
@@ -12,6 +13,19 @@ type Expense = {
   description: string | null;
   amount_cents: number;
   expense_date: string;
+};
+
+type ProfitRow = {
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
 };
 
 const CATEGORIES = ['Rent', 'Utilities', 'Labor', 'Marketing', 'Maintenance', 'Supplies', 'Other'];
@@ -22,8 +36,25 @@ const CATEGORIES = ['Rent', 'Utilities', 'Labor', 'Marketing', 'Maintenance', 'S
  * public.expenses (RLS-gated on finance.create_expense/delete_expense), the
  * same table period_profitability() reads to reach real Net Profit. No AI
  * write path exists for this — expenses are deliberately manual-only.
+ *
+ * `profit`/`fromIso`/`toIso` are optional — if the caller couldn't see
+ * profitability (no finance.view_profit etc.), this still renders the
+ * plain add-expense form and recent-records table, just without the
+ * "view by category" drill-down entry point.
  */
-export function ExpenseForm({ recent }: { recent: Expense[] }) {
+export function ExpenseForm({
+  recent,
+  profit,
+  fromIso,
+  toIso,
+  periodLabel,
+}: {
+  recent: Expense[];
+  profit?: ProfitRow;
+  fromIso?: string;
+  toIso?: string;
+  periodLabel?: string;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [category, setCategory] = useState(CATEGORIES[0]);
@@ -33,6 +64,7 @@ export function ExpenseForm({ recent }: { recent: Expense[] }) {
   const [busy, setBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
 
   async function addExpense(e: React.FormEvent) {
     e.preventDefault();
@@ -103,6 +135,17 @@ export function ExpenseForm({ recent }: { recent: Expense[] }) {
         </form>
       </Card>
 
+      {profit && fromIso && toIso && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted">
+            Total for {periodLabel ?? 'this period'}: <span className="font-bold text-body">{formatCents(profit.expenses_cents)}</span>
+          </span>
+          <button onClick={() => setDrilldownOpen(true)} className="text-primary font-semibold underline underline-offset-2">
+            View by category →
+          </button>
+        </div>
+      )}
+
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -145,6 +188,17 @@ export function ExpenseForm({ recent }: { recent: Expense[] }) {
           </table>
         </div>
       </Card>
+
+      {drilldownOpen && profit && fromIso && toIso && (
+        <ProfitDrilldownModal
+          profit={profit}
+          from={new Date(fromIso)}
+          to={new Date(toIso)}
+          periodLabel={periodLabel ?? 'this period'}
+          initialLevel="expenses"
+          onClose={() => setDrilldownOpen(false)}
+        />
+      )}
     </div>
   );
 }
