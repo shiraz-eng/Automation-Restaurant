@@ -2,9 +2,29 @@
 
 import { useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
+import { formatCents } from '@/lib/format';
+import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import type { Period } from './PerformancePanel';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+// Captured verbatim from get_period_profitability's own tool result
+// (routes/ai.ts) — never recomputed here. Same shape as AiChat.tsx's card.
+type ProfitCard = {
+  period: string;
+  from_ts: string;
+  to_ts: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
+};
 
 const SUGGESTIONS = [
   'How is my restaurant performing?',
@@ -43,6 +63,8 @@ export function AskAi({
   const [reply, setReply] = useState<string | null>(null);
   const [tools, setTools] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [profitCard, setProfitCard] = useState<ProfitCard | null>(null);
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
 
   async function ask(text: string) {
     const q = text.trim();
@@ -50,6 +72,7 @@ export function AskAi({
     setBusy(true);
     setError(null);
     setReply(null);
+    setProfitCard(null);
     for (const { pattern, period } of PERIOD_WORDS) {
       if (pattern.test(q)) {
         onPeriodDetected?.(period);
@@ -77,6 +100,7 @@ export function AskAi({
       const replyText = body.reply ?? '(no answer)';
       setReply(replyText);
       setTools((body.tools ?? []).map((t: { name: string }) => t.name));
+      setProfitCard(body.profitCard ?? null);
       onReply?.(replyText);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -132,6 +156,43 @@ export function AskAi({
           {reply}
           {tools.length > 0 && <p className="text-muted text-[10px] mt-2 not-italic">· {tools.join(' · ')}</p>}
         </div>
+      )}
+      {profitCard && (
+        <button
+          onClick={() => setDrilldownOpen(true)}
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted font-semibold">{profitCard.period}</span>
+            <span className="text-primary font-semibold">View breakdown →</span>
+          </div>
+          <div className="flex items-center gap-4 mt-1">
+            <div>
+              <div className="text-[10px] text-muted">Net sales</div>
+              <div className="font-mono font-bold text-sm">{formatCents(profitCard.net_sales_cents)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted">Gross profit</div>
+              <div className="font-mono font-bold text-sm">{formatCents(profitCard.gross_profit_cents)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted">Net profit</div>
+              <div className={`font-mono font-bold text-sm ${profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
+                {formatCents(profitCard.net_profit_cents)}
+              </div>
+            </div>
+          </div>
+        </button>
+      )}
+
+      {drilldownOpen && profitCard && (
+        <ProfitDrilldownModal
+          profit={profitCard}
+          from={new Date(profitCard.from_ts)}
+          to={new Date(profitCard.to_ts)}
+          periodLabel={profitCard.period}
+          onClose={() => setDrilldownOpen(false)}
+        />
       )}
     </div>
   );
