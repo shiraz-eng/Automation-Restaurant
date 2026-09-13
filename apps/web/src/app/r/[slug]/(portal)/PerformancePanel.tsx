@@ -5,6 +5,9 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { generateReportPdf } from '@/lib/generateReport';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
+import type { ReportPurchasing, ReportSupplierPayable, ReportManagementActivity, ReportAttentionItem } from '@/lib/generateReport';
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 import {
   ResponsiveContainer,
   BarChart,
@@ -178,11 +181,13 @@ function Kpi({ label, value, delta, tone, onClick }: { label: string; value: str
  * frontend hide), and the existing attendance/feedback systems.
  */
 export function PerformancePanel({
+  slug,
   restaurantName,
   period,
   onPeriodChange,
   aiSummary,
 }: {
+  slug: string;
   restaurantName: string;
   period: Period;
   onPeriodChange: (p: Period) => void;
@@ -329,6 +334,39 @@ export function PerformancePanel({
       expenseRecords = data ?? [];
     }
 
+    // Restaurant Performance & Owner Activity Intelligence sections (spec
+    // §28) — reused from the exact same generate_report action/buildReportData
+    // the AI chat's own "generate my report" command already produces,
+    // rather than a second, client-side reimplementation of purchasing/
+    // payables/management-activity aggregation. This panel keeps its own
+    // existing state (kpis/profitDetail/topProducts/categoryMix/paymentMix/
+    // feedback/attendance) for everything it already renders on screen —
+    // only these four new sections come from the server call below.
+    let purchasing: ReportPurchasing | undefined;
+    let supplierPayable: ReportSupplierPayable | undefined;
+    let managementActivity: ReportManagementActivity | undefined;
+    let attentionItems: ReportAttentionItem[] | undefined;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/ai/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ slug, name: 'generate_report', args: { period } }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.result) {
+        purchasing = body.result.purchasing ?? undefined;
+        supplierPayable = body.result.supplierPayable ?? undefined;
+        managementActivity = body.result.managementActivity ?? undefined;
+        attentionItems = body.result.attentionItems ?? undefined;
+      }
+    } catch {
+      // Non-fatal — the PDF still generates with every section this panel
+      // already had locally, just without the four intelligence sections.
+    }
+
     generateReportPdf({
       restaurantName,
       periodLabel: PERIOD_LABEL[period],
@@ -355,6 +393,10 @@ export function PerformancePanel({
       paymentMix: paymentMixData.map((c) => ({ name: c.name, revenue_cents: Math.round(c.value * 100) })),
       feedback,
       attendance: attendance ? attendance.map((a) => ({ full_name: a.full_name, status: a.status })) : null,
+      purchasing,
+      supplierPayable,
+      managementActivity,
+      attentionItems,
       aiSummary: aiSummary ?? null,
     });
   }

@@ -35,6 +35,40 @@ export type ReportFeedback = {
 };
 export type ReportAttendance = { full_name: string | null; status: string };
 
+// ── Restaurant Performance & Owner Activity Intelligence (spec §28) ───────
+// Same shapes get_purchasing_summary / supplier_payable() / get_owner_activity
+// / computeAttentionItems() already return elsewhere — this module only lays
+// them out, never recomputes them. All optional: undefined means the caller
+// couldn't see that data (permission), an empty array/zero means genuinely none.
+export type ReportPurchasing = {
+  total_purchases_cents: number;
+  purchase_orders: number;
+  received_value_cents: number;
+  pending_value_cents: number;
+  by_supplier: { supplier: string; cents: number }[];
+};
+export type ReportSupplierPayable = {
+  invoiced_cents: number;
+  approved_cents: number;
+  paid_cents: number;
+  on_hold_cents: number;
+  outstanding_cents: number;
+  overdue_cents: number;
+  by_supplier: { supplier_name: string; invoiced_cents: number; paid_cents: number; outstanding_cents: number; overdue_cents: number }[];
+};
+export type ReportManagementActivity = {
+  purchase_orders_created: number;
+  purchase_orders_received: number;
+  supplier_payments_made: number;
+  supplier_payments_total_cents: number;
+  expenses_recorded: number;
+  stock_adjustments: number;
+  stock_counts: number;
+  menu_updates: number;
+  promotions_created: number;
+};
+export type ReportAttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string };
+
 // The full period_profitability() row (same RPC the dashboard, /finance,
 // and the AI assistant already call) — optional so a caller without
 // finance permission still gets a valid report, just without this section,
@@ -71,6 +105,10 @@ export type ReportData = {
   paymentMix: ReportSlice[];
   feedback: ReportFeedback | null;
   attendance: ReportAttendance[] | null;
+  purchasing?: ReportPurchasing;
+  supplierPayable?: ReportSupplierPayable;
+  managementActivity?: ReportManagementActivity;
+  attentionItems?: ReportAttentionItem[];
   aiSummary: string | null;
 };
 
@@ -470,6 +508,163 @@ export function generateReportPdf(data: ReportData): void {
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ── Purchasing (spec §28) ─────────────────────────────────────────────
+  if (data.purchasing) {
+    const pu = data.purchasing;
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Purchasing', MARGIN, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.6 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
+      body: [
+        ['Total Purchases', formatCents(pu.total_purchases_cents)],
+        ['Purchase Orders', String(pu.purchase_orders)],
+        ['Received Value', formatCents(pu.received_value_cents)],
+        ['Pending Value', formatCents(pu.pending_value_cents)],
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 4;
+    if (pu.by_supplier.length > 0) {
+      y = ensureSpace(doc, y, 20);
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Supplier', 'Purchased']],
+        body: pu.by_supplier.slice(0, 10).map((s) => [s.supplier, formatCents(s.cents)]),
+        styles: { fontSize: 8.5, cellPadding: 1.4 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    } else {
+      y += 6;
+    }
+  }
+
+  // ── Supplier Payments / Accounts Payable (spec §28) ────────────────────
+  if (data.supplierPayable) {
+    const sp = data.supplierPayable;
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Supplier Payments', MARGIN, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.6 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
+      body: [
+        ['Total Invoiced', formatCents(sp.invoiced_cents)],
+        ['Approved', formatCents(sp.approved_cents)],
+        ['Paid', formatCents(sp.paid_cents)],
+        ['On Hold', formatCents(sp.on_hold_cents)],
+        ['Outstanding', formatCents(sp.outstanding_cents)],
+        [{ content: 'Overdue', styles: sp.overdue_cents > 0 ? { textColor: WARN } : {} } as unknown as string, { content: formatCents(sp.overdue_cents), styles: sp.overdue_cents > 0 ? { fontStyle: 'bold', textColor: WARN } : {} } as unknown as string],
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 4;
+    if (sp.by_supplier.length > 0) {
+      y = ensureSpace(doc, y, 20);
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Supplier', 'Invoiced', 'Paid', 'Outstanding', 'Overdue']],
+        body: sp.by_supplier
+          .slice()
+          .sort((a, b) => b.outstanding_cents - a.outstanding_cents)
+          .slice(0, 10)
+          .map((s) => [s.supplier_name, formatCents(s.invoiced_cents), formatCents(s.paid_cents), formatCents(s.outstanding_cents), formatCents(s.overdue_cents)]),
+        styles: { fontSize: 8, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    } else {
+      y += 6;
+    }
+  }
+
+  // ── Management Activity (spec §2, §13, §19) — what the owner actually
+  // did, every count from a real audit/activity record. ──────────────────
+  if (data.managementActivity) {
+    const ma = data.managementActivity;
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Management Activity', MARGIN, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 9.5, cellPadding: 1.4 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
+      body: [
+        ['Purchase Orders Created', String(ma.purchase_orders_created)],
+        ['Purchase Orders Received', String(ma.purchase_orders_received)],
+        ['Supplier Payments Made', `${ma.supplier_payments_made} (${formatCents(ma.supplier_payments_total_cents)})`],
+        ['Expenses Recorded', String(ma.expenses_recorded)],
+        ['Stock Adjustments', String(ma.stock_adjustments)],
+        ['Stock Counts', String(ma.stock_counts)],
+        ['Menu Updates', String(ma.menu_updates)],
+        ['Promotions Created', String(ma.promotions_created)],
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ── Attention Items (spec §21) — ranked exceptions, each with real
+  // evidence; never presented as fabricated advice. ──────────────────────
+  if (data.attentionItems) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Attention Items', MARGIN, y);
+    y += 3;
+    if (data.attentionItems.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...OK);
+      doc.text('Nothing needs attention right now.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Severity', 'Category', 'Issue']],
+        body: data.attentionItems.map((a) => [a.severity, a.category, a.message]),
+        styles: { fontSize: 8, cellPadding: 1.4 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 0: { cellWidth: 20 }, 1: { cellWidth: 25 } },
+        didParseCell: (hookData) => {
+          if (hookData.section === 'body' && hookData.column.index === 0) {
+            const sev = String(hookData.cell.raw ?? '');
+            if (sev === 'CRITICAL' || sev === 'HIGH') hookData.cell.styles.textColor = WARN;
+          }
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
   }
 
   // ── AI summary ────────────────────────────────────────────────────────

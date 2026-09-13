@@ -3336,6 +3336,13 @@ type BuiltReportData = {
   paymentMix: { name: string; revenue_cents: number }[];
   feedback: { responses: number; avg_overall: number | null; avg_food: number | null; avg_service: number | null; avg_cleanliness: number | null; avg_speed: number | null; avg_ambiance: number | null } | null;
   attendance: { full_name: string | null; status: string }[] | null;
+  // Restaurant Performance & Owner Activity Intelligence sections (spec
+  // §28) — each captured verbatim from the same tool/RPC used in chat,
+  // undefined only when the caller lacks that permission.
+  purchasing?: { total_purchases_cents: number; purchase_orders: number; received_value_cents: number; pending_value_cents: number; by_supplier: { supplier: string; cents: number }[] };
+  supplierPayable?: { invoiced_cents: number; approved_cents: number; paid_cents: number; on_hold_cents: number; outstanding_cents: number; overdue_cents: number; by_supplier: { supplier_name: string; invoiced_cents: number; paid_cents: number; outstanding_cents: number; overdue_cents: number }[] };
+  managementActivity?: { purchase_orders_created: number; purchase_orders_received: number; supplier_payments_made: number; supplier_payments_total_cents: number; expenses_recorded: number; stock_adjustments: number; stock_counts: number; menu_updates: number; promotions_created: number };
+  attentionItems?: AttentionItem[];
   aiSummary: string | null;
 };
 
@@ -3349,7 +3356,7 @@ async function buildReportData(
   }
   const { from, to, label } = periodRange(period);
 
-  const [profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes] = await Promise.all([
+  const [profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes, attentionItems] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('sales_by_day', { p_from: from.toISOString().slice(0, 10), p_to: to.toISOString().slice(0, 10) }),
     admin.rpc('feedback_summary', { p_from: from.toISOString(), p_to: to.toISOString() }),
@@ -3364,6 +3371,13 @@ async function buildReportData(
       .select('category, description, amount_cents, expense_date')
       .gte('expense_date', from.toISOString().slice(0, 10))
       .lte('expense_date', to.toISOString().slice(0, 10)),
+    // Restaurant Performance & Owner Activity Intelligence sections (spec
+    // §28) — reuse the exact same tool run()s the AI chat calls, never a
+    // second calculation for the PDF.
+    runToolByName(admin, 'get_purchasing_summary', { period }),
+    admin.rpc('supplier_payable'),
+    runToolByName(admin, 'get_owner_activity', { period }),
+    computeActiveAttentionItems(admin),
   ]);
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
@@ -3373,6 +3387,47 @@ async function buildReportData(
   const attendance = (attendanceRes.data as { full_name: string | null; status: string }[] | null) ?? null;
   const itemProf = (itemProfRes.data as { name: string; qty_sold: number; revenue_cents: number; cogs_cents: number; contribution_cents: number; contribution_margin_pct: number | null }[] | null) ?? [];
   const expenseRecords = (expensesRes.data as { category: string; description: string | null; amount_cents: number; expense_date: string }[] | null) ?? [];
+
+  const purchasing = purchasingRes as {
+    total_purchases_cents: number; purchase_orders: number; received_value_cents: number; pending_value_cents: number;
+    by_supplier: { supplier: string; cents: number }[];
+  };
+  const payableRows = (payableRes.data ?? []) as {
+    supplier_name: string; invoiced_cents: number; approved_cents: number; paid_cents: number;
+    on_hold_cents: number; outstanding_cents: number; overdue_cents: number;
+  }[];
+  const supplierPayable = !payableRes.error
+    ? {
+        invoiced_cents: payableRows.reduce((s, r) => s + r.invoiced_cents, 0),
+        approved_cents: payableRows.reduce((s, r) => s + r.approved_cents, 0),
+        paid_cents: payableRows.reduce((s, r) => s + r.paid_cents, 0),
+        on_hold_cents: payableRows.reduce((s, r) => s + r.on_hold_cents, 0),
+        outstanding_cents: payableRows.reduce((s, r) => s + r.outstanding_cents, 0),
+        overdue_cents: payableRows.reduce((s, r) => s + r.overdue_cents, 0),
+        by_supplier: payableRows
+          .filter((r) => r.invoiced_cents > 0)
+          .map((r) => ({ supplier_name: r.supplier_name, invoiced_cents: r.invoiced_cents, paid_cents: r.paid_cents, outstanding_cents: r.outstanding_cents, overdue_cents: r.overdue_cents })),
+      }
+    : undefined;
+  const activity = activityRes as {
+    purchasing: { purchase_orders_created: number; purchase_orders_received: number };
+    suppliers: { payments_made: number; payments_total_cents: number };
+    inventory: { stock_adjustments: number; stock_counts: number };
+    menu: { updates: number };
+    promotions: { created: number };
+    expenses: { recorded: number };
+  };
+  const managementActivity = {
+    purchase_orders_created: activity.purchasing.purchase_orders_created,
+    purchase_orders_received: activity.purchasing.purchase_orders_received,
+    supplier_payments_made: activity.suppliers.payments_made,
+    supplier_payments_total_cents: activity.suppliers.payments_total_cents,
+    expenses_recorded: activity.expenses.recorded,
+    stock_adjustments: activity.inventory.stock_adjustments,
+    stock_counts: activity.inventory.stock_counts,
+    menu_updates: activity.menu.updates,
+    promotions_created: activity.promotions.created,
+  };
 
   const netSalesCents = canSeeProfit ? profit!.net_sales_cents : 0;
   const ordersCount = canSeeProfit ? profit!.orders_count : 0;
@@ -3427,6 +3482,10 @@ async function buildReportData(
       paymentMix: [],
       feedback,
       attendance,
+      purchasing,
+      supplierPayable,
+      managementActivity,
+      attentionItems,
       aiSummary: null,
     },
   };

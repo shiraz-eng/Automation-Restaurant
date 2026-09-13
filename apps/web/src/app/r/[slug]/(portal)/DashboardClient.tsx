@@ -17,7 +17,7 @@ export function DashboardClient({ slug, restaurantName }: { slug: string; restau
 
   return (
     <>
-      <PerformancePanel restaurantName={restaurantName} period={period} onPeriodChange={setPeriod} aiSummary={aiSummary} />
+      <PerformancePanel slug={slug} restaurantName={restaurantName} period={period} onPeriodChange={setPeriod} aiSummary={aiSummary} />
       <AskAi slug={slug} onPeriodDetected={setPeriod} onReply={setAiSummary} />
     </>
   );
