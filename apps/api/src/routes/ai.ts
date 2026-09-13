@@ -159,7 +159,50 @@ type ProfitCard = {
   net_profit_cents: number;
   net_profit_margin_pct: number | null;
 };
-type AgentResult = { reply: string; trace: { name: string; ok: boolean }[]; pendingAction?: PendingAction; profitCard?: ProfitCard };
+// get_order_profitability's own result (order_profitability() row + its
+// order_lines, spec §10) captured the same way — one order's real bridge
+// and its actual items, never recomputed for the card.
+type OrderCard = {
+  order_id: string;
+  order_number: number;
+  status: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  cogs_cents: number;
+  cogs_lines_missing: number;
+  food_cost_pct: number | null;
+  contribution_cents: number;
+  contribution_margin_pct: number | null;
+  lines: { name_snapshot: string; qty: number; line_total_cents: number; recipe_cost_cents: number | null; menu_item_id: string | null; variant_id: string | null; deal_id: string | null }[];
+};
+// get_deal_profitability's own result (deal_profitability() rows for a
+// period, spec §11) — the whole ranked list, captured verbatim.
+type DealCard = {
+  period: string;
+  deals: {
+    deal_id: string;
+    name: string;
+    qty_sold: number;
+    revenue_cents: number;
+    cogs_cents: number;
+    cogs_known: boolean;
+    contribution_cents: number;
+    contribution_margin_pct: number | null;
+    food_cost_pct: number | null;
+    list_value_cents: number | null;
+    customer_saving_cents: number | null;
+  }[];
+};
+type AgentResult = {
+  reply: string;
+  trace: { name: string; ok: boolean }[];
+  pendingAction?: PendingAction;
+  profitCard?: ProfitCard;
+  orderCard?: OrderCard;
+  dealCard?: DealCard;
+};
 /** Who is chatting — threaded through to proposeAction() so a persisted
  *  ai_pending_actions row (the Approval Inbox, spec §29) always knows who
  *  proposed it, not just who eventually confirmed it. */
@@ -188,7 +231,7 @@ async function callTool(
   userId: string,
   trace: { name: string; ok: boolean }[],
   name: string,
-  capture: { profitCard?: ProfitCard },
+  capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard },
 ): Promise<unknown> {
   if (!tool) {
     trace.push({ name, ok: false });
@@ -197,11 +240,17 @@ async function callTool(
   try {
     const out = await tool.run(admin, input);
     trace.push({ name, ok: true });
-    // Last one wins if the model calls this more than once in a turn (e.g.
-    // comparing two periods) — the card always matches the LATEST period
-    // it actually reported on in its final reply.
+    // Last one wins if the model calls the same tool more than once in a
+    // turn (e.g. comparing two periods, or two orders) — the card always
+    // matches the LATEST one it actually reported on in its final reply.
     if (name === 'get_period_profitability' && out && typeof out === 'object' && 'net_profit_cents' in out) {
       capture.profitCard = out as ProfitCard;
+    }
+    if (name === 'get_order_profitability' && out && typeof out === 'object' && 'contribution_cents' in out) {
+      capture.orderCard = out as OrderCard;
+    }
+    if (name === 'get_deal_profitability' && out && typeof out === 'object' && 'deals' in out && Array.isArray((out as { deals: unknown }).deals) && (out as { deals: unknown[] }).deals.length > 0) {
+      capture.dealCard = out as DealCard;
     }
     await admin
       .from('audit_logs')
@@ -268,7 +317,7 @@ async function runGemini(
     parts: [{ text: m.content }],
   }));
   const trace: AgentResult['trace'] = [];
-  const capture: { profitCard?: ProfitCard } = {};
+  const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const content = await withRetry(() => geminiGenerate(contents, declared, system));
@@ -281,7 +330,7 @@ async function runGemini(
         .map((p) => p.text)
         .join('\n')
         .trim();
-      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard };
+      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
     }
 
     const leadText = content.parts
@@ -322,7 +371,7 @@ async function runGemini(
     }
     contents.push({ role: 'user', parts });
   }
-  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard };
+  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
 }
 
 /**
@@ -395,7 +444,7 @@ async function runAnthropic(
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
   const trace: AgentResult['trace'] = [];
-  const capture: { profitCard?: ProfitCard } = {};
+  const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await anthropic.messages.create({
@@ -415,7 +464,7 @@ async function runAnthropic(
         .map((b) => b.text)
         .join('\n')
         .trim();
-      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard };
+      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
     }
 
     const leadText = resp.content
@@ -458,7 +507,7 @@ async function runAnthropic(
     }
     convo.push({ role: 'user', content: results });
   }
-  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard };
+  return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
 }
 
 /**
@@ -505,6 +554,8 @@ aiRouter.post(
         provider: aiProvider,
         pendingAction: result.pendingAction ?? null,
         profitCard: result.profitCard ?? null,
+        orderCard: result.orderCard ?? null,
+        dealCard: result.dealCard ?? null,
       });
     } catch (err) {
       console.error('[ai] chat failed:', err);

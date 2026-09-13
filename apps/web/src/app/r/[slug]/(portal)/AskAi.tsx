@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
-import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
+import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 import type { Period } from './PerformancePanel';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -65,6 +65,10 @@ export function AskAi({
   const [error, setError] = useState<string | null>(null);
   const [profitCard, setProfitCard] = useState<ProfitCard | null>(null);
   const [drilldownOpen, setDrilldownOpen] = useState(false);
+  const [orderCard, setOrderCard] = useState<OrderProfitRow | null>(null);
+  const [orderDrilldownOpen, setOrderDrilldownOpen] = useState(false);
+  const [dealCard, setDealCard] = useState<{ period: string; deals: DealProfitRow[] } | null>(null);
+  const [dealDrilldownOpen, setDealDrilldownOpen] = useState(false);
 
   async function ask(text: string) {
     const q = text.trim();
@@ -73,6 +77,8 @@ export function AskAi({
     setError(null);
     setReply(null);
     setProfitCard(null);
+    setOrderCard(null);
+    setDealCard(null);
     for (const { pattern, period } of PERIOD_WORDS) {
       if (pattern.test(q)) {
         onPeriodDetected?.(period);
@@ -101,6 +107,8 @@ export function AskAi({
       setReply(replyText);
       setTools((body.tools ?? []).map((t: { name: string }) => t.name));
       setProfitCard(body.profitCard ?? null);
+      setOrderCard(body.orderCard ?? null);
+      setDealCard(body.dealCard ?? null);
       onReply?.(replyText);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -185,6 +193,48 @@ export function AskAi({
         </button>
       )}
 
+      {orderCard && (
+        <button
+          onClick={() => setOrderDrilldownOpen(true)}
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted font-semibold">Order #{orderCard.order_number}</span>
+            <span className="text-primary font-semibold">View breakdown →</span>
+          </div>
+          <div className="flex items-center gap-4 mt-1">
+            <div>
+              <div className="text-[10px] text-muted">Net sales</div>
+              <div className="font-mono font-bold text-sm">{formatCents(orderCard.net_sales_cents)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted">COGS</div>
+              <div className="font-mono font-bold text-sm">{formatCents(orderCard.cogs_cents)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted">Contribution</div>
+              <div className={`font-mono font-bold text-sm ${orderCard.contribution_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
+                {formatCents(orderCard.contribution_cents)}
+              </div>
+            </div>
+          </div>
+        </button>
+      )}
+      {dealCard && (
+        <button
+          onClick={() => setDealDrilldownOpen(true)}
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+        >
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted font-semibold">{dealCard.period} · {dealCard.deals.length} deal(s)</span>
+            <span className="text-primary font-semibold">View breakdown →</span>
+          </div>
+          <div className="text-[11px] text-muted mt-1">
+            Top: {dealCard.deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents)[0]?.name}
+          </div>
+        </button>
+      )}
+
       {drilldownOpen && profitCard && (
         <ProfitDrilldownModal
           profit={profitCard}
@@ -193,6 +243,10 @@ export function AskAi({
           periodLabel={profitCard.period}
           onClose={() => setDrilldownOpen(false)}
         />
+      )}
+      {orderDrilldownOpen && orderCard && <OrderDrilldownModal order={orderCard} onClose={() => setOrderDrilldownOpen(false)} />}
+      {dealDrilldownOpen && dealCard && (
+        <DealDrilldownModal period={dealCard.period} deals={dealCard.deals} onClose={() => setDealDrilldownOpen(false)} />
       )}
     </div>
   );

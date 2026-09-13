@@ -1347,8 +1347,17 @@ export const AI_TOOLS: AiTool[] = [
       if (error) return { error: error.message };
       const row = (data as Record<string, unknown>[] | null)?.[0];
       if (!row) return { error: 'no_matching_order' };
+      // Line items included so the chat's order card can drill from the
+      // order down into a single item's own recipe/ingredients — the
+      // exact same "Owner clicks an order -> sees items" step (spec §10),
+      // not a second query the UI has to make itself.
+      const { data: lines } = await admin
+        .from('order_lines')
+        .select('name_snapshot, qty, line_total_cents, recipe_cost_cents, menu_item_id, variant_id, deal_id')
+        .eq('order_id', order.id);
       return {
         ...row,
+        lines: lines ?? [],
         note:
           (row.cogs_lines_missing as number) > 0
             ? `${row.cogs_lines_missing} line(s) on this order have no recipe configured, so COGS understates the true cost.`

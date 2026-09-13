@@ -49,7 +49,7 @@ const LEVEL_LABEL: Record<Level['kind'], string> = {
   item: 'Item',
 };
 
-function Row({ label, value, bold, indent }: { label: string; value: string; bold?: boolean; indent?: boolean }) {
+export function Row({ label, value, bold, indent }: { label: string; value: string; bold?: boolean; indent?: boolean }) {
   return (
     <div className={`flex items-center justify-between py-1 ${indent ? 'pl-3 text-muted' : ''}`}>
       <span className={bold ? 'font-bold' : ''}>{label}</span>
@@ -306,7 +306,10 @@ function CogsLevel({
   );
 }
 
-function ItemLevel({ menuItemId, variantId }: { menuItemId: string; variantId: string }) {
+// Exported so OrderDrilldownModal/DealDrilldownModal below can drill an
+// order line or deal component down to the same real recipe/ingredient
+// detail, rather than re-implementing this fetch.
+export function ItemLevel({ menuItemId, variantId }: { menuItemId: string; variantId: string }) {
   const supabase = usePortalSupabase();
   const [state, setState] = useState<
     | { status: 'loading' }
@@ -395,6 +398,217 @@ function ItemLevel({ menuItemId, variantId }: { menuItemId: string; variantId: s
         This is the CURRENT recipe and ingredient costs — historical orders used whatever recipe/cost was active
         when they were placed, which may differ from this if either has changed since.
       </p>
+    </div>
+  );
+}
+
+// ── Order drill-down (spec §10) ──────────────────────────────────────────
+// A single order's own bridge — Gross Sales -> Discount -> Refund -> Net
+// Sales -> COGS -> Contribution — plus its actual line items, each
+// drillable into the same recipe/ingredient detail as the Net Profit ->
+// COGS path. Fed directly from get_order_profitability's own captured
+// result (routes/ai.ts) — never a second fetch.
+export type OrderProfitLine = {
+  name_snapshot: string;
+  qty: number;
+  line_total_cents: number;
+  recipe_cost_cents: number | null;
+  menu_item_id: string | null;
+  variant_id: string | null;
+  deal_id: string | null;
+};
+export type OrderProfitRow = {
+  order_id: string;
+  order_number: number;
+  status: string;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  cogs_cents: number;
+  cogs_lines_missing: number;
+  food_cost_pct: number | null;
+  contribution_cents: number;
+  contribution_margin_pct: number | null;
+  lines: OrderProfitLine[];
+};
+
+export function OrderDrilldownModal({ order, onClose }: { order: OrderProfitRow; onClose: () => void }) {
+  const [item, setItem] = useState<{ menuItemId: string; variantId: string; name: string } | null>(null);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            {item && (
+              <button onClick={() => setItem(null)} className="font-bold text-primary">
+                ← Back
+              </button>
+            )}
+            <span className="uppercase tracking-wide">{order.status}</span>
+          </div>
+          <button onClick={onClose} className="text-muted text-xs">
+            ✕
+          </button>
+        </div>
+        <h3 className="font-black text-sm -mt-1">Order #{order.order_number}{item ? `: ${item.name}` : ''}</h3>
+
+        {!item ? (
+          <>
+            <div className="text-xs border border-border rounded-lg p-3 space-y-0.5">
+              <Row label="Gross Sales" value={formatCents(order.gross_sales_cents)} />
+              <Row label="− Discount" value={`-${formatCents(order.discount_cents)}`} indent />
+              <Row label="− Refund" value={`-${formatCents(order.refunded_cents)}`} indent />
+              <Row label="= Net Sales" value={formatCents(order.net_sales_cents)} bold />
+              <Row label="− COGS" value={`-${formatCents(order.cogs_cents)}`} indent />
+              <div className="border-t border-border mt-1 pt-1">
+                <Row label="= Contribution" value={formatCents(order.contribution_cents)} bold />
+                <Row label="Margin" value={order.contribution_margin_pct != null ? `${order.contribution_margin_pct}%` : 'N/A'} indent />
+              </div>
+            </div>
+            {order.cogs_lines_missing > 0 && (
+              <p className="text-warn text-[11px]">
+                {order.cogs_lines_missing} line(s) on this order have no recipe configured — COGS understates the true cost.
+              </p>
+            )}
+            <div>
+              <p className="font-bold text-xs mb-1">Order items</p>
+              <div className="border border-border rounded-lg divide-y divide-border">
+                {order.lines.map((l, i) =>
+                  l.menu_item_id ? (
+                    <button
+                      key={i}
+                      onClick={() => setItem({ menuItemId: l.menu_item_id!, variantId: l.variant_id ?? '', name: l.name_snapshot })}
+                      className="w-full flex items-center justify-between p-2 hover:bg-primary/10 text-left"
+                    >
+                      <div>
+                        <div className="font-semibold">{l.name_snapshot}</div>
+                        <div className="text-muted text-[11px]">
+                          {l.qty}× · {formatCents(l.line_total_cents)}
+                          {l.recipe_cost_cents == null ? ' · no recipe' : ` · COGS ${formatCents(l.recipe_cost_cents)}`}
+                        </div>
+                      </div>
+                      <span className="text-muted text-[10px]">drill in →</span>
+                    </button>
+                  ) : (
+                    <div key={i} className="flex items-center justify-between p-2 text-muted">
+                      <div>
+                        <div className="font-semibold text-body">{l.name_snapshot}</div>
+                        <div className="text-[11px]">{l.qty}× · {formatCents(l.line_total_cents)} · deal component</div>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <ItemLevel menuItemId={item.menuItemId} variantId={item.variantId} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Deal drill-down (spec §11) ────────────────────────────────────────────
+// A ranked list of every deal sold in a period, each drillable into its
+// own revenue/COGS/contribution/customer-saving detail. Fed directly from
+// get_deal_profitability's own captured result — never a second fetch.
+// Component-level COGS attribution (which ingredients within the deal)
+// isn't broken out here; that would need a dedicated RPC this pass didn't
+// build (deal_profitability() itself only totals the deal's components).
+export type DealProfitRow = {
+  deal_id: string;
+  name: string;
+  qty_sold: number;
+  revenue_cents: number;
+  cogs_cents: number;
+  cogs_known: boolean;
+  contribution_cents: number;
+  contribution_margin_pct: number | null;
+  food_cost_pct: number | null;
+  list_value_cents: number | null;
+  customer_saving_cents: number | null;
+};
+
+export function DealDrilldownModal({ period, deals, onClose }: { period: string; deals: DealProfitRow[]; onClose: () => void }) {
+  const [selected, setSelected] = useState<DealProfitRow | null>(null);
+  const sorted = deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            {selected && (
+              <button onClick={() => setSelected(null)} className="font-bold text-primary">
+                ← Back
+              </button>
+            )}
+            <span>{period}</span>
+          </div>
+          <button onClick={onClose} className="text-muted text-xs">
+            ✕
+          </button>
+        </div>
+        <h3 className="font-black text-sm -mt-1">{selected ? selected.name : 'Deal Profitability'}</h3>
+
+        {!selected ? (
+          <div className="border border-border rounded-lg divide-y divide-border">
+            {sorted.map((d) => (
+              <button
+                key={d.deal_id}
+                onClick={() => setSelected(d)}
+                className="w-full flex items-center justify-between p-2.5 hover:bg-primary/10 text-left"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    {d.name}
+                    {!d.cogs_known && <span className="text-warn text-[10px]">no recipe</span>}
+                  </div>
+                  <div className="text-muted text-[11px]">
+                    {d.qty_sold} sold · {formatCents(d.revenue_cents)} revenue
+                    {d.contribution_margin_pct != null ? ` · ${d.contribution_margin_pct}% margin` : ''}
+                  </div>
+                </div>
+                <div className="font-mono shrink-0 ml-2 font-bold">{formatCents(d.contribution_cents)}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs border border-border rounded-lg p-3 space-y-0.5">
+            <Row label="Units sold" value={String(selected.qty_sold)} />
+            <Row label="Revenue (deal price charged)" value={formatCents(selected.revenue_cents)} />
+            {selected.list_value_cents != null && (
+              <>
+                <Row label="À la carte value" value={formatCents(selected.list_value_cents)} indent />
+                <Row
+                  label="Customer saving"
+                  value={selected.customer_saving_cents != null ? formatCents(selected.customer_saving_cents) : 'N/A'}
+                  indent
+                />
+              </>
+            )}
+            <Row label="− COGS (from actual components)" value={`-${formatCents(selected.cogs_cents)}`} indent />
+            <div className="border-t border-border mt-1 pt-1">
+              <Row label="= Contribution" value={formatCents(selected.contribution_cents)} bold />
+              <Row label="Margin" value={selected.contribution_margin_pct != null ? `${selected.contribution_margin_pct}%` : 'N/A'} indent />
+            </div>
+            {!selected.cogs_known && (
+              <p className="text-warn text-[11px] pt-1">
+                One or more components have no recipe configured — COGS understates the true cost.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

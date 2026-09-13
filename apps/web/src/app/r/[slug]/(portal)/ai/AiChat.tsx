@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
-import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
+import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -36,6 +36,8 @@ type Msg = {
   resolution?: Resolution;
   resolutionMessage?: string;
   profitCard?: ProfitCard;
+  orderCard?: OrderProfitRow;
+  dealCard?: { period: string; deals: DealProfitRow[] };
 };
 
 const SUGGESTIONS = [
@@ -55,6 +57,8 @@ export function AiChat({ slug }: { slug: string }) {
   const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drilldownCard, setDrilldownCard] = useState<ProfitCard | null>(null);
+  const [orderDrilldown, setOrderDrilldown] = useState<OrderProfitRow | null>(null);
+  const [dealDrilldown, setDealDrilldown] = useState<{ period: string; deals: DealProfitRow[] } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   function scrollDown() {
@@ -102,6 +106,8 @@ export function AiChat({ slug }: { slug: string }) {
           tools: (body.tools ?? []).map((x: { name: string }) => x.name),
           pendingAction: body.pendingAction ?? undefined,
           profitCard: body.profitCard ?? undefined,
+          orderCard: body.orderCard ?? undefined,
+          dealCard: body.dealCard ?? undefined,
         },
       ]);
       scrollDown();
@@ -230,6 +236,47 @@ export function AiChat({ slug }: { slug: string }) {
                   </div>
                 </button>
               )}
+              {m.orderCard && (
+                <button
+                  onClick={() => setOrderDrilldown(m.orderCard!)}
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted font-semibold">Order #{m.orderCard.order_number}</span>
+                    <span className="text-primary font-semibold">View breakdown →</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-1">
+                    <div>
+                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(m.orderCard.net_sales_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">COGS</div>
+                      <div className="font-mono font-bold text-sm">{formatCents(m.orderCard.cogs_cents)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted">Contribution</div>
+                      <div className={`font-mono font-bold text-sm ${m.orderCard.contribution_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
+                        {formatCents(m.orderCard.contribution_cents)}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )}
+              {m.dealCard && (
+                <button
+                  onClick={() => setDealDrilldown(m.dealCard!)}
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted font-semibold">{m.dealCard.period} · {m.dealCard.deals.length} deal(s)</span>
+                    <span className="text-primary font-semibold">View breakdown →</span>
+                  </div>
+                  <div className="text-[11px] text-muted mt-1">
+                    Top: {m.dealCard.deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents)[0]?.name}
+                  </div>
+                </button>
+              )}
               {m.pendingAction && (
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
@@ -301,6 +348,10 @@ export function AiChat({ slug }: { slug: string }) {
           periodLabel={drilldownCard.period}
           onClose={() => setDrilldownCard(null)}
         />
+      )}
+      {orderDrilldown && <OrderDrilldownModal order={orderDrilldown} onClose={() => setOrderDrilldown(null)} />}
+      {dealDrilldown && (
+        <DealDrilldownModal period={dealDrilldown.period} deals={dealDrilldown.deals} onClose={() => setDealDrilldown(null)} />
       )}
     </div>
   );
