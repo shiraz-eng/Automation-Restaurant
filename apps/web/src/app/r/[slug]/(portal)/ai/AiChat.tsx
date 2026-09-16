@@ -147,12 +147,12 @@ export function AiChat({ slug }: { slug: string }) {
       // pattern as the PDF above.
       if (res.ok && action.name === 'export_excel_report' && body.result?.ready) {
         try {
-          const r = body.result as { from: string; to: string };
+          const r = body.result as { from: string; to: string; sheets?: string[] };
           // from/to are always both present and always take priority over
           // period in resolvePeriod() (aiTools.ts) — passing the exact
           // resolved range here, not the period name, is what keeps this
           // download identical to the range export_excel_report validated.
-          const qs = new URLSearchParams({ slug, from: r.from, to: r.to });
+          const qs = new URLSearchParams({ slug, from: r.from, to: r.to, ...(r.sheets && r.sheets.length > 0 ? { sheets: r.sheets.join(',') } : {}) });
           const dl = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, { headers: await authHeader() });
           if (dl.ok) {
             const blob = await dl.blob();

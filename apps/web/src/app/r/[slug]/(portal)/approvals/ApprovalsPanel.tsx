@@ -106,8 +106,8 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
       // downloaded here once approved.
       if (item.action_name === 'export_excel_report' && body.result?.ready) {
         try {
-          const r = body.result as { from: string; to: string };
-          const qs = new URLSearchParams({ slug, from: r.from, to: r.to });
+          const r = body.result as { from: string; to: string; sheets?: string[] };
+          const qs = new URLSearchParams({ slug, from: r.from, to: r.to, ...(r.sheets && r.sheets.length > 0 ? { sheets: r.sheets.join(',') } : {}) });
           const dl = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, { headers: await authHeader() });
           if (dl.ok) {
             const blob = await dl.blob();

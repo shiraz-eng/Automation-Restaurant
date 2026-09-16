@@ -3079,11 +3079,19 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'export_excel_report',
     description:
-      'Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst\'s detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both.',
+      'Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst\'s detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. ["Orders","Inventory"]) to export only specific sheets instead of the full workbook — the Executive Summary, Profit Summary and Verification sheets are always included regardless.',
     needs: 'reports.export',
     input_schema: {
       type: 'object',
-      properties: { ...INTELLIGENCE_PERIOD_SCHEMA },
+      properties: {
+        ...INTELLIGENCE_PERIOD_SCHEMA,
+        sheets: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional — only include these sheets (by name: Daily Performance, Orders, Product Profitability, Deal Profitability, Promotions, Purchasing, Accounts Payable, Supplier Payments, Supplier Performance, Inventory, Expenses, Management Activity, AI Actions). Omit for the full workbook.',
+        },
+      },
     },
     async describe(admin, args) {
       const hasCustomRange = typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to;
@@ -3094,9 +3102,11 @@ export const AI_ACTIONS: AiAction[] = [
       const { data, error } = await admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() });
       if (error) return { ok: false, error: error.message };
       const row = (data as { orders_count: number; net_sales_cents: number }[] | null)?.[0];
+      const sheets = Array.isArray(args.sheets) ? (args.sheets as unknown[]).filter((s): s is string => typeof s === 'string') : undefined;
+      const scope = sheets && sheets.length > 0 ? `${sheets.join(', ')} (plus the summary/verification sheets)` : '16 sheets: profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions, and a verification sheet';
       return {
         ok: true,
-        summary: `Export a detailed Excel workbook (16 sheets: profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions, and a verification sheet) for ${r.label}${row ? `: ${row.orders_count} orders, ${formatCentsPlain(row.net_sales_cents)} net sales` : ''}. Downloads as a real .xlsx file — nothing is changed or saved anywhere.`,
+        summary: `Export a detailed Excel workbook (${scope}) for ${r.label}${row ? `: ${row.orders_count} orders, ${formatCentsPlain(row.net_sales_cents)} net sales` : ''}. Downloads as a real .xlsx file — nothing is changed or saved anywhere.`,
       };
     },
     async run(admin, args) {
@@ -3105,6 +3115,7 @@ export const AI_ACTIONS: AiAction[] = [
         throw new Error('A period or custom from/to date range is required.');
       }
       const r = resolvePeriod(args);
+      const sheets = Array.isArray(args.sheets) ? (args.sheets as unknown[]).filter((s): s is string => typeof s === 'string') : undefined;
       // The workbook itself is built by GET /api/ai/export/excel
       // (excelExport.ts), not here — that module already imports
       // resolvePeriod/AI_TOOLS from this file, so building it here too
@@ -3113,7 +3124,7 @@ export const AI_ACTIONS: AiAction[] = [
       // endpoint and trigger the download, the same way generate_report's
       // result is handed to the client-side PDF renderer.
       const range = forwardRange(r);
-      return { ready: true, period: r.period, from: range.from, to: range.to, label: r.label };
+      return { ready: true, period: r.period, from: range.from, to: range.to, label: r.label, sheets };
     },
   },
 ];

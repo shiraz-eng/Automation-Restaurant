@@ -65,10 +65,29 @@ function addTable(
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
 const centsToDollars = (c: number | null | undefined) => (typeof c === 'number' ? c / 100 : null);
 
+// Every optional sheet this workbook can build, in the order it builds
+// them — the "Custom Export" domain picker (spec §37) selects from this
+// list. Executive Summary, Profit Summary and Verification are always
+// included regardless of selection: they're the reconciliation backbone
+// the other sheets exist to support, not a domain someone would opt out of.
+export const EXCEL_ANCHOR_SHEETS = ['Executive Summary', 'Profit Summary', 'Verification'] as const;
+export const EXCEL_OPTIONAL_SHEETS = [
+  'Daily Performance', 'Orders', 'Product Profitability', 'Deal Profitability', 'Promotions',
+  'Purchasing', 'Accounts Payable', 'Supplier Payments', 'Supplier Performance', 'Inventory',
+  'Expenses', 'Management Activity', 'AI Actions',
+] as const;
+
 export async function buildExcelWorkbook(
   admin: SupabaseClient,
   restaurantName: string,
   rangeArgs: { period?: unknown; from?: unknown; to?: unknown },
+  // Custom Export (spec §37): when given, only these sheets (plus the
+  // always-included anchors above) survive in the final workbook. Every
+  // sheet is still built the same way internally — this only prunes the
+  // result afterward (see the removeWorksheet pass at the end) rather
+  // than threading a condition through each of the 16 sheet-building
+  // blocks, which stays untouched and exactly as already verified.
+  includeSheets?: string[],
 ): Promise<{ ok: true; workbook: ExcelJS.Workbook; periodLabel: string } | { ok: false; error: string }> {
   const { from, to, label } = resolvePeriod(rangeArgs);
   const fromIso = from.toISOString();
@@ -633,6 +652,13 @@ export async function buildExcelWorkbook(
     else if (cell.value === 'FAIL') cell.font = { color: { argb: 'FFDC2626' }, bold: true };
     else if (cell.value === 'REVIEW') cell.font = { color: { argb: 'FFD97706' }, bold: true };
   });
+
+  if (includeSheets && includeSheets.length > 0) {
+    const keep = new Set([...EXCEL_ANCHOR_SHEETS, ...includeSheets]);
+    for (const sheet of [...wb.worksheets]) {
+      if (!keep.has(sheet.name)) wb.removeWorksheet(sheet.id);
+    }
+  }
 
   return { ok: true, workbook: wb, periodLabel: label };
 }

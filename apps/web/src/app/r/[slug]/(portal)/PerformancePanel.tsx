@@ -50,6 +50,16 @@ const PERIODS: { key: Period; label: string }[] = [
 ];
 const PERIOD_LABEL: Record<Period, string> = Object.fromEntries(PERIODS.map((p) => [p.key, p.label])) as Record<Period, string>;
 
+// Mirrors EXCEL_OPTIONAL_SHEETS (apps/api/src/lib/excelExport.ts) — the
+// Custom Export domain picker (spec §37). Executive Summary, Profit
+// Summary and Verification are always included server-side regardless of
+// selection, so they aren't offered as checkboxes here.
+const EXCEL_OPTIONAL_SHEETS = [
+  'Daily Performance', 'Orders', 'Product Profitability', 'Deal Profitability', 'Promotions',
+  'Purchasing', 'Accounts Payable', 'Supplier Payments', 'Supplier Performance', 'Inventory',
+  'Expenses', 'Management Activity', 'AI Actions',
+] as const;
+
 export function periodRange(period: Period) {
   const startOfDay = (d: Date) => {
     const x = new Date(d);
@@ -107,6 +117,30 @@ export function periodRange(period: Period) {
   }
 }
 const asDate = (d: Date) => d.toISOString().slice(0, 10);
+
+export type CustomRange = { from: string; to: string };
+/** An owner-chosen date range from the two <input type="date"> fields
+ *  below (spec §1's "Custom Period") — mirrors the API's own
+ *  customRange() (apps/api/src/lib/aiTools.ts) exactly, including the
+ *  previous-period comparison window being the immediately preceding
+ *  range of the SAME length, so % changes stay meaningful. Built from
+ *  local Y-M-D date-input values throughout (no toISOString() on a
+ *  shifted boundary) — the API side found and fixed a timezone bug from
+ *  exactly that pattern; this mirrors the fixed version, not the original. */
+function resolveRange(period: Period, custom: CustomRange | null): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
+  if (custom && custom.from && custom.to) {
+    const from = new Date(`${custom.from}T00:00:00`);
+    const toInclusive = new Date(`${custom.to}T00:00:00`);
+    const to = new Date(toInclusive.getTime() + 86400_000);
+    const spanMs = Math.max(to.getTime() - from.getTime(), 86400_000);
+    return { from, to, prevFrom: new Date(from.getTime() - spanMs), prevTo: from };
+  }
+  return periodRange(period);
+}
+function customRangeLabel(custom: CustomRange): string {
+  const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${fmt(custom.from)} - ${fmt(custom.to)}`;
+}
 
 type DaySum = { net_sales_cents: number; orders_count: number };
 // Full period_profitability() row — widened from the old {gross_profit_cents,
@@ -217,17 +251,28 @@ export function PerformancePanel({
   restaurantName,
   period,
   onPeriodChange,
+  customRange,
+  onCustomRangeChange,
   aiSummary,
 }: {
   slug: string;
   restaurantName: string;
   period: Period;
   onPeriodChange: (p: Period) => void;
+  customRange: CustomRange | null;
+  onCustomRangeChange: (r: CustomRange | null) => void;
   aiSummary?: string | null;
 }) {
   const supabase = usePortalSupabase();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [customDraft, setCustomDraft] = useState<CustomRange>(customRange ?? { from: '', to: '' });
+  const [customOpen, setCustomOpen] = useState(false);
+  const periodLabel = customRange ? customRangeLabel(customRange) : PERIOD_LABEL[period];
+  // null = full workbook (every sheet); a Set here means "only these
+  // optional sheets" — the Custom Export domain picker (spec §37).
+  const [sheetPickerOpen, setSheetPickerOpen] = useState(false);
+  const [selectedSheets, setSelectedSheets] = useState<Set<string> | null>(null);
 
   const [sales, setSales] = useState<DaySum | null>(null);
   const [prevSales, setPrevSales] = useState<DaySum | null>(null);
@@ -248,7 +293,7 @@ export function PerformancePanel({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const { from, to, prevFrom, prevTo } = periodRange(period);
+    const { from, to, prevFrom, prevTo } = resolveRange(period, customRange);
 
     async function fetchDays(from: Date, to: Date) {
       const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: asDate(from), p_to: asDate(to) });
@@ -323,7 +368,7 @@ export function PerformancePanel({
     return () => {
       cancelled = true;
     };
-  }, [period, supabase]);
+  }, [period, customRange, supabase]);
 
   // Today's attendance is always "today", independent of the period picker
   // (spec §13's own framing) — fetched once.
@@ -357,7 +402,7 @@ export function PerformancePanel({
     // actually generating a report, rather than on every page load.
     let expenseRecords: { category: string; description: string | null; amount_cents: number; expense_date: string }[] | undefined;
     if (canSeeProfit && profit) {
-      const { from, to } = periodRange(period);
+      const { from, to } = resolveRange(period, customRange);
       const { data } = await supabase
         .from('expenses')
         .select('category, description, amount_cents, expense_date')
@@ -389,7 +434,7 @@ export function PerformancePanel({
       const res = await fetch(`${API}/api/ai/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({ slug, name: 'generate_report', args: { period } }),
+        body: JSON.stringify({ slug, name: 'generate_report', args: customRange ? { from: customRange.from, to: customRange.to } : { period } }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.result) {
@@ -409,7 +454,7 @@ export function PerformancePanel({
 
     generateReportPdf({
       restaurantName,
-      periodLabel: PERIOD_LABEL[period],
+      periodLabel,
       kpis: {
         net_sales_cents: sales?.net_sales_cents ?? 0,
         orders_count: sales?.orders_count ?? 0,
@@ -458,7 +503,12 @@ export function PerformancePanel({
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res = await fetch(`${API}/api/ai/export/excel?slug=${encodeURIComponent(slug)}&period=${period}`, {
+      const qs = new URLSearchParams({
+        slug,
+        ...(customRange ? { from: customRange.from, to: customRange.to } : { period }),
+        ...(selectedSheets && selectedSheets.size > 0 ? { sheets: Array.from(selectedSheets).join(',') } : {}),
+      });
+      const res = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
       });
       if (!res.ok) {
@@ -504,14 +554,28 @@ export function PerformancePanel({
             {PERIODS.map((p) => (
               <button
                 key={p.key}
-                onClick={() => onPeriodChange(p.key)}
+                onClick={() => {
+                  onCustomRangeChange(null);
+                  onPeriodChange(p.key);
+                }}
                 className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
-                  period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
+                  !customRange && period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
                 }`}
               >
                 {p.label}
               </button>
             ))}
+            <button
+              onClick={() => {
+                setCustomDraft(customRange ?? { from: '', to: '' });
+                setCustomOpen((v) => !v);
+              }}
+              className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                customRange ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
+              }`}
+            >
+              Custom
+            </button>
           </div>
           <button
             onClick={handleGenerateReport}
@@ -520,15 +584,107 @@ export function PerformancePanel({
           >
             Generate Report
           </button>
-          <button
-            onClick={handleExportExcel}
-            disabled={loading || exporting}
-            className="rounded-lg border border-border bg-main px-3 py-1.5 text-[11px] font-semibold text-body hover:border-primary disabled:opacity-50"
-          >
-            {exporting ? 'Exporting…' : 'Export Excel'}
-          </button>
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={handleExportExcel}
+              disabled={loading || exporting}
+              className="bg-main px-3 py-1.5 text-[11px] font-semibold text-body hover:border-primary disabled:opacity-50"
+            >
+              {exporting ? 'Exporting…' : selectedSheets ? `Export Excel (${selectedSheets.size})` : 'Export Excel'}
+            </button>
+            <button
+              onClick={() => setSheetPickerOpen((v) => !v)}
+              title="Choose which sheets to export"
+              className={`px-2 py-1.5 text-[11px] border-l border-border ${sheetPickerOpen || selectedSheets ? 'bg-primary/10 text-primary' : 'bg-main text-muted hover:text-body'}`}
+            >
+              ▾
+            </button>
+          </div>
         </div>
       </div>
+
+      {sheetPickerOpen && (
+        <div className="rounded-lg border border-border bg-main p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-muted">
+              Export sheets — Executive Summary, Profit Summary &amp; Verification always included
+            </span>
+            <button onClick={() => setSelectedSheets(null)} className="text-[11px] text-primary hover:underline">
+              Select all
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            {EXCEL_OPTIONAL_SHEETS.map((name) => {
+              const checked = selectedSheets ? selectedSheets.has(name) : true;
+              return (
+                <label key={name} className="flex items-center gap-1.5 text-[11px] text-body">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      setSelectedSheets((cur) => {
+                        const base = cur ? new Set(cur) : new Set(EXCEL_OPTIONAL_SHEETS);
+                        if (e.target.checked) base.add(name);
+                        else base.delete(name);
+                        return base.size === EXCEL_OPTIONAL_SHEETS.length ? null : base;
+                      });
+                    }}
+                  />
+                  {name}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {customOpen && (
+        <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-main p-3">
+          <label className="text-[11px] text-muted flex flex-col gap-1">
+            From
+            <input
+              type="date"
+              value={customDraft.from}
+              max={customDraft.to || undefined}
+              onChange={(e) => setCustomDraft((d) => ({ ...d, from: e.target.value }))}
+              className="rounded border border-border bg-surface px-2 py-1 text-xs"
+            />
+          </label>
+          <label className="text-[11px] text-muted flex flex-col gap-1">
+            To
+            <input
+              type="date"
+              value={customDraft.to}
+              min={customDraft.from || undefined}
+              onChange={(e) => setCustomDraft((d) => ({ ...d, to: e.target.value }))}
+              className="rounded border border-border bg-surface px-2 py-1 text-xs"
+            />
+          </label>
+          <button
+            onClick={() => {
+              if (!customDraft.from || !customDraft.to) return;
+              onCustomRangeChange(customDraft);
+              setCustomOpen(false);
+            }}
+            disabled={!customDraft.from || !customDraft.to}
+            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+          >
+            Apply
+          </button>
+          {customRange && (
+            <button
+              onClick={() => {
+                onCustomRangeChange(null);
+                setCustomDraft({ from: '', to: '' });
+                setCustomOpen(false);
+              }}
+              className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold text-muted hover:text-body"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {error && <p className="text-danger text-xs">{error}</p>}
 
@@ -729,14 +885,14 @@ export function PerformancePanel({
       )}
 
       {verifyOpen && profit && (
-        <VerifyProfitModal profit={profit} periodLabel={PERIOD_LABEL[period]} onClose={() => setVerifyOpen(false)} />
+        <VerifyProfitModal profit={profit} periodLabel={periodLabel} onClose={() => setVerifyOpen(false)} />
       )}
       {drilldownLevel && profit && (
         <ProfitDrilldownModal
           profit={profit}
-          from={periodRange(period).from}
-          to={periodRange(period).to}
-          periodLabel={PERIOD_LABEL[period]}
+          from={resolveRange(period, customRange).from}
+          to={resolveRange(period, customRange).to}
+          periodLabel={periodLabel}
           initialLevel={drilldownLevel}
           onClose={() => setDrilldownLevel(null)}
         />

@@ -775,11 +775,27 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
 aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
   const { admin, slug } = req.tenant!;
   try {
-    const built = await buildExcelWorkbook(admin, slug, {
-      period: req.query.period,
-      from: req.query.from,
-      to: req.query.to,
-    });
+    // Custom Export (spec §37): ?sheets=Orders,Expenses,Inventory picks
+    // which optional sheets to include; omit for the full 16-sheet
+    // workbook. Always sends the anchor sheets (Executive Summary, Profit
+    // Summary, Verification) regardless.
+    const sheetsParam = typeof req.query.sheets === 'string' ? req.query.sheets : undefined;
+    const includeSheets = sheetsParam
+      ? sheetsParam
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : undefined;
+    const built = await buildExcelWorkbook(
+      admin,
+      slug,
+      {
+        period: req.query.period,
+        from: req.query.from,
+        to: req.query.to,
+      },
+      includeSheets,
+    );
     if (!built.ok) return res.status(409).json({ error: 'export_failed', message: built.error });
     const buffer = await built.workbook.xlsx.writeBuffer();
     const stamp = new Date().toISOString().slice(0, 10);

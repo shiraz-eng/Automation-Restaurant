@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
-import type { Period } from './PerformancePanel';
+import type { Period, CustomRange } from './PerformancePanel';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -45,7 +45,7 @@ const SEVERITY_TONE: Record<string, string> = {
   LOW: 'text-muted',
 };
 
-export function RestaurantIntelligencePanel({ period }: { period: Period }) {
+export function RestaurantIntelligencePanel({ period, customRange }: { period: Period; customRange: CustomRange | null }) {
   const supabase = usePortalSupabase();
   const [data, setData] = useState<Intelligence | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +60,8 @@ export function RestaurantIntelligencePanel({ period }: { period: Period }) {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res = await fetch(`${API}/api/ai/intelligence?period=${period}`, {
+      const qs = new URLSearchParams(customRange ? { from: customRange.from, to: customRange.to } : { period });
+      const res = await fetch(`${API}/api/ai/intelligence?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
       });
       if (cancelled) return;
@@ -82,7 +83,7 @@ export function RestaurantIntelligencePanel({ period }: { period: Period }) {
     return () => {
       cancelled = true;
     };
-  }, [supabase, period]);
+  }, [supabase, period, customRange]);
 
   if (loading) {
     return (
