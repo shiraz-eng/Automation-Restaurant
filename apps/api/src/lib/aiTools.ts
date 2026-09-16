@@ -37,7 +37,15 @@ const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const KITCHEN_ACTIVE = ['pending', 'in_kitchen', 'ready'];
 
 // ── Sales period presets (spec §6, §21, §46) ────────────────────────────────
-export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+// The 3/6/12-month presets are additive — offered only by the newer
+// Restaurant Performance & Owner Activity Intelligence tools (spec §1's
+// "3 Months / 6 Months / 1 Year / Custom Period" requirement), not
+// retrofitted onto every pre-existing period-scoped tool above, to avoid
+// touching ~30 already-verified call sites for a request none of them made.
+export type Period =
+  | 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month'
+  | 'last_3_months' | 'last_6_months' | 'last_year' | 'custom';
+export const LONG_RANGE_PERIODS = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'last_3_months', 'last_6_months', 'last_year'] as const;
 export function periodRange(period: Period) {
   const startOfDay = (d: Date) => {
     const x = new Date(d);
@@ -73,11 +81,42 @@ export function periodRange(period: Period) {
       const to = new Date(now.getFullYear(), now.getMonth(), 1);
       return { from, to, prevFrom: new Date(now.getFullYear(), now.getMonth() - 2, 1), prevTo: from, label: 'Last month' };
     }
+    case 'last_3_months': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from, label: 'Last 3 months' };
+    }
+    case 'last_6_months': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from, label: 'Last 6 months' };
+    }
+    case 'last_year': {
+      const from = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      const prevFrom = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from, label: 'Last year' };
+    }
     default: {
       const from = today0;
       return { from, to: addDays(today0, 1), prevFrom: addDays(from, -1), prevTo: from, label: 'Today' };
     }
   }
+}
+/** An arbitrary owner-chosen date range (spec §1's "Custom Period") —
+ *  the previous-period comparison window is the immediately preceding
+ *  range of the SAME length, so period-over-period % changes stay
+ *  meaningful (e.g. Feb 1-14 compares against Jan 18-31, not all of
+ *  January). `fromDate`/`toDate` are 'YYYY-MM-DD'; `to` is exclusive
+ *  (the day after toDate), matching every other period's convention here. */
+export function customRange(fromDate: string, toDate: string) {
+  const from = new Date(`${fromDate}T00:00:00`);
+  const toInclusive = new Date(`${toDate}T00:00:00`);
+  const to = new Date(toInclusive.getTime() + 86400_000);
+  const spanMs = Math.max(to.getTime() - from.getTime(), 86400_000);
+  const prevTo = from;
+  const prevFrom = new Date(from.getTime() - spanMs);
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return { from, to, prevFrom, prevTo, label: `${fmt(from)} - ${fmt(toInclusive)}` };
 }
 async function salesBetween(admin: SupabaseClient, from: Date, to: Date) {
   const { data } = await admin
@@ -107,13 +146,39 @@ function pctChange(curr: number, prev: number): number | null {
 /** Same validate-or-default period parsing every period-scoped tool above
  *  repeats inline, pulled into one helper now that several more tools need
  *  it — and (unlike periodRange() alone) also returns which Period name was
- *  actually used, so a tool can pass that name on to another tool it calls. */
-function resolvePeriod(raw: unknown, fallback: Period = 'this_month') {
-  const period: Period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(String(raw))
-    ? (raw as Period)
+ *  actually used, so a tool can pass that name on to another tool it calls.
+ *  Also accepts an explicit `from`/`to` ('YYYY-MM-DD') pair for an
+ *  owner-chosen custom range (spec §1) — when both are present they win
+ *  over `period`. Every composing tool below forwards the ALREADY-RESOLVED
+ *  absolute from/to (not the period name) to the tools it calls, so a
+ *  custom range stays consistent through the whole call chain regardless
+ *  of which entry point started it. */
+export function resolvePeriod(args: { period?: unknown; from?: unknown; to?: unknown }, fallback: Period = 'this_month') {
+  if (typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to) {
+    return { ...customRange(args.from, args.to), period: 'custom' as Period };
+  }
+  const period: Period = (LONG_RANGE_PERIODS as readonly string[]).includes(String(args.period))
+    ? (args.period as Period)
     : fallback;
   return { ...periodRange(period), period };
 }
+/** Every intelligence tool's input_schema shares this period+custom-range
+ *  shape — defined once so the 9+ tools below (and generate_report/the
+ *  Excel export) stay in sync rather than each retyping the enum/description. */
+const INTELLIGENCE_PERIOD_SCHEMA = {
+  period: {
+    type: 'string',
+    enum: LONG_RANGE_PERIODS,
+    description: 'Default this_month. Ignored if from/to are both given.',
+  },
+  from: { type: 'string', description: 'Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`.' },
+  to: { type: 'string', description: 'Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`.' },
+} as const;
+/** Forward an already-resolved range to another tool call so a custom
+ *  range (or a long-range preset) stays exact through composition, instead
+ *  of re-guessing "this_month" from a bare period name a sub-tool wasn't
+ *  actually given. */
+const forwardRange = (r: { from: Date; to: Date }) => ({ from: r.from.toISOString().slice(0, 10), to: new Date(r.to.getTime() - 1).toISOString().slice(0, 10) });
 /** Lets one AI_TOOLS entry reuse another's exact run() rather than
  *  re-querying — e.g. analyze_restaurant composing get_owner_scorecard,
  *  get_positive_highlights, get_areas_to_review and get_owner_activity into
@@ -1664,11 +1729,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const { from, to, label } = resolvePeriod(args.period);
+      const { from, to, label } = resolvePeriod(args);
       const [poRes, priceRes] = await Promise.all([
         admin
           .from('purchase_orders')
@@ -1874,11 +1939,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const { from, to, label } = resolvePeriod(args.period);
+      const { from, to, label } = resolvePeriod(args);
       const fromIso = from.toISOString();
       const toIso = to.toISOString();
       const [profitRes, paymentsRes, refundsRes, supplierPaymentsRes, expensesRes] = await Promise.all([
@@ -1926,11 +1991,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const { from, to, label } = resolvePeriod(args.period);
+      const { from, to, label } = resolvePeriod(args);
       const [ledgerRes, invRes] = await Promise.all([
         admin.from('stock_ledger').select('delta_qty, reason, unit_cost_cents_base').gte('created_at', from.toISOString()).lt('created_at', to.toISOString()),
         admin.from('inventory_items').select('stock_qty, cost_cents_per_base_unit'),
@@ -1987,11 +2052,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const { from, to, label } = resolvePeriod(args.period);
+      const { from, to, label } = resolvePeriod(args);
       const fromIso = from.toISOString();
       const toIso = to.toISOString();
       const fromDate = fromIso.slice(0, 10);
@@ -2064,11 +2129,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const r = resolvePeriod(args.period);
+      const r = resolvePeriod(args);
       const [curr, prev, feedCurr, feedPrev] = await Promise.all([
         admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
@@ -2117,11 +2182,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const r = resolvePeriod(args.period);
+      const r = resolvePeriod(args);
       const [curr, prev, feedCurr, feedPrev, dealsRes, purchCurr, purchPrev, priceHikes] = await Promise.all([
         admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
@@ -2223,11 +2288,11 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const r = resolvePeriod(args.period);
+      const r = resolvePeriod(args);
       type Row = { domain: string; status: 'Healthy' | 'Stable' | 'Watch' | 'Needs Attention'; evidence: string[] };
       const rows: Row[] = [];
 
@@ -2335,23 +2400,27 @@ export const AI_TOOLS: AiTool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'], description: 'Default this_month' },
+        ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
     async run(admin, args) {
-      const r = resolvePeriod(args.period);
-      const period = r.period;
+      const r = resolvePeriod(args);
+      // Forward the already-resolved absolute range, not the bare period
+      // name — the only case that matters is 'custom', which a sub-tool
+      // can't reconstruct from a name alone, but forwarding it exactly
+      // keeps every composed tool consistent regardless.
+      const range = forwardRange(r);
       const [profitRes, purchasing, payable, supplierPaymentsRes, feedback, scorecard, attention, positives, areas, activity] = await Promise.all([
         admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
-        runToolByName(admin, 'get_purchasing_summary', { period }),
+        runToolByName(admin, 'get_purchasing_summary', range),
         admin.rpc('supplier_payable'),
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', r.from.toISOString()).lt('paid_at', r.to.toISOString()),
         admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
-        runToolByName(admin, 'get_owner_scorecard', { period }),
+        runToolByName(admin, 'get_owner_scorecard', range),
         computeActiveAttentionItems(admin),
-        runToolByName(admin, 'get_positive_highlights', { period }),
-        runToolByName(admin, 'get_areas_to_review', { period }),
-        runToolByName(admin, 'get_owner_activity', { period }),
+        runToolByName(admin, 'get_positive_highlights', range),
+        runToolByName(admin, 'get_areas_to_review', range),
+        runToolByName(admin, 'get_owner_activity', range),
       ]);
       const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
       const wasteCents = await wasteCostBetween(admin, r.from, r.to);
@@ -2970,14 +3039,11 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'generate_report',
     description:
-      'Build a real PDF performance report for a period (e.g. "create my September report", "generate this month\'s report") — the exact same PDF the Dashboard\'s own "Generate Report" button produces, from the exact same authoritative figures (period_profitability, sales_by_day, top-selling items, feedback_summary, attendance_roster — nothing recomputed or estimated). Unlike every other action here, this one doesn\'t mutate anything: confirming it opens/downloads the PDF in your browser. Only "today" through "last_month" are supported periods — an arbitrary named month outside that range isn\'t buildable yet.',
+      'Build a real PDF performance report for a period (e.g. "create my September report", "generate this month\'s report", "report for last 6 months", or a custom date range) — the exact same PDF the Dashboard\'s own "Generate Report" button produces, from the exact same authoritative figures (period_profitability, sales_by_day, top-selling items, feedback_summary, attendance_roster, purchasing, supplier payables, management activity, attention items — nothing recomputed or estimated). Unlike every other action here, this one doesn\'t mutate anything: confirming it opens/downloads the PDF in your browser. Pass either `period` or an exact `from`/`to` custom range — not both.',
     needs: 'reports.generate',
     input_schema: {
       type: 'object',
-      properties: {
-        period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'] },
-      },
-      required: ['period'],
+      properties: { ...INTELLIGENCE_PERIOD_SCHEMA },
     },
     async describe(admin, args) {
       const resolved = await buildReportData(admin, args);
@@ -3350,11 +3416,11 @@ async function buildReportData(
   admin: SupabaseClient,
   args: Record<string, unknown>,
 ): Promise<{ ok: true; data: BuiltReportData } | { ok: false; error: string }> {
-  const period = String(args.period ?? '') as Period;
-  if (!['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(period)) {
-    return { ok: false, error: 'A period is required (today, yesterday, this_week, last_week, this_month, or last_month).' };
+  const hasCustomRange = typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to;
+  if (!hasCustomRange && !(LONG_RANGE_PERIODS as readonly string[]).includes(String(args.period ?? ''))) {
+    return { ok: false, error: 'A period is required (today, yesterday, this_week, last_week, this_month, last_month, last_3_months, last_6_months, last_year) or a custom from/to date range.' };
   }
-  const { from, to, label } = periodRange(period);
+  const { from, to, label } = resolvePeriod(args);
 
   const [profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes, attentionItems] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
@@ -3373,10 +3439,12 @@ async function buildReportData(
       .lte('expense_date', to.toISOString().slice(0, 10)),
     // Restaurant Performance & Owner Activity Intelligence sections (spec
     // §28) — reuse the exact same tool run()s the AI chat calls, never a
-    // second calculation for the PDF.
-    runToolByName(admin, 'get_purchasing_summary', { period }),
+    // second calculation for the PDF. Forwarded as an exact from/to range
+    // (not the bare period name) so a custom date-range report stays
+    // consistent through these composed calls too.
+    runToolByName(admin, 'get_purchasing_summary', forwardRange({ from, to })),
     admin.rpc('supplier_payable'),
-    runToolByName(admin, 'get_owner_activity', { period }),
+    runToolByName(admin, 'get_owner_activity', forwardRange({ from, to })),
     computeActiveAttentionItems(admin),
   ]);
 

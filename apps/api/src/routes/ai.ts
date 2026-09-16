@@ -774,9 +774,12 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
  */
 aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
   const { admin, slug } = req.tenant!;
-  const period = String(req.query.period ?? 'this_month');
   try {
-    const built = await buildExcelWorkbook(admin, slug, period);
+    const built = await buildExcelWorkbook(admin, slug, {
+      period: req.query.period,
+      from: req.query.from,
+      to: req.query.to,
+    });
     if (!built.ok) return res.status(409).json({ error: 'export_failed', message: built.error });
     const buffer = await built.workbook.xlsx.writeBuffer();
     const stamp = new Date().toISOString().slice(0, 10);

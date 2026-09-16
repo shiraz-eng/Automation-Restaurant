@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { periodRange, computeAttentionItems, AI_TOOLS, type Period } from './aiTools';
+import { resolvePeriod, computeAttentionItems, AI_TOOLS } from './aiTools';
 
 /**
  * Restaurant Performance & Owner Activity Intelligence — Excel export
@@ -67,16 +67,17 @@ const centsToDollars = (c: number | null | undefined) => (typeof c === 'number' 
 export async function buildExcelWorkbook(
   admin: SupabaseClient,
   restaurantName: string,
-  periodArg: unknown,
+  rangeArgs: { period?: unknown; from?: unknown; to?: unknown },
 ): Promise<{ ok: true; workbook: ExcelJS.Workbook; periodLabel: string } | { ok: false; error: string }> {
-  const period: Period = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'].includes(String(periodArg))
-    ? (periodArg as Period)
-    : 'this_month';
-  const { from, to, label } = periodRange(period);
+  const { from, to, label } = resolvePeriod(rangeArgs);
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
   const fromDate = fromIso.slice(0, 10);
   const toDate = toIso.slice(0, 10);
+  // Forwarded to get_owner_activity below as an exact range, not a bare
+  // period name — consistent with every other composed tool call in this
+  // file (see aiTools.ts's forwardRange()).
+  const ownerActivityRange = { from: fromDate, to: new Date(to.getTime() - 1).toISOString().slice(0, 10) };
 
   const [
     profitRes, dailyRes, itemProfRes, dealProfRes, ordersRes, poRes, payableRes,
@@ -112,7 +113,7 @@ export async function buildExcelWorkbook(
       .gte('expense_date', fromDate)
       .lt('expense_date', toDate)
       .order('expense_date', { ascending: false }),
-    AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, { period }),
+    AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),
     computeAttentionItems(admin),
   ]);
 
