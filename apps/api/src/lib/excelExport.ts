@@ -18,15 +18,16 @@ import { resolvePeriod, computeAttentionItems, AI_TOOLS } from './aiTools';
  *
  * Scope note: this is a curated set of the sheets the master spec
  * suggested (Executive Summary, Profit Summary, Daily Performance, Orders,
- * Purchasing, Accounts Payable, Supplier Payments, Product Profitability,
- * Deal Profitability, Inventory, Expenses, Management Activity,
- * Verification) rather than a literal one-sheet-per-table dump of all ~35
- * suggested — several of those (Order Items, COGS, Recipes, Stock
- * Movements, Receiving, AI Actions) would either duplicate detail already
- * reachable via this app's own drill-downs or require per-order/per-line
- * RPC calls that don't scale to an arbitrary period without a real job
- * queue. This set covers every headline figure the PDF prints, with the
- * detail to independently verify each one.
+ * Product Profitability, Deal Profitability, Promotions, Purchasing,
+ * Accounts Payable, Supplier Payments, Supplier Performance, Inventory,
+ * Expenses, Management Activity, AI Actions, Verification — 16 sheets)
+ * rather than a literal one-sheet-per-table dump of all ~35 suggested —
+ * a few of those (Order Items, COGS, Recipes, Stock Movements, Receiving)
+ * would either duplicate detail already reachable via this app's own
+ * drill-downs or require per-order/per-line RPC calls that don't scale to
+ * an arbitrary period without a real job queue. This set covers every
+ * headline figure the PDF prints, with the detail to independently verify
+ * each one.
  */
 
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEA580C' } };
@@ -82,6 +83,7 @@ export async function buildExcelWorkbook(
   const [
     profitRes, dailyRes, itemProfRes, dealProfRes, ordersRes, poRes, payableRes,
     paymentsRes, invRes, expensesRes, ownerActivityRaw, attentionItems,
+    promoRes, supplierPerfRaw, aiActionsRes,
   ] = await Promise.all([
     admin.rpc('period_profitability', { p_from: fromIso, p_to: toIso }),
     admin.rpc('sales_by_day', { p_from: fromDate, p_to: toDate }),
@@ -115,6 +117,14 @@ export async function buildExcelWorkbook(
       .order('expense_date', { ascending: false }),
     AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),
     computeAttentionItems(admin),
+    admin.rpc('promotion_performance', { p_from: fromIso, p_to: toIso }),
+    AI_TOOLS.find((t) => t.name === 'get_supplier_performance')!.run(admin, {}),
+    admin
+      .from('ai_pending_actions')
+      .select('action_name, status, summary, proposed_by_email, proposed_by_role, created_at, resolved_at, resolved_by_email, result, error')
+      .gte('created_at', fromIso)
+      .lt('created_at', toIso)
+      .order('created_at', { ascending: false }),
   ]);
 
   const profit = (profitRes.data as
@@ -308,6 +318,33 @@ export async function buildExcelWorkbook(
     'No deals sold in this period.',
   );
 
+  // ── Promotions ───────────────────────────────────────────────────────
+  const promotions = wb.addWorksheet('Promotions');
+  const promoRows = ((promoRes.data ?? []) as {
+    name: string; code: string | null; kind: string; redemptions: number;
+    total_discount_cents: number; total_order_revenue_cents: number;
+  }[]).map((p) => ({
+    promotion: p.name,
+    code: p.code ?? '—',
+    kind: p.kind,
+    redemptions: p.redemptions,
+    discount_given: centsToDollars(p.total_discount_cents),
+    order_revenue: centsToDollars(p.total_order_revenue_cents),
+  }));
+  addTable(
+    promotions,
+    [
+      { header: 'Promotion', key: 'promotion', width: 22 },
+      { header: 'Code', key: 'code', width: 12 },
+      { header: 'Kind', key: 'kind', width: 10 },
+      { header: 'Redemptions', key: 'redemptions', width: 12 },
+      { header: 'Discount Given', key: 'discount_given', width: 14, style: { numFmt: MONEY_FMT } },
+      { header: 'Order Revenue', key: 'order_revenue', width: 14, style: { numFmt: MONEY_FMT } },
+    ],
+    promoRows,
+    'No promotions redeemed in this period.',
+  );
+
   // ── 07 Purchasing ────────────────────────────────────────────────────
   const purchasing = wb.addWorksheet('Purchasing');
   const poRows = ((poRes.data ?? []) as {
@@ -393,6 +430,39 @@ export async function buildExcelWorkbook(
     ],
     paymentRows,
     'No supplier payments made in this period.',
+  );
+
+  // ── Supplier Performance — fill rate/on-time/lead time, not price alone
+  // (spec §6). Not period-scoped (reflects all-time purchase order history
+  // per supplier, same as get_supplier_performance answers in chat). ─────
+  const supplierPerf = wb.addWorksheet('Supplier Performance');
+  const supplierPerfRows = ((supplierPerfRaw as {
+    suppliers: {
+      supplier: string; catalog_items?: number; fill_rate_pct: number | null; rejected_qty: number;
+      on_time_pct: number | null; avg_lead_time_days: number | null; deliveries: number;
+    }[];
+  }).suppliers).map((s) => ({
+    supplier: s.supplier,
+    catalog_items: s.catalog_items ?? 0,
+    deliveries: s.deliveries,
+    fill_rate_pct: s.fill_rate_pct,
+    rejected_qty: s.rejected_qty,
+    on_time_pct: s.on_time_pct,
+    avg_lead_time_days: s.avg_lead_time_days,
+  }));
+  addTable(
+    supplierPerf,
+    [
+      { header: 'Supplier', key: 'supplier', width: 20 },
+      { header: 'Catalog Items', key: 'catalog_items', width: 12 },
+      { header: 'Deliveries', key: 'deliveries', width: 10 },
+      { header: 'Fill Rate %', key: 'fill_rate_pct', width: 12, style: { numFmt: PCT_FMT } },
+      { header: 'Rejected Qty', key: 'rejected_qty', width: 12 },
+      { header: 'On-Time %', key: 'on_time_pct', width: 10, style: { numFmt: PCT_FMT } },
+      { header: 'Avg Lead Time (days)', key: 'avg_lead_time_days', width: 16 },
+    ],
+    supplierPerfRows,
+    'No purchase order or catalog activity found.',
   );
 
   // ── 10 Inventory ─────────────────────────────────────────────────────
@@ -483,6 +553,41 @@ export async function buildExcelWorkbook(
     r.getCell(1).font = { color: { argb: 'FF64748B' } };
     r.getCell(2).font = { bold: true };
   }
+
+  // ── AI Actions — every AI-proposed action in this period, its approval
+  // outcome and who resolved it (spec §32). Real audit rows from
+  // ai_pending_actions, never a reconstructed log. ────────────────────────
+  const aiActions = wb.addWorksheet('AI Actions');
+  const aiActionRows = ((aiActionsRes.data ?? []) as {
+    action_name: string; status: string; summary: string; proposed_by_email: string | null; proposed_by_role: string | null;
+    created_at: string; resolved_at: string | null; resolved_by_email: string | null; result: unknown; error: string | null;
+  }[]).map((a) => ({
+    action: a.action_name,
+    status: a.status,
+    summary: a.summary,
+    proposed_by: a.proposed_by_email ?? '—',
+    role: a.proposed_by_role ?? '—',
+    created_at: a.created_at.slice(0, 19).replace('T', ' '),
+    resolved_at: a.resolved_at ? a.resolved_at.slice(0, 19).replace('T', ' ') : '—',
+    resolved_by: a.resolved_by_email ?? '—',
+    error: a.error ?? '—',
+  }));
+  addTable(
+    aiActions,
+    [
+      { header: 'Action', key: 'action', width: 18 },
+      { header: 'Status', key: 'status', width: 12 },
+      { header: 'Summary', key: 'summary', width: 40 },
+      { header: 'Proposed By', key: 'proposed_by', width: 22 },
+      { header: 'Role', key: 'role', width: 10 },
+      { header: 'Proposed At', key: 'created_at', width: 18 },
+      { header: 'Resolved At', key: 'resolved_at', width: 18 },
+      { header: 'Resolved By', key: 'resolved_by', width: 22 },
+      { header: 'Error', key: 'error', width: 20 },
+    ],
+    aiActionRows,
+    'No AI-proposed actions in this period.',
+  );
 
   // ── 13 Verification (spec §33) ───────────────────────────────────────
   const verification = wb.addWorksheet('Verification');
