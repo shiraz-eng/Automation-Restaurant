@@ -178,7 +178,22 @@ const INTELLIGENCE_PERIOD_SCHEMA = {
  *  range (or a long-range preset) stays exact through composition, instead
  *  of re-guessing "this_month" from a bare period name a sub-tool wasn't
  *  actually given. */
-const forwardRange = (r: { from: Date; to: Date }) => ({ from: r.from.toISOString().slice(0, 10), to: new Date(r.to.getTime() - 1).toISOString().slice(0, 10) });
+export const forwardRange = (r: { from: Date; to: Date }) => {
+  // Every Date in a resolved range is built from LOCAL-time components
+  // (periodRange()'s own new Date(y, m, d) constructors, and
+  // customRange()'s 'YYYY-MM-DDT00:00:00' parsing) — reading them back via
+  // .toISOString() (UTC) instead of local getters shifts the date by one
+  // on any server whose UTC offset is negative (e.g. US timezones): local
+  // midnight lands on the SAME UTC day for `from`, subtracting 1ms from
+  // `to`'s exclusive local-midnight boundary can land on the wrong UTC
+  // day. Found live (Los_Angeles server, a custom Jul1-Sep15 range came
+  // back as Jul1-Sep16). Subtracting exactly one day (not one
+  // millisecond) from the exclusive `to` boundary exactly inverts how
+  // both periodRange() and customRange() built it, then both ends format
+  // via local Y-M-D components, consistent with how they were parsed.
+  const fmtLocalDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { from: fmtLocalDate(r.from), to: fmtLocalDate(new Date(r.to.getTime() - 86400_000)) };
+};
 /** Lets one AI_TOOLS entry reuse another's exact run() rather than
  *  re-querying — e.g. analyze_restaurant composing get_owner_scorecard,
  *  get_positive_highlights, get_areas_to_review and get_owner_activity into
@@ -3059,6 +3074,46 @@ export const AI_ACTIONS: AiAction[] = [
       const resolved = await buildReportData(admin, args);
       if (!resolved.ok) throw new Error(resolved.error);
       return resolved.data;
+    },
+  },
+  {
+    name: 'export_excel_report',
+    description:
+      'Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst\'s detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both.',
+    needs: 'reports.export',
+    input_schema: {
+      type: 'object',
+      properties: { ...INTELLIGENCE_PERIOD_SCHEMA },
+    },
+    async describe(admin, args) {
+      const hasCustomRange = typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to;
+      if (!hasCustomRange && !(LONG_RANGE_PERIODS as readonly string[]).includes(String(args.period ?? ''))) {
+        return { ok: false, error: 'A period is required (today, yesterday, this_week, last_week, this_month, last_month, last_3_months, last_6_months, last_year) or a custom from/to date range.' };
+      }
+      const r = resolvePeriod(args);
+      const { data, error } = await admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() });
+      if (error) return { ok: false, error: error.message };
+      const row = (data as { orders_count: number; net_sales_cents: number }[] | null)?.[0];
+      return {
+        ok: true,
+        summary: `Export a detailed Excel workbook (16 sheets: profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions, and a verification sheet) for ${r.label}${row ? `: ${row.orders_count} orders, ${formatCentsPlain(row.net_sales_cents)} net sales` : ''}. Downloads as a real .xlsx file — nothing is changed or saved anywhere.`,
+      };
+    },
+    async run(admin, args) {
+      const hasCustomRange = typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to;
+      if (!hasCustomRange && !(LONG_RANGE_PERIODS as readonly string[]).includes(String(args.period ?? ''))) {
+        throw new Error('A period or custom from/to date range is required.');
+      }
+      const r = resolvePeriod(args);
+      // The workbook itself is built by GET /api/ai/export/excel
+      // (excelExport.ts), not here — that module already imports
+      // resolvePeriod/AI_TOOLS from this file, so building it here too
+      // would be a circular import. This action only validates the range
+      // and hands the frontend exactly what it needs to call that
+      // endpoint and trigger the download, the same way generate_report's
+      // result is handed to the client-side PDF renderer.
+      const range = forwardRange(r);
+      return { ready: true, period: r.period, from: range.from, to: range.to, label: r.label };
     },
   },
 ];

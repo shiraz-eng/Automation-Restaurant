@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { resolvePeriod, computeAttentionItems, AI_TOOLS } from './aiTools';
+import { resolvePeriod, computeAttentionItems, forwardRange, AI_TOOLS } from './aiTools';
 
 /**
  * Restaurant Performance & Owner Activity Intelligence — Excel export
@@ -76,9 +76,10 @@ export async function buildExcelWorkbook(
   const fromDate = fromIso.slice(0, 10);
   const toDate = toIso.slice(0, 10);
   // Forwarded to get_owner_activity below as an exact range, not a bare
-  // period name — consistent with every other composed tool call in this
-  // file (see aiTools.ts's forwardRange()).
-  const ownerActivityRange = { from: fromDate, to: new Date(to.getTime() - 1).toISOString().slice(0, 10) };
+  // period name — reuses aiTools.ts's own forwardRange() (not a
+  // re-inlined "-1ms then UTC slice", which shifts the date on a
+  // negative-UTC-offset server — see its own comment for the live repro).
+  const ownerActivityRange = forwardRange({ from, to });
 
   const [
     profitRes, dailyRes, itemProfRes, dealProfRes, ordersRes, poRes, payableRes,

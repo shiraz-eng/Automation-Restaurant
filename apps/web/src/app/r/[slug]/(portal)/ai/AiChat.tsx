@@ -140,6 +140,35 @@ export function AiChat({ slug }: { slug: string }) {
           console.error('PDF generation failed:', err);
         }
       }
+      // export_excel_report only validates the range (it can't build the
+      // workbook itself without a circular import — see aiTools.ts) and
+      // hands back exactly what GET /api/ai/export/excel needs; the actual
+      // .xlsx is fetched and downloaded here, same trigger-from-chat
+      // pattern as the PDF above.
+      if (res.ok && action.name === 'export_excel_report' && body.result?.ready) {
+        try {
+          const r = body.result as { from: string; to: string };
+          // from/to are always both present and always take priority over
+          // period in resolvePeriod() (aiTools.ts) — passing the exact
+          // resolved range here, not the period name, is what keeps this
+          // download identical to the range export_excel_report validated.
+          const qs = new URLSearchParams({ slug, from: r.from, to: r.to });
+          const dl = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, { headers: await authHeader() });
+          if (dl.ok) {
+            const blob = await dl.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${slug}-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          }
+        } catch (err) {
+          console.error('Excel export download failed:', err);
+        }
+      }
       setMsgs((m) =>
         m.map((msg, i) =>
           i === index

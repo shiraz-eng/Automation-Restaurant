@@ -101,6 +101,29 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
           console.error('PDF generation failed:', err);
         }
       }
+      // export_excel_report only validates the range (see AiChat.tsx's
+      // identical comment for why) — the actual .xlsx is fetched and
+      // downloaded here once approved.
+      if (item.action_name === 'export_excel_report' && body.result?.ready) {
+        try {
+          const r = body.result as { from: string; to: string };
+          const qs = new URLSearchParams({ slug, from: r.from, to: r.to });
+          const dl = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, { headers: await authHeader() });
+          if (dl.ok) {
+            const blob = await dl.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${slug}-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          }
+        } catch (err) {
+          console.error('Excel export download failed:', err);
+        }
+      }
       setItems((cur) => (cur ?? []).filter((x) => x.id !== item.id));
     } catch {
       setError('Network error.');
