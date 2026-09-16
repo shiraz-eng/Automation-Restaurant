@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, type AiTool, type AiAction, type Period } from '../lib/aiTools';
+import { buildExcelWorkbook } from '../lib/excelExport';
 
 /** Anything the model can be offered as a callable function — a read tool or a proposable action. */
 type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
@@ -756,4 +757,34 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
   }
 
   return res.json({ items });
+});
+
+/**
+ * GET /api/ai/export/excel — the Restaurant Performance & Owner Activity
+ * Intelligence Excel export (spec's "PDF & Excel Export" system). Unlike
+ * the PDF (built client-side from JSON the API already sends), the
+ * workbook is generated here on the server via ExcelJS and streamed
+ * directly — a real multi-sheet .xlsx, not a renamed CSV. Gated by
+ * reports.export, distinct from reports.generate (the PDF) since an
+ * accountant-facing detailed export is a materially bigger data exposure
+ * than a summary PDF and some roles may be trusted with one but not the
+ * other. Tenancy is resolved server-side by requirePortalPerm from :slug —
+ * a caller can never point this at another restaurant's data by editing
+ * the query string.
+ */
+aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
+  const { admin, slug } = req.tenant!;
+  const period = String(req.query.period ?? 'this_month');
+  try {
+    const built = await buildExcelWorkbook(admin, slug, period);
+    if (!built.ok) return res.status(409).json({ error: 'export_failed', message: built.error });
+    const buffer = await built.workbook.xlsx.writeBuffer();
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${slug}-export-${stamp}.xlsx"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('[ai] excel export failed:', err);
+    res.status(500).json({ error: 'export_failed', message: String((err as Error).message ?? err).slice(0, 300) });
+  }
 });

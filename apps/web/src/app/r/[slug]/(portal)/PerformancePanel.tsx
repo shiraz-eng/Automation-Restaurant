@@ -401,6 +401,43 @@ export function PerformancePanel({
     });
   }
 
+  const [exporting, setExporting] = useState(false);
+  // Detailed multi-sheet .xlsx for independent verification/reconciliation
+  // — a different audience than the PDF (an accountant/analyst, not a
+  // glance-and-go summary), generated server-side (buildExcelWorkbook,
+  // gated by reports.export) and streamed straight to a download rather
+  // than assembled here, so this button carries no duplicate calculation
+  // logic of its own.
+  async function handleExportExcel() {
+    setExporting(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/ai/export/excel?slug=${encodeURIComponent(slug)}&period=${period}`, {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.message ?? 'Could not generate the Excel export.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slug}-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Network error while exporting.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const attCounts = useMemo(() => {
     const rows = attendance ?? [];
     const c = (s: string) => rows.filter((r) => r.status === s).length;
@@ -438,6 +475,13 @@ export function PerformancePanel({
             className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
           >
             Generate Report
+          </button>
+          <button
+            onClick={handleExportExcel}
+            disabled={loading || exporting}
+            className="rounded-lg border border-border bg-main px-3 py-1.5 text-[11px] font-semibold text-body hover:border-primary disabled:opacity-50"
+          >
+            {exporting ? 'Exporting…' : 'Export Excel'}
           </button>
         </div>
       </div>

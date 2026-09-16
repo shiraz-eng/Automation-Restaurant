@@ -14,6 +14,7 @@
     "@automation-restaurant/shared": "*",
     "@supabase/supabase-js": "^2.47.10",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "nodemailer": "^6.9.16",
     "pdf-parse": "^2.4.5",
