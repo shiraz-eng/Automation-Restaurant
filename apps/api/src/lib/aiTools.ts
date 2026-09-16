@@ -2296,6 +2296,187 @@ export const AI_TOOLS: AiTool[] = [
     },
   },
   {
+    name: 'get_kitchen_performance',
+    description:
+      'Historical kitchen speed for a period: average time from "sent to kitchen" to "ready" per order (and to "served"), how many orders ran past a delay threshold, and — where enough feedback exists — whether the trend moved together with the customer Speed rating over the same two periods. Built from the real kitchen.start/kitchen.ready/kitchen.complete audit trail (spec §14), not an estimate. Use for "how is my kitchen performing" / "is food coming out slower" questions; get_kitchen_status is the live snapshot, this is the trend.',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: { ...INTELLIGENCE_PERIOD_SCHEMA },
+    },
+    async run(admin, args) {
+      const r = resolvePeriod(args);
+      const DELAY_MIN = 20;
+
+      async function kitchenStats(from: Date, to: Date) {
+        const { data, error } = await admin
+          .from('audit_logs')
+          .select('entity_id, action, created_at')
+          .eq('entity', 'orders')
+          .in('action', ['kitchen.start', 'kitchen.ready', 'kitchen.complete'])
+          .gte('created_at', from.toISOString())
+          .lt('created_at', to.toISOString())
+          .order('created_at', { ascending: true });
+        if (error) return { error: error.message };
+        const byOrder: Record<string, { start?: string; ready?: string; complete?: string }> = {};
+        for (const row of (data ?? []) as { entity_id: string; action: string; created_at: string }[]) {
+          const rec = (byOrder[row.entity_id] ??= {});
+          // First occurrence wins for each stage — a duplicate/re-fired
+          // action (e.g. a corrected status) shouldn't overwrite the
+          // genuine first transition time this metric is measuring.
+          if (row.action === 'kitchen.start' && !rec.start) rec.start = row.created_at;
+          if (row.action === 'kitchen.ready' && !rec.ready) rec.ready = row.created_at;
+          if (row.action === 'kitchen.complete' && !rec.complete) rec.complete = row.created_at;
+        }
+        const prepMins: number[] = [];
+        const totalMins: number[] = [];
+        let delayed = 0;
+        for (const rec of Object.values(byOrder)) {
+          if (rec.start && rec.ready) {
+            const mins = (new Date(rec.ready).getTime() - new Date(rec.start).getTime()) / 60000;
+            if (mins >= 0) {
+              prepMins.push(mins);
+              if (mins > DELAY_MIN) delayed++;
+            }
+          }
+          if (rec.start && rec.complete) {
+            const mins = (new Date(rec.complete).getTime() - new Date(rec.start).getTime()) / 60000;
+            if (mins >= 0) totalMins.push(mins);
+          }
+        }
+        const avg = (xs: number[]) => (xs.length > 0 ? Math.round((xs.reduce((s, v) => s + v, 0) / xs.length) * 10) / 10 : null);
+        return {
+          orders_tracked: Object.keys(byOrder).length,
+          orders_completed: prepMins.length,
+          avg_prep_minutes: avg(prepMins),
+          avg_total_minutes: avg(totalMins),
+          delayed_orders: delayed,
+          delay_threshold_minutes: DELAY_MIN,
+        };
+      }
+
+      const [curr, prev, feedCurr, feedPrev] = await Promise.all([
+        kitchenStats(r.from, r.to),
+        kitchenStats(r.prevFrom, r.prevTo),
+        admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
+        admin.rpc('feedback_summary', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
+      ]);
+      if ('error' in curr) return { error: curr.error };
+
+      const fc = (feedCurr.data as { responses: number; avg_speed: number | null }[] | null)?.[0];
+      const fp = (feedPrev.data as { responses: number; avg_speed: number | null }[] | null)?.[0];
+
+      // A correlation, never a causal claim (spec §14/§27's language rule)
+      // — both must have moved by a real amount and there must be enough
+      // feedback to mean anything, or this is simply omitted.
+      let correlation: string | undefined;
+      if (
+        !('error' in prev) && curr.avg_prep_minutes != null && prev.avg_prep_minutes != null &&
+        fc && fp && fc.avg_speed != null && fp.avg_speed != null && fc.responses >= 2 && fp.responses >= 2
+      ) {
+        const prepDelta = curr.avg_prep_minutes - prev.avg_prep_minutes;
+        const speedDelta = fc.avg_speed - fp.avg_speed;
+        if (Math.abs(prepDelta) >= 2 && Math.abs(speedDelta) >= 0.2) {
+          const samDirection = (prepDelta > 0 && speedDelta < 0) || (prepDelta < 0 && speedDelta > 0);
+          correlation = samDirection
+            ? `Average kitchen prep time ${prepDelta > 0 ? 'increased' : 'decreased'} ${Math.abs(Math.round(prepDelta * 10) / 10)} minute(s) while the customer Speed rating ${speedDelta > 0 ? 'improved' : 'declined'} from ${fp.avg_speed.toFixed(1)} to ${fc.avg_speed.toFixed(1)} over the same two periods — the two measures moved together. This is a correlation, not a proven cause.`
+            : `Average kitchen prep time changed ${Math.abs(Math.round(prepDelta * 10) / 10)} minute(s) and the Speed rating also changed, but in directions that don't line up as expected — worth a closer look rather than assuming a link.`;
+        }
+      }
+
+      return {
+        period: r.label,
+        ...curr,
+        previous_period: 'error' in prev ? undefined : prev,
+        speed_rating: fc?.avg_speed ?? null,
+        speed_rating_responses: fc?.responses ?? 0,
+        correlation_with_speed_rating: correlation,
+        note: curr.orders_completed === 0 ? 'No orders had both a kitchen-start and kitchen-ready event recorded in this period.' : undefined,
+      };
+    },
+  },
+  {
+    name: 'get_price_change_impact',
+    description:
+      'Management Decision Analysis for a single price change (spec §17): finds a menu item\'s most recent recorded price change (from the real audit trail — never guessed or assumed), then compares its units sold and revenue in two equal-length windows immediately before and after that change. Reports the change and the before/after numbers as facts; frame the result as "After the change, sales/revenue changed X%" — never claim the price change CAUSED the difference unless the data makes that unambiguous. Use for "did raising/lowering [item]\'s price work" / "what happened after I changed the price of X".',
+    needs: 'analytics.view',
+    input_schema: {
+      type: 'object',
+      properties: { item_name: { type: 'string', description: 'Menu item name, partial match OK' } },
+      required: ['item_name'],
+    },
+    async run(admin, args) {
+      const item = await findMenuItem(admin, String(args.item_name ?? ''));
+      if (!item) return { error: 'no_matching_item' };
+      const variantIds = item.variants.map((v) => v.id);
+      if (variantIds.length === 0) return { error: 'no_variants_configured' };
+
+      // audit_row() fires on ANY column update, not just price — fetch a
+      // bounded recent window per variant and filter for a genuine price
+      // difference in JS, since before/after are opaque jsonb PostgREST
+      // can't compare to each other in a single filter expression.
+      const { data, error } = await admin
+        .from('audit_logs')
+        .select('entity_id, created_at, before, after')
+        .eq('entity', 'menu_variants')
+        .eq('action', 'UPDATE')
+        .in('entity_id', variantIds)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) return { error: error.message };
+
+      const priceChange = (
+        (data ?? []) as { entity_id: string; created_at: string; before: Record<string, unknown> | null; after: Record<string, unknown> | null }[]
+      ).find((r) => r.before && r.after && r.before.price_cents !== r.after.price_cents && typeof r.after.price_cents === 'number');
+      if (!priceChange) {
+        return { item: item.name, note: 'No recorded price change found for this item — nothing to compare a before/after window against.' };
+      }
+
+      const variant = item.variants.find((v) => v.id === priceChange.entity_id);
+      const oldPriceCents = priceChange.before!.price_cents as number;
+      const newPriceCents = priceChange.after!.price_cents as number;
+      const changeAt = new Date(priceChange.created_at);
+      const now = new Date();
+      const daysSinceChange = Math.max(1, Math.floor((now.getTime() - changeAt.getTime()) / 86400_000));
+      const windowDays = Math.min(30, daysSinceChange);
+      const afterFrom = changeAt;
+      const afterTo = new Date(Math.min(changeAt.getTime() + windowDays * 86400_000, now.getTime()));
+      const beforeFrom = new Date(changeAt.getTime() - windowDays * 86400_000);
+      const beforeTo = changeAt;
+
+      async function windowSales(from: Date, to: Date) {
+        const { data: lines } = await admin
+          .from('order_lines')
+          .select('qty, line_total_cents, orders!inner(created_at, status)')
+          .eq('variant_id', priceChange!.entity_id)
+          .neq('orders.status', 'void')
+          .gte('orders.created_at', from.toISOString())
+          .lt('orders.created_at', to.toISOString());
+        const rows = (lines ?? []) as { qty: number; line_total_cents: number }[];
+        return { units_sold: rows.reduce((s, r) => s + r.qty, 0), revenue_cents: rows.reduce((s, r) => s + r.line_total_cents, 0) };
+      }
+
+      const [before, after] = await Promise.all([windowSales(beforeFrom, beforeTo), windowSales(afterFrom, afterTo)]);
+
+      return {
+        item: variant && variant.name !== 'Regular' ? `${item.name} · ${variant.name}` : item.name,
+        old_price_cents: oldPriceCents,
+        new_price_cents: newPriceCents,
+        price_change_pct: oldPriceCents > 0 ? Math.round(((newPriceCents - oldPriceCents) / oldPriceCents) * 1000) / 10 : null,
+        changed_at: priceChange.created_at,
+        window_days: windowDays,
+        before_window: { from: beforeFrom.toISOString(), to: beforeTo.toISOString(), ...before },
+        after_window: { from: afterFrom.toISOString(), to: afterTo.toISOString(), ...after },
+        units_change_pct: pctChange(after.units_sold, before.units_sold),
+        revenue_change_pct: pctChange(after.revenue_cents, before.revenue_cents),
+        note:
+          daysSinceChange < windowDays * 2
+            ? `Only ${daysSinceChange} day(s) have passed since the change — the after-window is ${windowDays} day(s), shorter than ideal, so this comparison is preliminary.`
+            : undefined,
+      };
+    },
+  },
+  {
     name: 'get_owner_scorecard',
     description:
       'A per-domain health scorecard (Sales, Profitability, Inventory, Purchasing, Suppliers, Customers, Staff, Kitchen, Cash Flow) — each status backed by real evidence from the same tools/RPCs used elsewhere, never an arbitrary score. Use for "how healthy is my restaurant across the board" / "give me a scorecard".',
@@ -2311,7 +2492,7 @@ export const AI_TOOLS: AiTool[] = [
       type Row = { domain: string; status: 'Healthy' | 'Stable' | 'Watch' | 'Needs Attention'; evidence: string[] };
       const rows: Row[] = [];
 
-      const [curr, prev, lowStock, payable, holds, feedCurr, feedPrev, kitchen, overduePos, attendance] = await Promise.all([
+      const [curr, prev, lowStock, payable, holds, feedCurr, feedPrev, kitchen, overduePos, attendance, kitchenPerf] = await Promise.all([
         admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         admin.rpc('period_profitability', { p_from: r.prevFrom.toISOString(), p_to: r.prevTo.toISOString() }),
         admin.from('low_stock_events').select('id', { count: 'exact', head: true }).eq('status', 'open'),
@@ -2322,6 +2503,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE),
         admin.from('purchase_orders').select('id', { count: 'exact', head: true }).lt('expected_at', new Date().toISOString().slice(0, 10)).in('status', ['sent', 'partial']),
         runToolByName(admin, 'get_attendance_month_summary', {}),
+        runToolByName(admin, 'get_kitchen_performance', forwardRange(r)),
       ]);
 
       const c = (curr.data as FullProfitRow[] | null)?.[0];
@@ -2392,10 +2574,20 @@ export const AI_TOOLS: AiTool[] = [
       });
 
       const oldest = (kitchen.data ?? []).reduce((m, o) => Math.max(m, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000)), 0);
+      const kp = kitchenPerf as { avg_prep_minutes: number | null; delayed_orders: number; orders_completed: number };
+      const kitchenEvidence = [`Oldest active kitchen ticket right now is ${oldest} minute(s) old.`];
+      if (kp.orders_completed > 0) {
+        kitchenEvidence.push(`Average prep time this period: ${kp.avg_prep_minutes} minute(s) across ${kp.orders_completed} order(s), ${kp.delayed_orders} of which ran past 20 minutes.`);
+      }
       rows.push({
         domain: 'Kitchen',
-        status: oldest >= 40 ? 'Needs Attention' : oldest >= 20 ? 'Watch' : 'Healthy',
-        evidence: [`Oldest active kitchen ticket right now is ${oldest} minute(s) old.`],
+        status:
+          oldest >= 40 || (kp.avg_prep_minutes != null && kp.avg_prep_minutes >= 30)
+            ? 'Needs Attention'
+            : oldest >= 20 || (kp.avg_prep_minutes != null && kp.avg_prep_minutes >= 20)
+              ? 'Watch'
+              : 'Healthy',
+        evidence: kitchenEvidence,
       });
 
       rows.push({
@@ -3682,6 +3874,8 @@ HOW TO ANSWER
 - For "what am I doing well" use get_positive_highlights; for "what should I improve" / "what am I doing wrong" (careful, non-accusatory framing — never blame the owner) use get_areas_to_review, presenting each item's evidence before its recommendation.
 - For "how much did I purchase" / "what did I buy from X" / supplier price-increase questions, use get_purchasing_summary. For comparing suppliers ("which supplier is better for chicken", fill rate, on-time %, lead time), use get_supplier_performance — pass ingredient_name to narrow it, and always name the specific metrics behind a "better" claim (never a bare opinion).
 - For inventory reconciliation ("does my inventory add up", waste/purchase/consumption movement for a period), use get_inventory_reconciliation — its implied_opening_value is null whenever it isn't reliably derivable; say so plainly rather than presenting a number that isn't there.
+- For "is my kitchen slow" / "how is my kitchen performing" / a prep-time trend question, use get_kitchen_performance — it's the historical trend (from the real kitchen.start/ready/complete log), distinct from get_kitchen_status's live snapshot. If it returns a correlation_with_speed_rating, present it explicitly as a CORRELATION per the language rule above — the two measures moved together, never "prep time caused the rating drop".
+- For "did raising/changing [item]'s price work" / "what happened after I changed the price of X" / any before/after impact of a specific management decision, use get_price_change_impact with the item name — it finds that item's own most recent recorded price change and compares sales in the two equal-length windows around it. Phrase the result as "After the change, sales volume/revenue changed X%" — never "Because of the change" — unless the data makes the direction and size of the effect unambiguous. If no price change is on record for that item, say so; don't guess a change happened.
 - Any of the above tools accepts period: 'last_3_months' | 'last_6_months' | 'last_year' in addition to the usual today..last_month, or an exact from/to ('YYYY-MM-DD') custom range instead of period — use whichever the owner actually asked for.
 - For "how are we doing / what's happening": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
 - For "what needs my attention" / "what should I do" / "manage my restaurant" / "take care of today" — the single most important command — call get_attention_items and present its list as-is, ranked CRITICAL > HIGH > MEDIUM > LOW exactly as it returns them: do not add items it didn't find, and say "Nothing needs attention right now" plainly when the list is empty rather than inventing something to say. Name which part of the app to open (its open_in field) for each item so the owner can act on it.
