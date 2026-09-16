@@ -791,3 +791,26 @@ aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: R
     res.status(500).json({ error: 'export_failed', message: String((err as Error).message ?? err).slice(0, 300) });
   }
 });
+
+/**
+ * GET /api/ai/intelligence — powers the Dashboard's Restaurant Intelligence
+ * panel (the Owner Scorecard, Attention Items, Positive Highlights, Areas
+ * to Review and Money Flow the master spec's §25 dashboard layout asked
+ * for) as a plain page load rather than something only reachable by typing
+ * a chat question. Calls analyze_restaurant's own run() directly — same
+ * pattern as /attention calling computeAttentionItems() directly — so the
+ * numbers on this page are always exactly what the AI chat would say for
+ * the same period, never a second computation.
+ */
+aiRouter.get('/intelligence', requirePortalPerm('analytics.view'), async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
+  const tool = AI_TOOLS.find((t) => t.name === 'analyze_restaurant');
+  if (!tool) return res.status(500).json({ error: 'tool_missing' });
+  try {
+    const result = await tool.run(admin, { period: req.query.period, from: req.query.from, to: req.query.to });
+    res.json(result);
+  } catch (err) {
+    console.error('[ai] intelligence fetch failed:', err);
+    res.status(500).json({ error: 'intelligence_fetch_failed', message: String((err as Error).message ?? err).slice(0, 300) });
+  }
+});

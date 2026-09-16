@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PerformancePanel, type Period } from './PerformancePanel';
+import { RestaurantIntelligencePanel } from './RestaurantIntelligencePanel';
 import { AskAi } from './AskAi';
 
 /**
@@ -18,6 +19,7 @@ export function DashboardClient({ slug, restaurantName }: { slug: string; restau
   return (
     <>
       <PerformancePanel slug={slug} restaurantName={restaurantName} period={period} onPeriodChange={setPeriod} aiSummary={aiSummary} />
+      <RestaurantIntelligencePanel period={period} />
       <AskAi slug={slug} onPeriodDetected={setPeriod} onReply={setAiSummary} />
     </>
   );
