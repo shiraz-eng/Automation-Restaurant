@@ -31,7 +31,12 @@ import {
   type TooltipProps,
 } from 'recharts';
 
-export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+// last_3_months/last_6_months/last_year mirror the same additions made to
+// the API's own Period (apps/api/src/lib/aiTools.ts) for the Restaurant
+// Performance & Owner Activity Intelligence tools (spec §1) — the
+// dashboard's charts now offer the same range the AI chat/PDF/Excel export
+// already support.
+export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'last_3_months' | 'last_6_months' | 'last_year';
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
@@ -39,6 +44,9 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: 'last_week', label: 'Last week' },
   { key: 'this_month', label: 'This month' },
   { key: 'last_month', label: 'Last month' },
+  { key: 'last_3_months', label: '3 months' },
+  { key: 'last_6_months', label: '6 months' },
+  { key: 'last_year', label: '1 year' },
 ];
 const PERIOD_LABEL: Record<Period, string> = Object.fromEntries(PERIODS.map((p) => [p.key, p.label])) as Record<Period, string>;
 
@@ -76,6 +84,21 @@ export function periodRange(period: Period) {
       const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const to = new Date(now.getFullYear(), now.getMonth(), 1);
       return { from, to, prevFrom: new Date(now.getFullYear(), now.getMonth() - 2, 1), prevTo: from };
+    }
+    case 'last_3_months': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
+    }
+    case 'last_6_months': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
+    }
+    case 'last_year': {
+      const from = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      const prevFrom = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
     }
     default: {
       const from = today0;
