@@ -3409,6 +3409,13 @@ type BuiltReportData = {
   supplierPayable?: { invoiced_cents: number; approved_cents: number; paid_cents: number; on_hold_cents: number; outstanding_cents: number; overdue_cents: number; by_supplier: { supplier_name: string; invoiced_cents: number; paid_cents: number; outstanding_cents: number; overdue_cents: number }[] };
   managementActivity?: { purchase_orders_created: number; purchase_orders_received: number; supplier_payments_made: number; supplier_payments_total_cents: number; expenses_recorded: number; stock_adjustments: number; stock_counts: number; menu_updates: number; promotions_created: number };
   attentionItems?: AttentionItem[];
+  deals?: { name: string; qty_sold: number; revenue_cents: number; cogs_cents: number; contribution_cents: number; contribution_margin_pct: number | null }[];
+  promotions?: { name: string; code: string | null; redemptions: number; total_discount_cents: number; total_order_revenue_cents: number }[];
+  inventoryReconciliation?: {
+    purchases_cents: number; consumption_cents: number; waste_cents: number; adjustments_cents: number;
+    closing_value_cents: number; implied_opening_value_cents: number | null; stock_count_variance_cents: number; reconciliation_issue?: string;
+  };
+  aiInsights?: { positives: string[]; areasToReview: { area: string; evidence: string; recommendation: string }[] };
   aiSummary: string | null;
 };
 
@@ -3422,7 +3429,10 @@ async function buildReportData(
   }
   const { from, to, label } = resolvePeriod(args);
 
-  const [profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes, attentionItems] = await Promise.all([
+  const [
+    profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes,
+    attentionItems, dealProfRes, promoRes, inventoryRecRes, positivesRes, areasRes,
+  ] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('sales_by_day', { p_from: from.toISOString().slice(0, 10), p_to: to.toISOString().slice(0, 10) }),
     admin.rpc('feedback_summary', { p_from: from.toISOString(), p_to: to.toISOString() }),
@@ -3446,6 +3456,11 @@ async function buildReportData(
     admin.rpc('supplier_payable'),
     runToolByName(admin, 'get_owner_activity', forwardRange({ from, to })),
     computeActiveAttentionItems(admin),
+    admin.rpc('deal_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
+    admin.rpc('promotion_performance', { p_from: from.toISOString(), p_to: to.toISOString() }),
+    runToolByName(admin, 'get_inventory_reconciliation', forwardRange({ from, to })),
+    runToolByName(admin, 'get_positive_highlights', forwardRange({ from, to })),
+    runToolByName(admin, 'get_areas_to_review', forwardRange({ from, to })),
   ]);
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
@@ -3554,6 +3569,13 @@ async function buildReportData(
       supplierPayable,
       managementActivity,
       attentionItems,
+      deals: (dealProfRes.data ?? []) as BuiltReportData['deals'],
+      promotions: ((promoRes.data ?? []) as { name: string; code: string | null; redemptions: number; total_discount_cents: number; total_order_revenue_cents: number }[]),
+      inventoryReconciliation: inventoryRecRes as BuiltReportData['inventoryReconciliation'],
+      aiInsights: {
+        positives: (positivesRes as { highlights: string[] }).highlights,
+        areasToReview: (areasRes as { areas: { area: string; evidence: string; recommendation: string }[] }).areas,
+      },
       aiSummary: null,
     },
   };
@@ -3575,8 +3597,26 @@ DATA & HONESTY
 - If you lack the data to answer (e.g. asked for profit, but there are no cost figures), say what you can answer and what's missing. Do not guess.
 - Profitability numbers (get_period_profitability / get_order_profitability / get_item_profitability / get_deal_profitability) are Operational/Theoretical estimates, not formal accounting — food cost is what the configured recipe says it should be, not a full audited P&L. Call it "Contribution" or "Gross Profit", never "Net Profit", unless a tool actually returns net_profit_cents (only get_period_profitability does, after real recorded expenses). If a tool's cogs_lines_missing is above 0, say plainly that N of the sold lines had no recipe configured and the food-cost figure understates the true cost — never silently present it as complete.
 
+LANGUAGE RULE — label the kind of claim you're making
+When you say anything beyond a single tool figure restated plainly — any interpretation, comparison, or suggestion — make clear which of these it is; never present one as another:
+- FACT: directly from a tool result, unchanged.
+- CALCULATION: arithmetic you did on tool results (a sum, a %, a difference) — still exact, never guessed.
+- INSIGHT: an interpretation supported by multiple facts (e.g. margin improved because sales grew faster than COGS).
+- CORRELATION: two things moved together in the same window — say "moved together with", never "caused" or "because of", unless a tool result itself asserts causation.
+- ESTIMATE: a number that is itself approximate or forecasted (get_demand_forecast, a recipe-cost-based food % before real expenses) — always say so.
+- RECOMMENDATION: a suggested next step — phrase it as "worth reviewing" / "consider", never as an instruction the owner must follow.
+Never state a RECOMMENDATION or CORRELATION as if it were a FACT.
+
 HOW TO ANSWER
 - Lead with the direct answer in one line. Then the few numbers that matter. Then, only if useful, a short recommendation.
+- For "analyze my restaurant" / "how is my restaurant doing overall" / "give me my monthly management report" / a request that clearly wants the FULL picture (sales, profit, purchasing, suppliers, inventory, customers, staff, management activity, what needs attention) rather than one narrow number, use analyze_restaurant — it composes the executive summary, the owner scorecard, top attention items, top positive highlights, top areas to review and a management-activity headline in one call. Structure the answer as: one-line overall status, then the executive summary numbers, then a short "what needs attention" list, then (only if there's something to say) what's working and what to review — never dump all of it as an undifferentiated wall of text.
+- For "what did I do this month" / "what did I do today" / a request for management activity specifically, use get_owner_activity and read its counts back grouped exactly as it returns them (purchasing, suppliers, inventory, menu, promotions, expenses, staff) — never invent an activity category it doesn't report.
+- For "where did my money go" / "cash flow" / anything distinguishing cash from profit, use get_money_flow and keep its two halves visually separate — never net a supplier payment against Net Profit, and always state its note explaining why the two numbers differ when they do.
+- For "how healthy is my restaurant across the board" / "give me a scorecard", use get_owner_scorecard and present each domain with its status and the one evidence sentence behind it — never invent a domain it doesn't cover or a numeric score it doesn't return.
+- For "what am I doing well" use get_positive_highlights; for "what should I improve" / "what am I doing wrong" (careful, non-accusatory framing — never blame the owner) use get_areas_to_review, presenting each item's evidence before its recommendation.
+- For "how much did I purchase" / "what did I buy from X" / supplier price-increase questions, use get_purchasing_summary. For comparing suppliers ("which supplier is better for chicken", fill rate, on-time %, lead time), use get_supplier_performance — pass ingredient_name to narrow it, and always name the specific metrics behind a "better" claim (never a bare opinion).
+- For inventory reconciliation ("does my inventory add up", waste/purchase/consumption movement for a period), use get_inventory_reconciliation — its implied_opening_value is null whenever it isn't reliably derivable; say so plainly rather than presenting a number that isn't there.
+- Any of the above tools accepts period: 'last_3_months' | 'last_6_months' | 'last_year' in addition to the usual today..last_month, or an exact from/to ('YYYY-MM-DD') custom range instead of period — use whichever the owner actually asked for.
 - For "how are we doing / what's happening": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
 - For "what needs my attention" / "what should I do" / "manage my restaurant" / "take care of today" — the single most important command — call get_attention_items and present its list as-is, ranked CRITICAL > HIGH > MEDIUM > LOW exactly as it returns them: do not add items it didn't find, and say "Nothing needs attention right now" plainly when the list is empty rather than inventing something to say. Name which part of the app to open (its open_in field) for each item so the owner can act on it.
 - For "morning brief" / "daily brief" / "how did we do yesterday and what's going on" / "give me today's brief", use get_daily_brief — one call covering yesterday's sales/food cost/rating, today's low-stock and pending-delivery counts, total outstanding payables, missing check-outs, yesterday's low-rated feedback, and the same attention items. Structure the answer in that order (yesterday, inventory, suppliers, finance, attendance, customers, then attention) rather than a wall of text, and only mention a section if it actually has something to say. If finance fields are absent, that's the caller's own permissions, not a fetch failure — don't apologize for it.

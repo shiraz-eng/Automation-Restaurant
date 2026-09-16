@@ -68,6 +68,38 @@ export type ReportManagementActivity = {
   promotions_created: number;
 };
 export type ReportAttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string };
+export type ReportDeal = {
+  name: string;
+  qty_sold: number;
+  revenue_cents: number;
+  cogs_cents: number;
+  contribution_cents: number;
+  contribution_margin_pct: number | null;
+};
+export type ReportPromotion = {
+  name: string;
+  code: string | null;
+  redemptions: number;
+  total_discount_cents: number;
+  total_order_revenue_cents: number;
+};
+export type ReportInventory = {
+  purchases_cents: number;
+  consumption_cents: number;
+  waste_cents: number;
+  adjustments_cents: number;
+  closing_value_cents: number;
+  implied_opening_value_cents: number | null;
+  stock_count_variance_cents: number;
+  reconciliation_issue?: string;
+};
+// FACT/INSIGHT/RECOMMENDATION-style entries (spec §14/§27) — positives are
+// stated facts on their own; areas-to-review pair an evidence FACT with a
+// RECOMMENDATION, never presented as proven cause.
+export type ReportAiInsights = {
+  positives: string[];
+  areasToReview: { area: string; evidence: string; recommendation: string }[];
+};
 
 // The full period_profitability() row (same RPC the dashboard, /finance,
 // and the AI assistant already call) — optional so a caller without
@@ -109,6 +141,10 @@ export type ReportData = {
   supplierPayable?: ReportSupplierPayable;
   managementActivity?: ReportManagementActivity;
   attentionItems?: ReportAttentionItem[];
+  deals?: ReportDeal[];
+  promotions?: ReportPromotion[];
+  inventoryReconciliation?: ReportInventory;
+  aiInsights?: ReportAiInsights;
   aiSummary: string | null;
 };
 
@@ -535,18 +571,17 @@ export function generateReportPdf(data: ReportData): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     y = (doc as any).lastAutoTable.finalY + 4;
     if (pu.by_supplier.length > 0) {
-      y = ensureSpace(doc, y, 20);
-      autoTable(doc, {
-        startY: y,
-        margin: { left: MARGIN, right: MARGIN },
-        head: [['Supplier', 'Purchased']],
-        body: pu.by_supplier.slice(0, 10).map((s) => [s.supplier, formatCents(s.cents)]),
-        styles: { fontSize: 8.5, cellPadding: 1.4 },
-        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
-        columnStyles: { 1: { halign: 'right' } },
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      y = (doc as any).lastAutoTable.finalY + 8;
+      y = ensureSpace(doc, y, 8 * Math.min(pu.by_supplier.length, 8) + 10);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...BODY);
+      doc.text('Top suppliers by spend', MARGIN, y);
+      y += 4;
+      y = drawHorizontalBarChart(
+        doc,
+        y,
+        pu.by_supplier.slice(0, 8).map((s) => ({ label: s.supplier, value: s.cents })),
+      );
     } else {
       y += 6;
     }
@@ -594,9 +629,134 @@ export function generateReportPdf(data: ReportData): void {
         columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      y = (doc as any).lastAutoTable.finalY + 8;
+      y = (doc as any).lastAutoTable.finalY + 4;
+      const withOutstanding = sp.by_supplier.filter((s) => s.outstanding_cents > 0).slice(0, 8);
+      if (withOutstanding.length > 0) {
+        y = ensureSpace(doc, y, 8 * withOutstanding.length + 10);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(...BODY);
+        doc.text('Outstanding by supplier', MARGIN, y);
+        y += 4;
+        y = drawHorizontalBarChart(
+          doc,
+          y,
+          withOutstanding.map((s) => ({ label: s.supplier_name, value: s.outstanding_cents })),
+        );
+      } else {
+        y += 4;
+      }
     } else {
       y += 6;
+    }
+  }
+
+  // ── Deal & Promotion Performance (spec §11) ─────────────────────────────
+  if (data.deals) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Deal Performance', MARGIN, y);
+    y += 3;
+    if (data.deals.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No deals sold in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Deal', 'Units', 'Revenue', 'COGS', 'Contribution', 'Margin']],
+        body: data.deals.map((d) => [
+          d.name,
+          String(d.qty_sold),
+          formatCents(d.revenue_cents),
+          formatCents(d.cogs_cents),
+          formatCents(d.contribution_cents),
+          d.contribution_margin_pct != null ? `${d.contribution_margin_pct}%` : 'N/A',
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 1.5 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+  }
+  if (data.promotions) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Promotion Performance', MARGIN, y);
+    y += 3;
+    if (data.promotions.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No promotions redeemed in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Promotion', 'Code', 'Redemptions', 'Discount Given', 'Order Revenue']],
+        body: data.promotions.map((p) => [
+          p.name,
+          p.code ?? '—',
+          String(p.redemptions),
+          formatCents(p.total_discount_cents),
+          formatCents(p.total_order_revenue_cents),
+        ]),
+        styles: { fontSize: 8.5, cellPadding: 1.5 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+  }
+
+  // ── Inventory (spec §7) — real movement from the stock ledger against
+  // the current closing value; never a forced/fabricated reconciliation. ──
+  if (data.inventoryReconciliation) {
+    const inv = data.inventoryReconciliation;
+    y = ensureSpace(doc, y, 30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Inventory', MARGIN, y);
+    y += 3;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.6 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
+      body: [
+        ['Purchases', formatCents(inv.purchases_cents)],
+        ['Consumption', formatCents(inv.consumption_cents)],
+        ['Waste', formatCents(inv.waste_cents)],
+        ['Adjustments', formatCents(inv.adjustments_cents)],
+        ['Closing Value', formatCents(inv.closing_value_cents)],
+        ['Implied Opening Value', inv.implied_opening_value_cents != null ? formatCents(inv.implied_opening_value_cents) : 'Not reliably derivable'],
+      ],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 2;
+    if (inv.reconciliation_issue) {
+      y = ensureSpace(doc, y, 14);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...WARN);
+      const lines = doc.splitTextToSize(`[!] ${inv.reconciliation_issue}`, CONTENT_W);
+      doc.text(lines, MARGIN, y + 4);
+      y += lines.length * 4 + 6;
+    } else {
+      y += 8;
     }
   }
 
@@ -667,6 +827,71 @@ export function generateReportPdf(data: ReportData): void {
     }
   }
 
+  // ── AI Insights (spec §14, §27) — a FACT is a real period-over-period
+  // figure; a RECOMMENDATION is always a suggestion, never a claim of
+  // proven cause. Positives and concerns are shown separately so this
+  // never reads as only a list of warnings. ──────────────────────────────
+  if (data.aiInsights) {
+    const ai = data.aiInsights;
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('AI Insights', MARGIN, y);
+    y += 6;
+    if (ai.positives.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...OK);
+      doc.text('What is working', MARGIN, y);
+      y += 4;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...BODY);
+      for (const p of ai.positives) {
+        y = ensureSpace(doc, y, 10);
+        const lines = doc.splitTextToSize(`+ ${p}`, CONTENT_W);
+        doc.text(lines, MARGIN, y);
+        y += lines.length * 4 + 1.5;
+      }
+      y += 3;
+    }
+    if (ai.areasToReview.length > 0) {
+      y = ensureSpace(doc, y, 16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...WARN);
+      doc.text('Areas to review', MARGIN, y);
+      y += 4;
+      for (const a of ai.areasToReview) {
+        y = ensureSpace(doc, y, 18);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...BODY);
+        doc.text(a.area, MARGIN, y);
+        y += 3.5;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...MUTED);
+        const factLines = doc.splitTextToSize(`FACT: ${a.evidence}`, CONTENT_W);
+        doc.text(factLines, MARGIN, y);
+        y += factLines.length * 3.6 + 0.5;
+        doc.setTextColor(...PRIMARY);
+        const recLines = doc.splitTextToSize(`RECOMMENDATION: ${a.recommendation}`, CONTENT_W);
+        doc.text(recLines, MARGIN, y);
+        y += recLines.length * 3.6 + 3;
+      }
+    }
+    if (ai.positives.length === 0 && ai.areasToReview.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No notable period-over-period changes found yet.', MARGIN, y);
+      y += 8;
+    }
+    y += 4;
+  }
+
   // ── AI summary ────────────────────────────────────────────────────────
   y = ensureSpace(doc, y, 25);
   doc.setFont('helvetica', 'bold');
@@ -700,6 +925,35 @@ export function generateReportPdf(data: ReportData): void {
 
   const stamp = new Date().toISOString().slice(0, 10);
   doc.save(`${data.restaurantName.replace(/[^a-z0-9]+/gi, '-')}-report-${stamp}.pdf`);
+}
+
+/** A hand-drawn vector horizontal bar chart (not a screenshot) — reused for
+ *  purchasing-by-supplier and outstanding-by-supplier so those tables get
+ *  the same "at a glance" visual the Sales Trend section already has for
+ *  daily figures. Horizontal (not vertical, like Sales Trend) because a
+ *  supplier name doesn't fit under a narrow vertical bar. */
+function drawHorizontalBarChart(doc: jsPDF, startY: number, items: { label: string; value: number }[]): number {
+  const barH = 5.5;
+  const gap = 2.5;
+  const labelW = 42;
+  const maxBarW = CONTENT_W - labelW - 24;
+  const max = Math.max(1, ...items.map((i) => i.value));
+  let y = startY;
+  for (const item of items) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...BODY);
+    const label = item.label.length > 20 ? `${item.label.slice(0, 19)}…` : item.label;
+    doc.text(label, MARGIN, y + barH - 1.3);
+    const barW = Math.max((item.value / max) * maxBarW, 0.5);
+    doc.setFillColor(...PRIMARY);
+    doc.rect(MARGIN + labelW, y, barW, barH, 'F');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...MUTED);
+    doc.text(formatCents(item.value), MARGIN + labelW + barW + 2, y + barH - 1.3);
+    y += barH + gap;
+  }
+  return y + 4;
 }
 
 function ensureSpace(doc: jsPDF, y: number, needed: number): number {

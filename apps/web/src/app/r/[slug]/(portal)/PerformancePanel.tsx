@@ -5,7 +5,16 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { generateReportPdf } from '@/lib/generateReport';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
-import type { ReportPurchasing, ReportSupplierPayable, ReportManagementActivity, ReportAttentionItem } from '@/lib/generateReport';
+import type {
+  ReportPurchasing,
+  ReportSupplierPayable,
+  ReportManagementActivity,
+  ReportAttentionItem,
+  ReportDeal,
+  ReportPromotion,
+  ReportInventory,
+  ReportAiInsights,
+} from '@/lib/generateReport';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 import {
@@ -346,6 +355,10 @@ export function PerformancePanel({
     let supplierPayable: ReportSupplierPayable | undefined;
     let managementActivity: ReportManagementActivity | undefined;
     let attentionItems: ReportAttentionItem[] | undefined;
+    let deals: ReportDeal[] | undefined;
+    let promotions: ReportPromotion[] | undefined;
+    let inventoryReconciliation: ReportInventory | undefined;
+    let aiInsights: ReportAiInsights | undefined;
     try {
       const {
         data: { session },
@@ -361,10 +374,14 @@ export function PerformancePanel({
         supplierPayable = body.result.supplierPayable ?? undefined;
         managementActivity = body.result.managementActivity ?? undefined;
         attentionItems = body.result.attentionItems ?? undefined;
+        deals = body.result.deals ?? undefined;
+        promotions = body.result.promotions ?? undefined;
+        inventoryReconciliation = body.result.inventoryReconciliation ?? undefined;
+        aiInsights = body.result.aiInsights ?? undefined;
       }
     } catch {
       // Non-fatal — the PDF still generates with every section this panel
-      // already had locally, just without the four intelligence sections.
+      // already had locally, just without the intelligence sections.
     }
 
     generateReportPdf({
@@ -397,6 +414,10 @@ export function PerformancePanel({
       supplierPayable,
       managementActivity,
       attentionItems,
+      deals,
+      promotions,
+      inventoryReconciliation,
+      aiInsights,
       aiSummary: aiSummary ?? null,
     });
   }
