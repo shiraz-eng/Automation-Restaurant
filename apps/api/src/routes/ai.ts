@@ -6,6 +6,7 @@ import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
+import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -181,14 +182,37 @@ aiRouter.post('/attention/state', express.json(), requirePortalPerm('orders.view
   return res.json({ ok: true });
 });
 
+// Chat file attachments — spec's "it should accept files" for the generic
+// assistant. Images go to the model as a real vision content block (spec's
+// "trained accordingly"); PDF/CSV/plain text are extracted to text and
+// appended to the user's own message, wrapped the same
+// wrapUntrustedDocument() delimiter Smart Import already uses so the
+// model treats the file's content as DATA, never as instructions. One
+// attachment per turn, never persisted server-side and never resent by
+// the client on later turns (see AiChat.tsx) — this keeps every request
+// bounded regardless of how long the conversation runs.
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const TEXT_MIME_TYPES = new Set(['text/plain', 'text/csv']);
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+const attachmentSchema = z.object({
+  name: z.string().min(1).max(200),
+  mimeType: z.string().min(1).max(100),
+  // base64 — generous cap here, the real (decoded) size limit is enforced
+  // below against MAX_ATTACHMENT_BYTES once it's a Buffer.
+  dataBase64: z.string().min(1).max(9_000_000),
+});
+
 const bodySchema = z.object({
   slug: z.string().min(1),
   messages: z
     .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) }))
     .min(1)
     .max(30),
+  attachment: attachmentSchema.optional(),
 });
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
+type AttachmentImage = { mimeType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; dataBase64: string };
 
 const MAX_TURNS = 6;
 type PendingAction = { id: string; name: string; args: Record<string, unknown>; summary: string };
@@ -319,6 +343,7 @@ async function callTool(
 // ── Gemini (direct REST — the SDK's role/shape assumptions vary by endpoint) ─
 type GPart =
   | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
   | { functionCall: { name: string; args?: Record<string, unknown> } }
   | { functionResponse: { name: string; response: object } };
 type GContent = { role: 'user' | 'model'; parts: GPart[] };
@@ -361,14 +386,19 @@ async function runGemini(
   system: string,
   admin: SupabaseClient,
   actor: Actor,
+  attachmentImage?: AttachmentImage | null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
   const actionByName = new Map(actions.map((a) => [a.name, a]));
   const declared: ToolLike[] = [...tools, ...actions];
-  const contents: GContent[] = messages.map((m) => ({
+  const lastIndex = messages.length - 1;
+  const contents: GContent[] = messages.map((m, i) => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
+    parts:
+      attachmentImage && i === lastIndex && m.role === 'user'
+        ? [{ text: m.content }, { inlineData: { mimeType: attachmentImage.mimeType, data: attachmentImage.dataBase64 } }]
+        : [{ text: m.content }],
   }));
   const trace: AgentResult['trace'] = [];
   const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
@@ -490,13 +520,25 @@ async function runAnthropic(
   system: string,
   admin: SupabaseClient,
   actor: Actor,
+  attachmentImage?: AttachmentImage | null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
   const actionByName = new Map(actions.map((a) => [a.name, a]));
   const declared: ToolLike[] = [...tools, ...actions];
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
-  const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  const lastIndex = messages.length - 1;
+  const convo: Anthropic.MessageParam[] = messages.map((m, i) =>
+    attachmentImage && i === lastIndex && m.role === 'user'
+      ? {
+          role: m.role,
+          content: [
+            { type: 'text', text: m.content },
+            { type: 'image', source: { type: 'base64', media_type: attachmentImage.mimeType, data: attachmentImage.dataBase64 } },
+          ],
+        }
+      : { role: m.role, content: m.content },
+  );
   const trace: AgentResult['trace'] = [];
   const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
 
@@ -572,7 +614,10 @@ async function runAnthropic(
  */
 aiRouter.post(
   '/chat',
-  express.json(),
+  // Raised from the other AI routes' default 100kb — an attached image or
+  // PDF (capped at MAX_ATTACHMENT_BYTES = 5MB raw) needs room once
+  // base64-encoded (~+33%) and wrapped in the rest of the JSON body.
+  express.json({ limit: '10mb' }),
   requirePortalPerm('ai.view'),
   async (req: Request, res: Response) => {
     if (!aiEnabled) {
@@ -588,6 +633,41 @@ aiRouter.post(
       return res.status(403).json({ error: 'forbidden', message: 'You are not allowed to run AI queries.' });
     }
 
+    let messages = parsed.data.messages;
+    let attachmentImage: AttachmentImage | null = null;
+    const attachment = parsed.data.attachment;
+    if (attachment) {
+      const buffer = Buffer.from(attachment.dataBase64, 'base64');
+      if (buffer.byteLength > MAX_ATTACHMENT_BYTES) {
+        return res.status(413).json({ error: 'attachment_too_large', message: 'That file is too large — attachments are limited to 5MB.' });
+      }
+      if (IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+        attachmentImage = { mimeType: attachment.mimeType as AttachmentImage['mimeType'], dataBase64: attachment.dataBase64 };
+      } else {
+        let extracted: string;
+        try {
+          if (attachment.mimeType === 'application/pdf') extracted = await extractPdfText(buffer);
+          else if (TEXT_MIME_TYPES.has(attachment.mimeType)) extracted = extractPlainText(buffer);
+          else {
+            return res.status(422).json({
+              error: 'attachment_unsupported',
+              message: 'Supported attachments: images (JPEG/PNG/GIF/WEBP), PDF, CSV, and plain text.',
+            });
+          }
+        } catch {
+          return res.status(422).json({ error: 'attachment_unreadable', message: `Could not read "${attachment.name}".` });
+        }
+        // Appended to the user's own last message, not sent as a separate
+        // turn — same wrapUntrustedDocument() delimiter Smart Import uses,
+        // so the model is told (in its own system prompt) to treat this as
+        // data to read, never as instructions to follow.
+        const lastIndex = messages.length - 1;
+        messages = messages.map((m, i) =>
+          i === lastIndex ? { ...m, content: `${m.content}\n\n${wrapUntrustedDocument(extracted)}` } : m,
+        );
+      }
+    }
+
     const allowedTools = AI_TOOLS.filter((t) => permits(permissions, role, t.needs));
     // An action is only offered to the model when the caller holds BOTH the
     // AI-specific write gate and the underlying business permission it acts on.
@@ -600,8 +680,8 @@ aiRouter.post(
     try {
       const result =
         aiProvider === 'gemini'
-          ? await runGemini(parsed.data.messages, allowedTools, allowedActions, system, admin, actor)
-          : await runAnthropic(parsed.data.messages, allowedTools, allowedActions, system, admin, actor);
+          ? await runGemini(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage)
+          : await runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage);
       return res.json({
         reply: result.reply,
         tools: result.trace,

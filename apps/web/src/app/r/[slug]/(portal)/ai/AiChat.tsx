@@ -38,7 +38,17 @@ type Msg = {
   profitCard?: ProfitCard;
   orderCard?: OrderProfitRow;
   dealCard?: { period: string; deals: DealProfitRow[] };
+  attachmentName?: string;
 };
+
+// Mirrors routes/ai.ts's IMAGE_MIME_TYPES/TEXT_MIME_TYPES + application/pdf,
+// and its MAX_ATTACHMENT_BYTES — checked here too so a rejection is instant
+// rather than a round trip to the server.
+const ACCEPTED_ATTACHMENT_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/csv', 'text/plain',
+]);
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+type PendingFile = { name: string; mimeType: string; dataBase64: string };
 
 const SUGGESTIONS = [
   'How is my restaurant doing right now?',
@@ -59,7 +69,32 @@ export function AiChat({ slug }: { slug: string }) {
   const [drilldownCard, setDrilldownCard] = useState<ProfitCard | null>(null);
   const [orderDrilldown, setOrderDrilldown] = useState<OrderProfitRow | null>(null);
   const [dealDrilldown, setDealDrilldown] = useState<{ period: string; deals: DealProfitRow[] } | null>(null);
+  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError(null);
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      setError('That file is too large — attachments are limited to 5MB.');
+      return;
+    }
+    const mimeType = file.type || (file.name.toLowerCase().endsWith('.csv') ? 'text/csv' : '');
+    if (!ACCEPTED_ATTACHMENT_TYPES.has(mimeType)) {
+      setError('Unsupported file — attach an image (JPEG/PNG/GIF/WEBP), a PDF, a CSV, or a plain text file.');
+      return;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    setPendingFile({ name: file.name, mimeType, dataBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+  }
 
   function scrollDown() {
     requestAnimationFrame(() => boxRef.current?.scrollTo(0, boxRef.current.scrollHeight));
@@ -77,7 +112,12 @@ export function AiChat({ slug }: { slug: string }) {
     if (!q || busy) return;
     setError(null);
     setInput('');
-    const next: Msg[] = [...msgs, { role: 'user', content: q }];
+    // The attachment rides along with THIS request only — resending it on
+    // every later turn (the way msgs' own text is resent) would make every
+    // follow-up message in the conversation grow without bound.
+    const attachment = pendingFile;
+    setPendingFile(null);
+    const next: Msg[] = [...msgs, { role: 'user', content: q, attachmentName: attachment?.name }];
     setMsgs(next);
     setBusy(true);
     try {
@@ -87,6 +127,7 @@ export function AiChat({ slug }: { slug: string }) {
         body: JSON.stringify({
           slug,
           messages: next.map((m) => ({ role: m.role, content: m.content })),
+          ...(attachment ? { attachment: { name: attachment.name, mimeType: attachment.mimeType, dataBase64: attachment.dataBase64 } } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -239,6 +280,9 @@ export function AiChat({ slug }: { slug: string }) {
               >
                 {m.content}
               </div>
+              {m.attachmentName && (
+                <div className="text-[10px] text-muted mt-1">📎 {m.attachmentName}</div>
+              )}
               {m.tools && m.tools.length > 0 && (
                 <div className="text-[10px] text-muted mt-1">
                   · {m.tools.join(' · ')}
@@ -358,21 +402,52 @@ export function AiChat({ slug }: { slug: string }) {
           e.preventDefault();
           send(input);
         }}
-        className="border-t border-border p-3 flex gap-2"
+        className="border-t border-border p-3 space-y-2"
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the assistant…"
-          className="flex-1 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="rounded bg-primary text-primary-fg font-semibold px-4 py-2 text-sm disabled:opacity-50"
-        >
-          Ask
-        </button>
+        {pendingFile && (
+          <div className="flex items-center gap-2 text-xs bg-main border border-border rounded px-2.5 py-1.5 w-fit">
+            <span>📎 {pendingFile.name}</span>
+            <button
+              type="button"
+              onClick={() => setPendingFile(null)}
+              className="text-muted hover:text-danger font-bold"
+              aria-label="Remove attachment"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.csv,.txt,text/csv,text/plain"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            title="Attach a file (image, PDF, CSV, or text)"
+            className="rounded border border-border px-3 py-2 text-sm hover:border-primary disabled:opacity-50"
+          >
+            📎
+          </button>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask the assistant…"
+            className="flex-1 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
+          />
+          <button
+            type="submit"
+            disabled={busy || !input.trim()}
+            className="rounded bg-primary text-primary-fg font-semibold px-4 py-2 text-sm disabled:opacity-50"
+          >
+            Ask
+          </button>
+        </div>
       </form>
 
       {drilldownCard && (
