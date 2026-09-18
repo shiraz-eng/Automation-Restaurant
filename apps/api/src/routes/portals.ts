@@ -1,10 +1,42 @@
 import { randomBytes } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { env } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
 
 export const portalsRouter = express.Router();
+
+/**
+ * Portal configuration (create/edit/delete/assign staff) is Owner-only —
+ * defense-in-depth beyond the portals.* permission check: nothing in the
+ * permission_catalog stops an Owner from granting portals.update to a
+ * portal's own bundle (e.g. under "Portal Management" individual
+ * permissions), and a staff member linked to that portal via portal_staff
+ * would otherwise inherit portals.update and could call these routes
+ * directly even though the /portals page itself is role-gated.
+ */
+function requireOwner(req: Request, res: Response, next: NextFunction) {
+  if (req.tenant!.role !== 'owner') {
+    return res.status(403).json({ error: 'forbidden', message: 'Owner only.' });
+  }
+  next();
+}
+
+/** Push freshly computed effective permissions onto each linked Auth user. */
+async function backfillEffectivePermissions(
+  admin: SupabaseClient,
+  rows: { user_id: string | null; effective: string[] }[],
+) {
+  for (const row of rows) {
+    if (!row.user_id) continue;
+    const { data: u } = await admin.auth.admin.getUserById(row.user_id);
+    const existing = (u?.user?.app_metadata ?? {}) as Record<string, unknown>;
+    await admin.auth.admin.updateUserById(row.user_id, {
+      app_metadata: { ...existing, permissions: row.effective },
+    });
+  }
+}
 
 portalsRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
@@ -12,7 +44,7 @@ portalsRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return void res.sendStatus(204);
   next();
@@ -64,6 +96,7 @@ portalsRouter.post(
   '/',
   express.json(),
   requirePortalPerm('portals.create'),
+  requireOwner,
   async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -128,6 +161,7 @@ portalsRouter.patch(
   '/:id',
   express.json(),
   requirePortalPerm('portals.update'),
+  requireOwner,
   async (req: Request, res: Response) => {
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -139,7 +173,7 @@ portalsRouter.patch(
   }
   const { slug: _slug, ...changes } = parsed.data;
   void _slug;
-  const { admin } = req.tenant!;
+  const { admin, permissions } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')
@@ -149,6 +183,17 @@ portalsRouter.patch(
   if (!portal) return res.status(404).json({ error: 'not_found' });
   if (portal.type === 'super_admin') {
     return res.status(409).json({ error: 'immutable', message: 'The Super Admin portal cannot be changed.' });
+  }
+
+  // Same anti-escalation rule set_portal_staff enforces for linking staff:
+  // an Owner without '*' (shouldn't happen in practice, but this route has
+  // no other gate on the permission array itself) can't hand out a key they
+  // don't hold via a portal's own bundle either.
+  if (changes.permissions && !permissions.includes('*')) {
+    const overreach = changes.permissions.filter((k) => !permissions.includes(k));
+    if (overreach.length) {
+      return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${overreach.join(', ')}` });
+    }
   }
 
   const { error: upErr } = await admin.from('portals').update(changes).eq('id', portal.id);
@@ -167,6 +212,20 @@ portalsRouter.patch(
     if (changes.status) patch.ban_duration = changes.status === 'disabled' ? '876000h' : 'none';
     await admin.auth.admin.updateUserById(portal.portal_user_id, patch);
   }
+
+  // Its permissions or active status changed — every staff member linked
+  // via portal_staff needs their effective permissions recomputed too, not
+  // just the portal's own kiosk login above.
+  if (changes.permissions || changes.status) {
+    const { data: links } = await admin.from('portal_staff').select('membership_id').eq('portal_id', portal.id);
+    for (const link of links ?? []) {
+      const { data: recomputed } = await admin.rpc('membership_effective_permissions', {
+        p_membership_id: link.membership_id,
+      });
+      await backfillEffectivePermissions(admin, (recomputed as { user_id: string | null; effective: string[] }[]) ?? []);
+    }
+  }
+
   res.json({ ok: true });
 },
 );
@@ -176,6 +235,7 @@ portalsRouter.post(
   '/:id/password',
   express.json(),
   requirePortalPerm('portals.credentials'),
+  requireOwner,
   async (req: Request, res: Response) => {
   const newPw = typeof req.body?.password === 'string' ? req.body.password : undefined;
   if (newPw && (newPw.length < 8 || newPw.length > 200)) {
@@ -207,6 +267,7 @@ portalsRouter.delete(
   '/:id',
   express.json(),
   requirePortalPerm('portals.update'),
+  requireOwner,
   async (req: Request, res: Response) => {
   const { admin } = req.tenant!;
 
@@ -218,10 +279,74 @@ portalsRouter.delete(
   if (!portal) return res.status(404).json({ error: 'not_found' });
   if (portal.type === 'super_admin') return res.status(409).json({ error: 'immutable' });
 
+  // Staff linked via portal_staff (cascade-deleted with the portal row
+  // below) lose this portal's contribution to their effective permissions —
+  // capture who, before the row (and the FK-cascaded links) are gone.
+  const { data: links } = await admin.from('portal_staff').select('membership_id').eq('portal_id', portal.id);
+  const linkedMembershipIds = (links ?? []).map((l) => l.membership_id as string);
+
   await admin.from('portals').delete().eq('id', portal.id);
   if (portal.portal_user_id) {
     await admin.auth.admin.deleteUser(portal.portal_user_id).catch(() => {});
   }
+
+  for (const membershipId of linkedMembershipIds) {
+    const { data: recomputed } = await admin.rpc('membership_effective_permissions', {
+      p_membership_id: membershipId,
+    });
+    await backfillEffectivePermissions(admin, (recomputed as { user_id: string | null; effective: string[] }[]) ?? []);
+  }
+
   res.json({ ok: true });
 },
 );
+
+const staffSchema = z.object({
+  slug: z.string().min(1),
+  membership_ids: z.array(z.string().uuid()).max(200).default([]),
+});
+
+/**
+ * PUT /api/portals/:id/staff — set the complete list of staff memberships
+ * assigned to this portal. Each assigned member's Auth user is immediately
+ * back-filled with its recomputed effective permissions (role preset ∪
+ * extra_permissions ∪ every linked portal's permissions) — set_portal_staff
+ * does the same anti-escalation check /api/staff/access uses (the caller
+ * can't hand out a permission it doesn't itself hold) and refuses the
+ * Super Admin portal outright.
+ */
+portalsRouter.put(
+  '/:id/staff',
+  express.json(),
+  requirePortalPerm('portals.update'),
+  requireOwner,
+  async (req: Request, res: Response) => {
+  const parsed = staffSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(422).json({
+      error: 'invalid_request',
+      message: Object.values(parsed.error.flatten().fieldErrors).flat().join(' ') || 'Invalid request.',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+  const { admin } = req.tenant!;
+
+  const { data: rows, error } = await admin.rpc('set_portal_staff', {
+    p_portal_id: req.params.id,
+    p_membership_ids: parsed.data.membership_ids,
+  });
+  if (error) {
+    const msg = error.message ?? 'assignment failed';
+    const status = /do not hold|forbidden|insufficient|cannot be assigned/i.test(msg)
+      ? 403
+      : /not_found/i.test(msg)
+        ? 404
+        : 400;
+    return res.status(status).json({ error: 'assign_failed', message: msg });
+  }
+
+  await backfillEffectivePermissions(admin, (rows as { user_id: string | null; effective: string[] }[]) ?? []);
+  res.json({ ok: true });
+},
+);
+

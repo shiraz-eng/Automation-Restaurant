@@ -1,7 +1,13 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
-import { PortalsManager, type Portal, type PermRow } from './PortalsManager';
+import {
+  PortalsManager,
+  type Portal,
+  type PermRow,
+  type StaffMember,
+  type PortalStaffLink,
+} from './PortalsManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,12 +22,14 @@ export default async function PortalsPage({
 
   await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
 
-  const [{ data: portals, error }, { data: perms }] = await Promise.all([
+  const [{ data: portals, error }, { data: perms }, { data: staff }, { data: links }] = await Promise.all([
     t.client
       .from('portals')
       .select('id, name, type, route_key, status, permissions, last_login_at, created_at')
       .order('created_at'),
     t.client.from('permission_catalog').select('key, grp, label').order('grp'),
+    t.client.from('memberships').select('id, email, full_name, role, status').order('email'),
+    t.client.from('portal_staff').select('portal_id, membership_id'),
   ]);
 
   return (
@@ -42,6 +50,8 @@ export default async function PortalsPage({
           slug={slug}
           portals={(portals ?? []) as Portal[]}
           perms={(perms ?? []) as PermRow[]}
+          staff={(staff ?? []) as StaffMember[]}
+          links={(links ?? []) as PortalStaffLink[]}
         />
       )}
     </div>

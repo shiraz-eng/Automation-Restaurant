@@ -159,7 +159,19 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       'manager' survives untouched. Matches 0042's new default in
 //       schema.sql; 0042 alone only removed the can_write() bypass that
 //       made this restriction meaningless.
-const SCHEMA_VERSION = 43;
+//   v44 Wires public.portal_staff (existed since v4, never read by
+//       anything) into the actual permission pipeline:
+//       app.membership_effective_permissions(role, extra, membership_id) =
+//       role preset ∪ extra_permissions ∪ every linked portal's
+//       permissions; set_member_access now folds it in too, so a role
+//       change never silently drops portal-derived access. New RPCs
+//       set_portal_staff (replace a portal's assigned staff list) and
+//       membership_effective_permissions (recompute one membership after
+//       its portal or role changes) — both service_role-only, both
+//       re-check the caller's own permissions before letting them grant
+//       what they don't hold. Linking the Super Admin portal is refused
+//       outright.
+const SCHEMA_VERSION = 44;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

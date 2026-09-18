@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
@@ -20,6 +20,8 @@ export type Portal = {
   created_at: string;
 };
 export type PermRow = { key: string; grp: string; label: string };
+export type StaffMember = { id: string; email: string; full_name: string | null; role: string; status: string };
+export type PortalStaffLink = { portal_id: string; membership_id: string };
 
 const TYPES = ['checkout', 'kitchen', 'attendance', 'manager', 'custom'] as const;
 
@@ -36,10 +38,14 @@ export function PortalsManager({
   slug,
   portals,
   perms,
+  staff,
+  links,
 }: {
   slug: string;
   portals: Portal[];
   perms: PermRow[];
+  staff: StaffMember[];
+  links: PortalStaffLink[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -52,11 +58,21 @@ export function PortalsManager({
   const [selected, setSelected] = useState<Set<string>>(new Set(PRESET.checkout));
   const [editId, setEditId] = useState<string | null>(null);
 
+  const [staffEditId, setStaffEditId] = useState<string | null>(null);
+  const [staffDraft, setStaffDraft] = useState<Set<string>>(new Set());
+
   const groups = useMemo(() => {
     const m = new Map<string, PermRow[]>();
     for (const p of perms) m.set(p.grp, [...(m.get(p.grp) ?? []), p]);
     return [...m.entries()];
   }, [perms]);
+
+  const staffByPortal = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const l of links) m.set(l.portal_id, [...(m.get(l.portal_id) ?? []), l.membership_id]);
+    return m;
+  }, [links]);
+  const staffById = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
 
   async function token() {
     const {
@@ -158,6 +174,36 @@ export function PortalsManager({
     router.refresh();
   }
 
+  function startStaffEdit(portalId: string) {
+    setError(null);
+    setStaffEditId(portalId);
+    setStaffDraft(new Set(staffByPortal.get(portalId) ?? []));
+  }
+  function toggleStaff(membershipId: string) {
+    setStaffDraft((s) => {
+      const n = new Set(s);
+      n.has(membershipId) ? n.delete(membershipId) : n.add(membershipId);
+      return n;
+    });
+  }
+  async function saveStaff(portalId: string) {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`${API}/api/portals/${portalId}/staff`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+      body: JSON.stringify({ slug, membership_ids: [...staffDraft] }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setError(b.message ?? b.error ?? 'Could not update assigned staff.');
+      return;
+    }
+    setStaffEditId(null);
+    router.refresh();
+  }
+
   return (
     <div className="space-y-6">
       {error && (
@@ -245,13 +291,17 @@ export function PortalsManager({
               <th className="p-3 font-semibold">Type</th>
               <th className="p-3 font-semibold">URL</th>
               <th className="p-3 font-semibold">Status</th>
+              <th className="p-3 font-semibold">Assigned staff</th>
               <th className="p-3 font-semibold">Last login</th>
               <th className="p-3" />
             </tr>
           </thead>
           <tbody>
-            {portals.map((p) => (
-              <tr key={p.id} className="border-b border-border/60 last:border-0 align-top">
+            {portals.map((p) => {
+              const assigned = staffByPortal.get(p.id) ?? [];
+              return (
+              <Fragment key={p.id}>
+              <tr className="border-b border-border/60 last:border-0 align-top">
                 <td className="p-3 font-semibold">{p.name}</td>
                 <td className="p-3 capitalize">{p.type.replace('_', ' ')}</td>
                 <td className="p-3 font-mono text-muted">
@@ -261,6 +311,27 @@ export function PortalsManager({
                   <span className={p.status === 'active' ? 'text-ok' : 'text-danger'}>
                     {p.status}
                   </span>
+                </td>
+                <td className="p-3">
+                  {p.type === 'super_admin' ? (
+                    <span className="text-muted">—</span>
+                  ) : (
+                    <>
+                      <div className="text-muted">
+                        {assigned.length === 0
+                          ? 'None'
+                          : assigned.map((id) => staffById.get(id)?.full_name || staffById.get(id)?.email || id).join(', ')}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-primary underline text-[11px] mt-0.5"
+                        disabled={busy}
+                        onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
+                      >
+                        {staffEditId === p.id ? 'Cancel' : 'Edit'}
+                      </button>
+                    </>
+                  )}
                 </td>
                 <td className="p-3 text-muted">
                   {p.last_login_at ? formatDateTime(p.last_login_at) : '—'}
@@ -299,7 +370,43 @@ export function PortalsManager({
                   )}
                 </td>
               </tr>
-            ))}
+              {staffEditId === p.id && (
+                <tr className="border-b border-border/60 bg-main/30">
+                  <td colSpan={7} className="p-3">
+                    <div className="text-[11px] font-semibold text-muted mb-1.5">
+                      Staff assigned this portal gain its permissions in addition to their own role.
+                    </div>
+                    {staff.length === 0 ? (
+                      <p className="text-muted text-xs">No staff accounts yet — add one on the Staff page.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                        {staff.map((m) => (
+                          <label key={m.id} className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={staffDraft.has(m.id)}
+                              onChange={() => toggleStaff(m.id)}
+                            />
+                            <span>{m.full_name || m.email}</span>
+                            <span className="text-muted text-[10px]">({m.role})</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <Button disabled={busy} onClick={() => saveStaff(p.id)}>
+                        {busy ? 'Saving…' : 'Save'}
+                      </Button>
+                      <Button variant="ghost" disabled={busy} onClick={() => setStaffEditId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </Card>
