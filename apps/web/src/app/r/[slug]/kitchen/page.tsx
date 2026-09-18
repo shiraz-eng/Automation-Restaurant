@@ -1,5 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { can } from '@/lib/permissions';
+import { PortalAiWidget } from '@/components/PortalAiWidget';
 import { KitchenBoard, type KitchenTicket } from './KitchenBoard';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +18,11 @@ export default async function KitchenPage({ params }: { params: Promise<{ slug: 
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
 
+  const meta = (user.app_metadata ?? {}) as { role?: string; permissions?: string[] };
+  const role = meta.role ?? 'owner';
+  const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
+  const canUseAi = can(perms, role, 'ai.view');
+
   const { data } = await t.client
     .from('orders')
     .select(
@@ -24,5 +31,10 @@ export default async function KitchenPage({ params }: { params: Promise<{ slug: 
     .in('status', ACTIVE)
     .order('created_at', { ascending: true });
 
-  return <KitchenBoard initial={(data ?? []) as KitchenTicket[]} />;
+  return (
+    <>
+      <KitchenBoard initial={(data ?? []) as KitchenTicket[]} />
+      {canUseAi && <PortalAiWidget slug={slug} />}
+    </>
+  );
 }

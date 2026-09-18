@@ -3,6 +3,8 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { StatCard } from '@/components/StatCard';
 import { Card } from '@/components/ui';
 import { formatCents } from '@/lib/format';
+import { can } from '@/lib/permissions';
+import { PortalAiWidget } from '@/components/PortalAiWidget';
 import { ExpenseForm } from './ExpenseForm';
 import { FinanceProfitCards } from './FinanceProfitCards';
 
@@ -59,6 +61,11 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
     data: { user },
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
+
+  const meta = (user.app_metadata ?? {}) as { role?: string; permissions?: string[] };
+  const role = meta.role ?? 'owner';
+  const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
+  const canUseAi = can(perms, role, 'ai.view');
 
   const since = new Date();
   since.setDate(since.getDate() - 30);
@@ -253,6 +260,8 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
           periodLabel="last 30 days"
         />
       </section>
+
+      {canUseAi && <PortalAiWidget slug={slug} />}
     </div>
   );
 }
