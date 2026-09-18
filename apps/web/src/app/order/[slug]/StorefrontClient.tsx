@@ -3,11 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatCents } from '@/lib/format';
+import { CustomerAiChat } from './CustomerAiChat';
 
 export type MenuCategory = { id: string; name: string; sort_order: number };
 type Variant = { id: string; name: string; price_cents: number; sort_order: number };
 type ModifierKind = 'required_single' | 'optional_single' | 'multi';
-type ModOption = { id: string; name: string; price_cents: number; sort_order: number };
+export type ModOption = { id: string; name: string; price_cents: number; sort_order: number };
 type ModGroup = {
   id: string;
   name: string;
@@ -31,7 +32,7 @@ export type MenuItem = {
  *  parent item's modifier groups. Cart lines and deal-matching are keyed at
  *  this level — one variant, fully resolved — regardless of how it was
  *  chosen (instant add, or via the item sheet's variant picker). */
-type Product = {
+export type Product = {
   id: string;
   item_id: string;
   name: string;
@@ -57,6 +58,13 @@ type BrowseItem = {
 
 type NamedRef = { name: string } | { name: string }[] | null;
 type PricedRef = ({ name: string; price_cents: number } | { name: string; price_cents: number }[]) | null;
+// A deal component pinned to a specific menu item (no variant_id) prices
+// from that item's own default (lowest sort_order) variant — menu_items
+// .price_cents is an unused fallback, never the real price (place_order
+// itself resolves item-only components the same way; see schema.sql).
+type PricedItemRef =
+  | ({ name: string; price_cents: number; menu_variants: { price_cents: number; sort_order: number }[] } | { name: string; price_cents: number; menu_variants: { price_cents: number; sort_order: number }[] }[])
+  | null;
 /** One selectable choice inside a Build-Your-Own option group (spec §7-10).
  *  Carries only a name for display — the server re-prices and re-validates
  *  every selection on submit, exactly like modifier options. */
@@ -89,7 +97,7 @@ export type DealLite = {
     qty: number;
     menu_item_id: string | null;
     variant_id: string | null;
-    menu_items: PricedRef;
+    menu_items: PricedItemRef;
     menu_variants: PricedRef;
   }[];
   deal_option_groups?: DealOptionGroup[];
@@ -184,7 +192,7 @@ function dealOptionLabel(o: DealOptionItem): string {
  * Only plain (no-modifier) cart lines are matched against deals — a
  * customized item isn't silently folded into a combo.
  */
-type DealMatch = {
+export type DealMatch = {
   deal: DealLite;
   kind: 'match' | 'almost';
   individualTotalCents: number;
@@ -218,7 +226,10 @@ function findDealMatches(
       const compVariant = one(c.menu_variants);
       const compItem = one(c.menu_items);
       const label = compVariant?.name || compItem?.name || 'item';
-      const unitPrice = compVariant?.price_cents ?? compItem?.price_cents ?? 0;
+      const defaultVariant = compItem?.menu_variants
+        ? [...compItem.menu_variants].sort((a, b) => a.sort_order - b.sort_order)[0]
+        : undefined;
+      const unitPrice = compVariant?.price_cents ?? defaultVariant?.price_cents ?? 0;
       individualTotal += unitPrice * c.qty;
 
       let have = 0;
@@ -368,6 +379,19 @@ export function StorefrontClient({
     () => findDealMatches(deals, cart, products).filter((m) => !dealCart[m.deal.id]),
     [deals, cart, products, dealCart],
   );
+
+  // What the customer AI assistant is told is in the cart — plain (no-
+  // modifier) lines only, same pool findDealMatches() itself uses, pooled
+  // by variant id. IDs and quantities only; the assistant's backend
+  // re-reads every price itself, never trusts a client-asserted number.
+  const cartSnapshot = useMemo(() => {
+    const pool = new Map<string, number>();
+    for (const l of Object.values(cart)) {
+      if (l.modifierIds.length > 0) continue;
+      pool.set(l.item.id, (pool.get(l.item.id) ?? 0) + l.qty);
+    }
+    return [...pool.entries()].map(([variant_id, qty]) => ({ variant_id, qty }));
+  }, [cart]);
 
   /** One-tap: pull the matched (plain, unmodified) items out of the cart and add the deal instead. */
   function switchToDeal(match: DealMatch) {
@@ -901,6 +925,20 @@ export function StorefrontClient({
           {busy ? 'Placing…' : 'Place order'}
         </button>
       </div>
+
+      <CustomerAiChat
+        slug={slug}
+        restaurantName={restaurantName}
+        products={products}
+        deals={deals}
+        cartSnapshot={cartSnapshot}
+        dealMatches={dealMatches}
+        onAddPlain={(product, qty) => bump(product, qty)}
+        onAddConfigured={(product, modifierIds, modifierSnapshot) => addConfigured(product, modifierIds, modifierSnapshot)}
+        onUseDealMatch={(match) => switchToDeal(match)}
+        onUseAlmostMatch={(match) => addMissingAndSwitch(match)}
+        onAddDealPlain={(deal, qty) => bumpDeal(deal, qty)}
+      />
     </div>
   );
 }

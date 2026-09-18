@@ -30,7 +30,7 @@ publicRouter.use((req: Request, res: Response, next: NextFunction) => {
 // granted to anon. The platform never needs the tenant's admin key here.
 const clientCache = new Map<string, SupabaseClient>();
 
-async function tenantClientForSlug(slug: string): Promise<SupabaseClient | null> {
+export async function tenantClientForSlug(slug: string): Promise<SupabaseClient | null> {
   const cached = clientCache.get(slug);
   if (cached) return cached;
 
@@ -69,7 +69,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     tenant
       .from('deals')
       .select(
-        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents), menu_variants(name, price_cents)), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order, menu_items(name, is_available), menu_variants(name, is_available, track_availability, available_qty)))',
+        'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents, menu_variants(price_cents, sort_order)), menu_variants(name, price_cents)), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order, menu_items(name, is_available), menu_variants(name, is_available, track_availability, available_qty)))',
       )
       .eq('is_available', true)
       .order('sort_order'),
