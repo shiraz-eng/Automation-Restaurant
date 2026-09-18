@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatCents } from './format';
+import { loadImage } from './generateReceipt';
 
 export type ReportKpis = {
   net_sales_cents: number;
@@ -125,6 +126,7 @@ export type ReportProfitDetail = {
 
 export type ReportData = {
   restaurantName: string;
+  logoUrl?: string | null;
   periodLabel: string;
   kpis: ReportKpis;
   profitDetail?: ReportProfitDetail;
@@ -191,12 +193,20 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
  * (generateReportPdf below) or also read its bytes to permanently store
  * it (saveAndStoreReportPdf).
  */
-export function buildReportDoc(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): { doc: jsPDF; filename: string } {
+export async function buildReportDoc(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): Promise<{ doc: jsPDF; filename: string }> {
   const showSection = (key: ReportSection) => !opts?.sections || opts.sections.includes(key);
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   let y = MARGIN;
 
   // ── Header ───────────────────────────────────────────────────────────
+  if (data.logoUrl) {
+    const img = await loadImage(data.logoUrl);
+    if (img) {
+      const logoH = 12;
+      const logoW = (img.width / img.height) * logoH;
+      doc.addImage(img, 'PNG', PAGE_W - MARGIN - logoW, y, logoW, logoH);
+    }
+  }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(...BODY);
@@ -956,8 +966,8 @@ export function buildReportDoc(data: ReportData, opts?: { sections?: ReportSecti
 /** Thin wrapper over buildReportDoc for callers that only want the
  *  download, not permanent storage (kept so every existing call site —
  *  the Dashboard's own button, AI chat, Approvals — needs no changes). */
-export function generateReportPdf(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): void {
-  const { doc, filename } = buildReportDoc(data, opts);
+export async function generateReportPdf(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): Promise<void> {
+  const { doc, filename } = await buildReportDoc(data, opts);
   doc.save(filename);
 }
 
@@ -978,7 +988,7 @@ export async function saveAndStoreReportPdf(
   opts: { sections?: ReportSection[]; domain?: string } | undefined,
   ctx: { supabase: SupabaseClient; auditId: string | null; domain: string },
 ): Promise<void> {
-  const { doc, filename } = buildReportDoc(data, opts);
+  const { doc, filename } = await buildReportDoc(data, opts);
   doc.save(filename);
   if (!ctx.auditId) return;
   try {

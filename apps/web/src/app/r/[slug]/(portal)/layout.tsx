@@ -3,8 +3,10 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
 import { NavLink } from '@/components/NavLink';
+import { ThemeProvider } from '@/components/ThemeProvider';
 import { roleHome } from '@/lib/portals';
 import { can } from '@/lib/permissions';
+import { themeFromBrandKit, type BrandKit } from '@/lib/theme';
 
 // [segment, label, permission key, ownerOnly]. Items without a key always
 // show. The permission gate is additive to the role gate below —
@@ -47,7 +49,7 @@ const NAV: [string, string, string?, boolean?][] = [
   ['ai', 'Assistant', 'ai.view'],
   ['social', 'Social', 'social.view'],
   ['billing', 'Billing', 'settings.view', true],
-  ['settings/theme', 'Theme', 'settings.view'],
+  ['settings/theme', 'Brand Kit', 'settings.view'],
   ['settings/policies', 'Policies', 'settings.view', true],
 ];
 
@@ -87,12 +89,25 @@ export default async function PortalLayout({
   const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
   const canSee = (key?: string, ownerOnly?: boolean) => (!ownerOnly || role === 'owner') && (!key || can(perms, role, key));
 
+  // Brand Kit — resolved once per request from this restaurant's own
+  // authenticated session (never a client-supplied slug/id), same RPC the
+  // guest storefront uses, so there is exactly one Brand Kit->theme path.
+  const { data: brandKitRows } = await t.client.rpc('get_brand_kit');
+  const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
+  const initialTheme = themeFromBrandKit(brandKit ?? null);
+  const logoUrl = brandKit?.logo_url ?? null;
+
   return (
     <PortalProvider
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+    <ThemeProvider initialTheme={initialTheme} storageKey={`ar-theme:${slug}`} scoped>
       <div className="min-h-screen flex">
         <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-border bg-surface p-5">
+          {logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-10 max-w-[9rem] object-contain mb-3" />
+          )}
           <div className="font-black text-lg leading-tight">{t.config.restaurantName}</div>
           <div className="text-muted text-[11px] mb-1">
             /{slug}
@@ -121,6 +136,7 @@ export default async function PortalLayout({
         </aside>
         <main className="flex-1 min-w-0 p-6 md:p-10">{children}</main>
       </div>
+    </ThemeProvider>
     </PortalProvider>
   );
 }

@@ -57,7 +57,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   const tenant = slug ? await tenantClientForSlug(slug) : null;
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const [{ data: categories }, { data: items }, { data: deals }] = await Promise.all([
+  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }] = await Promise.all([
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
@@ -73,7 +73,9 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
       )
       .eq('is_available', true)
       .order('sort_order'),
+    tenant.rpc('get_brand_kit'),
   ]);
+  const brandKit = Array.isArray(brandKitRows) ? (brandKitRows[0] ?? null) : (brandKitRows ?? null);
 
   // Drop unavailable/out-of-stock variants; keep only items that still have one.
   // Same for modifier options — a disabled option never reaches the storefront.
@@ -144,7 +146,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
       .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
   }));
 
-  res.json({ categories: categories ?? [], items: cleaned, deals: cleanedDeals });
+  res.json({ categories: categories ?? [], items: cleaned, deals: cleanedDeals, brandKit });
 });
 
 // Storefront promo-code preview: validate a code against a subtotal without

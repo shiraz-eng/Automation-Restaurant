@@ -2738,11 +2738,43 @@ create table public.business_settings (
   -- Receipt customization (0045) — null receipt_template_html means "use
   -- the built-in printed-receipt layout"; when set it's plain HTML with
   -- {{placeholder}} tokens substituted client-side before printing.
-  receipt_logo_url     text,
+  -- brand_logo_url (0046) is this restaurant's one general-purpose logo —
+  -- also used on receipts/PDFs; not duplicated under a receipt-specific name.
+  brand_logo_url       text,
   receipt_footer_text  text,
-  receipt_template_html text
+  receipt_template_html text,
+  -- Brand Kit (0046) — the restaurant's visual identity, in the SAME
+  -- token shape apps/web/src/lib/theme.ts's ThemeTokens already defines
+  -- (persisted here instead of per-browser localStorage). Null means "use
+  -- the built-in default theme" throughout.
+  brand_primary        text,
+  brand_primary_fg     text,
+  brand_bg_main        text,
+  brand_bg_surface     text,
+  brand_border         text,
+  brand_text_body      text,
+  brand_text_muted     text,
+  brand_radius         text,
+  brand_appearance     text check (brand_appearance in ('light', 'dark', 'system'))
 );
 insert into public.business_settings (id) values (true);
+
+-- Narrow, anon-safe read of ONLY the visual-identity columns (0046) — see
+-- tenant-migrations/0046_brand_kit.sql for the full rationale.
+create or replace function public.get_brand_kit()
+returns table(
+  logo_url text, primary_color text, primary_fg text,
+  bg_main text, bg_surface text, border_color text,
+  text_body text, text_muted text, radius text, appearance text
+)
+language sql stable security definer set search_path = public as $$
+  select brand_logo_url, brand_primary, brand_primary_fg,
+         brand_bg_main, brand_bg_surface, brand_border,
+         brand_text_body, brand_text_muted, brand_radius, brand_appearance
+  from public.business_settings where id = true
+$$;
+revoke all on function public.get_brand_kit() from public;
+grant execute on function public.get_brand_kit() to anon, authenticated, service_role;
 
 -- ── Promotions ───────────────────────────────────────────────────────────
 -- (app.promo_kind is created earlier, right before place_order() — see the

@@ -260,6 +260,7 @@ function Kpi({ label, value, delta, tone, onClick }: { label: string; value: str
 export function PerformancePanel({
   slug,
   restaurantName,
+  logoUrl,
   period,
   onPeriodChange,
   customRange,
@@ -268,6 +269,7 @@ export function PerformancePanel({
 }: {
   slug: string;
   restaurantName: string;
+  logoUrl?: string | null;
   period: Period;
   onPeriodChange: (p: Period) => void;
   customRange: CustomRange | null;
@@ -482,6 +484,7 @@ export function PerformancePanel({
 
     await saveAndStoreReportPdf({
       restaurantName,
+      logoUrl,
       periodLabel,
       kpis: {
         net_sales_cents: sales?.net_sales_cents ?? 0,

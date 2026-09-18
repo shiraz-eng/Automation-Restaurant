@@ -1,4 +1,5 @@
 import { getTenantConfig } from '@/lib/tenant';
+import type { BrandKit } from '@/lib/theme';
 import {
   StorefrontClient,
   type MenuItem,
@@ -20,6 +21,7 @@ async function getMenu(slug: string) {
       categories: MenuCategory[];
       items: MenuItem[];
       deals?: DealLite[];
+      brandKit?: BrandKit | null;
     };
   } catch {
     return null;
@@ -55,6 +57,7 @@ export default async function OrderPage({
       categories={menu.categories}
       items={menu.items}
       deals={menu.deals ?? []}
+      brandKit={menu.brandKit ?? null}
     />
   );
 }

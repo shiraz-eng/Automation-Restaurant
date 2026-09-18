@@ -15,7 +15,15 @@ import { AskAi } from './AskAi';
  * override; picking a named period clears any custom range (both panels
  * only ever honor one at a time — see resolveRange() in PerformancePanel).
  */
-export function DashboardClient({ slug, restaurantName }: { slug: string; restaurantName: string }) {
+export function DashboardClient({
+  slug,
+  restaurantName,
+  logoUrl,
+}: {
+  slug: string;
+  restaurantName: string;
+  logoUrl?: string | null;
+}) {
   const [period, setPeriod] = useState<Period>('today');
   const [customRange, setCustomRange] = useState<CustomRange | null>(null);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -25,6 +33,7 @@ export function DashboardClient({ slug, restaurantName }: { slug: string; restau
       <PerformancePanel
         slug={slug}
         restaurantName={restaurantName}
+        logoUrl={logoUrl}
         period={period}
         onPeriodChange={setPeriod}
         customRange={customRange}

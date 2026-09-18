@@ -36,7 +36,7 @@ export default async function DashboardPage({
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const [membershipRes, ordersRes, menuRes, inventoryRes, salesByDayRes] = await Promise.all([
+  const [membershipRes, ordersRes, menuRes, inventoryRes, salesByDayRes, brandKitRes] = await Promise.all([
     supabase.from('memberships').select('role').eq('user_id', user.id).maybeSingle(),
     supabase
       .from('orders')
@@ -49,7 +49,10 @@ export default async function DashboardPage({
       .select('id, name, unit, stock_qty, min_threshold')
       .order('name'),
     supabase.rpc('sales_by_day', { p_from: monthStart, p_to: monthEnd }),
+    supabase.rpc('get_brand_kit'),
   ]);
+  const brandKitRow = Array.isArray(brandKitRes.data) ? brandKitRes.data[0] : brandKitRes.data;
+  const logoUrl: string | null = (brandKitRow as { logo_url?: string | null } | null)?.logo_url ?? null;
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -118,7 +121,7 @@ export default async function DashboardPage({
         />
       </section>
 
-      <DashboardClient slug={slug} restaurantName={t.config.restaurantName} />
+      <DashboardClient slug={slug} restaurantName={t.config.restaurantName} logoUrl={logoUrl} />
 
       <SalesTrend initialMonth={currentMonth} initialDays={(salesByDayRes.data as DayRow[] | null) ?? []} />
 

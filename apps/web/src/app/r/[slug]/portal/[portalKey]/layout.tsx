@@ -2,6 +2,8 @@ import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import { themeFromBrandKit, type BrandKit } from '@/lib/theme';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,13 +51,23 @@ export default async function PortalLayout({
     redirect(`/r/${slug}/set-portal-password?p=${portalKey}`);
   }
 
+  const { data: brandKitRows } = await t.client.rpc('get_brand_kit');
+  const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
+  const initialTheme = themeFromBrandKit(brandKit ?? null);
+  const logoUrl = brandKit?.logo_url ?? null;
+
   return (
     <PortalProvider
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+    <ThemeProvider initialTheme={initialTheme} storageKey={`ar-theme:${slug}`} scoped>
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between px-5 h-14 border-b border-border bg-surface shrink-0">
           <div className="flex items-baseline gap-3">
+            {logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-8 max-w-[6rem] object-contain" />
+            )}
             <span className="font-black">{t.config.restaurantName}</span>
             <span className="text-xs font-bold uppercase tracking-wider text-primary">
               {portal.name}
@@ -79,6 +91,7 @@ export default async function PortalLayout({
         </header>
         <main className="flex-1 p-4 md:p-8">{children}</main>
       </div>
+    </ThemeProvider>
     </PortalProvider>
   );
 }

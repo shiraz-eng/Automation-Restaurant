@@ -28,7 +28,7 @@ const WIDTH = 80; // mm — standard thermal-receipt width
 const MARGIN = 5;
 const CONTENT_W = WIDTH - MARGIN * 2;
 
-async function loadImage(url: string): Promise<HTMLImageElement | null> {
+export async function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';

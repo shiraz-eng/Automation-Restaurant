@@ -1,109 +1,47 @@
-'use client';
+import { notFound } from 'next/navigation';
+import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { gatePortalPage, can } from '@/lib/permissions';
+import { BrandKitManager } from './BrandKitManager';
 
-import { useTheme } from '@/components/ThemeProvider';
-import { Card, Button } from '@/components/ui';
-import { PRESETS, channelsToHex, hexToChannels, type Appearance } from '@/lib/theme';
+export const dynamic = 'force-dynamic';
 
-const APPEARANCES: Appearance[] = ['light', 'dark', 'system'];
+export default async function BrandKitPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const t = await createTenantServerClient(slug);
+  if (!t) notFound();
 
-export default function ThemeSettingsPage() {
-  const { theme, setPreset, setPrimary, setRadius, setAppearance } = useTheme();
+  const { role, perms } = await gatePortalPage(t.client, slug, 'settings.view');
+  const canEdit = can(perms, role, 'settings.update');
+
+  const { data, error } = await t.client
+    .from('business_settings')
+    .select(
+      'brand_logo_url, receipt_footer_text, receipt_template_html, brand_primary, brand_primary_fg, brand_bg_main, brand_bg_surface, brand_border, brand_text_body, brand_text_muted, brand_radius, brand_appearance',
+    )
+    .eq('id', true)
+    .maybeSingle();
 
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-xl font-black">Theme</h1>
+        <h1 className="text-xl font-black">Brand Kit</h1>
         <p className="text-muted text-xs mt-1">
-          Changes apply live across every screen. Saved in this browser — per-organisation
-          persistence needs a settings table (not built yet).
+          This restaurant&apos;s visual identity — logo, colors, and receipt branding. Changes
+          preview live across every portal screen in this browser; Save applies them for
+          everyone, including the customer-facing menu.
         </p>
       </div>
-
-      <Card>
-        <h2 className="font-bold text-sm mb-3">Preset</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {Object.entries(PRESETS).map(([name, tokens]) => (
-            <button
-              key={name}
-              onClick={() => setPreset(name)}
-              className={`rounded-lg border p-3 text-left ${
-                theme.preset === name ? 'border-primary' : 'border-border'
-              }`}
-            >
-              <span
-                className="block w-full h-8 rounded mb-2"
-                style={{ background: `rgb(${tokens.primary})` }}
-              />
-              <span className="text-[11px] font-semibold">{name}</span>
-            </button>
-          ))}
-          {theme.preset === 'Custom' && (
-            <div className="rounded-lg border border-primary p-3">
-              <span
-                className="block w-full h-8 rounded mb-2"
-                style={{ background: `rgb(${theme.tokens.primary})` }}
-              />
-              <span className="text-[11px] font-semibold">Custom</span>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Card className="space-y-4">
-        <h2 className="font-bold text-sm">Fine-tune</h2>
-
-        <label className="flex items-center justify-between text-xs">
-          <span className="font-semibold">Primary colour</span>
-          <input
-            type="color"
-            value={channelsToHex(theme.tokens.primary)}
-            onChange={(e) => setPrimary(hexToChannels(e.target.value))}
-            className="h-8 w-14 rounded border border-border bg-surface"
-          />
-        </label>
-
-        <label className="flex items-center justify-between text-xs">
-          <span className="font-semibold">Corner radius — {theme.tokens.radius}</span>
-          <input
-            type="range"
-            min={0}
-            max={24}
-            value={parseInt(theme.tokens.radius, 10) || 0}
-            onChange={(e) => setRadius(`${e.target.value}px`)}
-            className="w-48 accent-primary"
-          />
-        </label>
-
-        <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold">Appearance</span>
-          <div className="flex gap-1.5">
-            {APPEARANCES.map((a) => (
-              <Button
-                key={a}
-                variant={theme.appearance === a ? 'primary' : 'ghost'}
-                onClick={() => setAppearance(a)}
-              >
-                {a}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="font-bold text-sm mb-3">Preview</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button>Primary button</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="danger">Danger</Button>
-          <span className="rounded border border-border bg-main px-3 py-1.5 text-xs">
-            Surface / border sample
-          </span>
-          <span className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-xs font-semibold">
-            Radius {theme.tokens.radius}
-          </span>
-        </div>
-      </Card>
+      {error ? (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">{error.message}</div>
+      ) : (
+        <BrandKitManager
+          slug={slug}
+          logoUrl={data?.brand_logo_url ?? null}
+          receiptFooterText={data?.receipt_footer_text ?? null}
+          receiptTemplateHtml={data?.receipt_template_html ?? null}
+          canEdit={canEdit}
+        />
+      )}
     </div>
   );
 }

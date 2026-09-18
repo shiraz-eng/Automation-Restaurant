@@ -176,7 +176,18 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       bucket for the logo (public read, settings.update write) +
 //       expenses.supplier_id so an expense can optionally be tied to a
 //       real supplier record.
-const SCHEMA_VERSION = 45;
+//   v46 Restaurant Brand Kit: renames business_settings.receipt_logo_url
+//       to brand_logo_url (one general-purpose logo, also used on
+//       receipts/PDFs) and adds brand_primary/brand_primary_fg/
+//       brand_bg_main/brand_bg_surface/brand_border/brand_text_body/
+//       brand_text_muted/brand_radius/brand_appearance — the same token
+//       shape apps/web/src/lib/theme.ts's ThemeTokens already defines,
+//       now persisted per-tenant instead of per-browser localStorage.
+//       Adds public.get_brand_kit(), a SECURITY DEFINER RPC exposing only
+//       these visual-identity columns to anon/authenticated, so a guest
+//       storefront/customer AI can render the restaurant's look without
+//       broader business_settings access (refund policy, receipt text).
+const SCHEMA_VERSION = 46;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

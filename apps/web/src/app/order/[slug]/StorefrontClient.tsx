@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatCents } from '@/lib/format';
 import { CustomerAiChat } from './CustomerAiChat';
+import { cssVarsFromTokens, themeFromBrandKit, type BrandKit } from '@/lib/theme';
 
 export type MenuCategory = { id: string; name: string; sort_order: number };
 type Variant = { id: string; name: string; price_cents: number; sort_order: number };
@@ -282,6 +283,7 @@ export function StorefrontClient({
   categories,
   items,
   deals,
+  brandKit,
 }: {
   slug: string;
   restaurantName: string;
@@ -289,8 +291,18 @@ export function StorefrontClient({
   categories: MenuCategory[];
   items: MenuItem[];
   deals: DealLite[];
+  brandKit?: BrandKit | null;
 }) {
   const router = useRouter();
+  // Scoped to this render tree via inline CSS custom properties (not
+  // document.documentElement/localStorage) — SSR-safe, no client-side
+  // theme provider needed, and inherently one-restaurant-per-request so
+  // it can never bleed into another tenant's page in the same browser.
+  const brandStyle = useMemo(
+    () => cssVarsFromTokens(themeFromBrandKit(brandKit ?? null).tokens) as CSSProperties,
+    [brandKit],
+  );
+  const logoUrl = brandKit?.logo_url ?? null;
   const [guestName, setGuestName] = useState('');
   const [tableLabel, setTableLabel] = useState(table ?? '');
   const [started, setStarted] = useState(false);
@@ -532,8 +544,12 @@ export function StorefrontClient({
 
   if (!started) {
     return (
-      <div className="min-h-screen grid place-items-center px-6">
+      <div className="min-h-screen grid place-items-center px-6" style={brandStyle}>
         <div className="w-full max-w-sm">
+          {logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt={`${restaurantName} logo`} className="h-12 max-w-[10rem] object-contain mb-3" />
+          )}
           <h1 className="text-xl font-black">Welcome to {restaurantName}</h1>
           <p className="text-muted text-sm mb-6">Order from your table — no sign-up.</p>
           <label className="block mb-3">
@@ -566,12 +582,18 @@ export function StorefrontClient({
   }
 
   return (
-    <div className="min-h-screen pb-28">
-      <header className="px-4 py-4 border-b border-border">
-        <h1 className="font-black text-lg">{restaurantName}</h1>
-        <p className="text-muted text-xs">
-          {guestName} · {tableLabel || 'no table'}
-        </p>
+    <div className="min-h-screen pb-28" style={brandStyle}>
+      <header className="px-4 py-4 border-b border-border flex items-center gap-3">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt={`${restaurantName} logo`} className="h-9 max-w-[7rem] object-contain" />
+        )}
+        <div>
+          <h1 className="font-black text-lg">{restaurantName}</h1>
+          <p className="text-muted text-xs">
+            {guestName} · {tableLabel || 'no table'}
+          </p>
+        </div>
       </header>
 
       <div className="sticky top-0 bg-main/95 backdrop-blur border-b border-border px-4 py-2 flex gap-1.5 overflow-x-auto">

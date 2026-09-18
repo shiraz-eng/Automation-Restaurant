@@ -23,7 +23,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
       )
       .in('status', UNPAID)
       .order('created_at', { ascending: true }),
-    t.client.from('business_settings').select('receipt_logo_url, receipt_footer_text, receipt_template_html').eq('id', true).maybeSingle(),
+    t.client.from('business_settings').select('brand_logo_url, receipt_footer_text, receipt_template_html').eq('id', true).maybeSingle(),
     canCreateOrder
       ? t.client.from('menu_categories').select('id, name').order('sort_order')
       : Promise.resolve({ data: null }),
@@ -53,7 +53,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           canDiscount={can(perms, role, 'orders.apply_discount')}
           canCancel={can(perms, role, 'orders.cancel')}
           receipt={{
-            logoUrl: settings?.receipt_logo_url ?? null,
+            logoUrl: settings?.brand_logo_url ?? null,
             footerText: settings?.receipt_footer_text ?? null,
             templateHtml: settings?.receipt_template_html ?? null,
           }}
