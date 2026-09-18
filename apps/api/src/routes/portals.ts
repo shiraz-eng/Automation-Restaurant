@@ -42,11 +42,20 @@ function routeKey(name: string): string {
   );
 }
 
+// permission_catalog currently holds ~125 keys (schema.sql) — 200 gives
+// real headroom for that to keep growing without silently rejecting a
+// legitimate "grant every portal bundle" selection. The old cap of 64
+// was tuned for the flat checkbox list; the Portal-bundle toggles
+// (apps/web/.../portals/PortalsManager.tsx) make it trivial to exceed
+// that in a couple of clicks (e.g. Suppliers & Purchasing + Finance +
+// Staff alone is already 40 keys), which is what was producing a bare
+// "invalid_request" with no detail.
+const MAX_PORTAL_PERMISSIONS = 200;
 const createSchema = z.object({
   slug: z.string().min(1),
   name: z.string().trim().min(2).max(60),
   type: z.enum(PORTAL_TYPES).default('custom'),
-  permissions: z.array(z.string().max(48)).max(64).default([]),
+  permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).default([]),
   password: z.string().min(8).max(200).optional(),
 });
 
@@ -57,7 +66,13 @@ portalsRouter.post(
   requirePortalPerm('portals.create'),
   async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+  if (!parsed.success) {
+    return res.status(422).json({
+      error: 'invalid_request',
+      message: Object.values(parsed.error.flatten().fieldErrors).flat().join(' ') || 'Invalid request.',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
   const { slug, name, type, permissions } = parsed.data;
   const { admin } = req.tenant!;
 
@@ -104,7 +119,7 @@ const patchSchema = z.object({
   slug: z.string().min(1),
   name: z.string().trim().min(2).max(60).optional(),
   type: z.enum(PORTAL_TYPES).optional(),
-  permissions: z.array(z.string().max(48)).max(64).optional(),
+  permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).optional(),
   status: z.enum(['active', 'disabled']).optional(),
 });
 
@@ -115,7 +130,13 @@ portalsRouter.patch(
   requirePortalPerm('portals.update'),
   async (req: Request, res: Response) => {
   const parsed = patchSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+  if (!parsed.success) {
+    return res.status(422).json({
+      error: 'invalid_request',
+      message: Object.values(parsed.error.flatten().fieldErrors).flat().join(' ') || 'Invalid request.',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
   const { slug: _slug, ...changes } = parsed.data;
   void _slug;
   const { admin } = req.tenant!;
