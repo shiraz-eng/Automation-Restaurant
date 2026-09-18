@@ -3,7 +3,6 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
-import { PORTAL_BUNDLES } from '@/lib/portalBundles';
 import {
   KitchenPortalBoard,
   type KOrder,
@@ -13,12 +12,29 @@ import {
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { CheckoutClient, type Bill } from '../../(portal)/checkout/CheckoutClient';
 import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
+import { ExpensesManager, type Expense } from '../../(portal)/expenses/ExpensesManager';
+import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/SuppliersManager';
+import { AiChat } from '../../(portal)/ai/AiChat';
 
 export const dynamic = 'force-dynamic';
 
 const BLURB: Record<string, string> = {
   manager: 'Operational oversight scoped to its granted portals.',
-  custom: 'A custom portal, limited to the portals granted below.',
+  custom: 'A custom portal, scoped to its granted portals.',
+};
+
+type ProfitRow = {
+  orders_count: number;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  net_sales_cents: number;
+  theoretical_cogs_cents: number;
+  gross_profit_cents: number;
+  gross_margin_pct: number | null;
+  expenses_cents: number;
+  net_profit_cents: number;
+  net_profit_margin_pct: number | null;
 };
 
 const ACTIVE = ['pending', 'in_kitchen', 'ready'];
@@ -43,6 +59,7 @@ export default async function PortalHome({
 
   const perms: string[] = portal.permissions ?? [];
   const has = (k: string) => perms.includes('*') || perms.includes(k);
+  const hasAny = (keys: string[]) => keys.some(has);
 
   if (portal.type === 'kitchen') {
     const [{ data: orders }, { data: variants }, { data: counters }] = await Promise.all([
@@ -127,7 +144,18 @@ export default async function PortalHome({
   // like checkout/kitchen/attendance types already reuse their own
   // dedicated client components. Today's stat is derived from this same
   // fetch rather than a second query.
-  const [ordersRes, kitchenRes, stockRes, profitRes] = await Promise.all([
+  // Finance (Expenses/profit) and Suppliers & Purchasing (Suppliers) get
+  // the SAME real, editable manager components their own pages in the
+  // Operations Portal use — not a read-only figure. finance.view alone
+  // doesn't imply expense-record access, so this checks every relevant
+  // key in the Finance bundle; period_profitability itself still
+  // requires finance.view_profit/finance.view_cogs/inventory.view_cost
+  // (checked against this portal's own RLS-scoped client, a real second
+  // backstop) and simply returns nothing if none is held.
+  const canFinance = hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit']);
+  const canSuppliers = has('supplier.view');
+
+  const [ordersRes, kitchenRes, stockRes, profitRes, expensesRes, suppliersRes] = await Promise.all([
     has('orders.view')
       ? t.client
           .from('orders')
@@ -143,9 +171,18 @@ export default async function PortalHome({
     has('stock.view')
       ? t.client.from('inventory_items').select('name, stock_qty, min_threshold, unit').order('name')
       : Promise.resolve({ data: null }),
-    has('finance.view')
+    canFinance
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: new Date().toISOString() })
       : Promise.resolve({ data: null, error: null }),
+    canFinance
+      ? t.client.from('expenses').select('id, category, description, amount_cents, expense_date').order('expense_date', { ascending: false }).limit(200)
+      : Promise.resolve({ data: null }),
+    canSuppliers
+      ? t.client
+          .from('suppliers')
+          .select('id, name, contact_name, email, phone, address, payment_terms, notes, created_at, currency, credit_period_days, preferred_payment_method, is_active')
+          .order('name')
+      : Promise.resolve({ data: null }),
   ]);
 
   const orders = (ordersRes.data ?? []) as unknown as OrdersClientOrder[];
@@ -154,9 +191,9 @@ export default async function PortalHome({
   const lowStock = ((stockRes.data ?? []) as { name: string; stock_qty: number; min_threshold: number; unit: string }[]).filter(
     (i) => Number(i.stock_qty) <= Number(i.min_threshold),
   );
-  const profit = (profitRes.data as { net_profit_cents: number; net_sales_cents: number }[] | null)?.[0];
-
-  const grantedBundles = PORTAL_BUNDLES.filter(({ keys }) => keys.some((k) => has(k)));
+  const profit = ((profitRes.data as ProfitRow[] | null) ?? [])[0] ?? null;
+  const expenses = (expensesRes.data ?? []) as Expense[];
+  const suppliers = (suppliersRes.data ?? []) as Supplier[];
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -171,21 +208,14 @@ export default async function PortalHome({
         </Card>
       ) : (
         <>
-          {(has('orders.view') || has('kitchen.view') || has('stock.view') || has('finance.view')) && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {(has('orders.view') || has('kitchen.view') || has('stock.view')) && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {has('orders.view') && (
                 <StatCard label="Orders today" value={todayOrders.length} hint={`${formatCents(revenueToday)} paid`} />
               )}
               {has('kitchen.view') && <StatCard label="Active kitchen tickets" value={kitchenRes.count ?? 0} />}
               {has('stock.view') && (
                 <StatCard label="Low stock" value={lowStock.length} tone={lowStock.length > 0 ? 'warn' : 'default'} />
-              )}
-              {has('finance.view') && profit && (
-                <StatCard
-                  label="Net profit (this month)"
-                  value={formatCents(profit.net_profit_cents)}
-                  tone={profit.net_profit_cents >= 0 ? 'ok' : 'danger'}
-                />
               )}
             </div>
           )}
@@ -213,28 +243,35 @@ export default async function PortalHome({
             </div>
           )}
 
-          <Card>
-            <h2 className="font-bold text-sm mb-3">Portals granted</h2>
-            {perms.includes('*') ? (
-              <p className="text-xs">Everything.</p>
-            ) : grantedBundles.length === 0 ? (
-              <p className="text-muted text-xs">No recognised portal domain — check Portal Management.</p>
-            ) : (
-              <ul className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                {grantedBundles.map(({ portal: name, keys }) => {
-                  const grantedCount = keys.filter((k) => has(k)).length;
-                  return (
-                    <li key={name} className="text-ok">
-                      ✓ {name}
-                      {grantedCount < keys.length && (
-                        <span className="text-muted"> ({grantedCount}/{keys.length})</span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Card>
+          {canSuppliers && (
+            <div>
+              <h2 className="font-bold text-sm mb-3">Suppliers</h2>
+              <SuppliersManager suppliers={suppliers} />
+            </div>
+          )}
+
+          {canFinance && (
+            <div>
+              <h2 className="font-bold text-sm mb-3">Finance</h2>
+              <ExpensesManager
+                expenses={expenses}
+                profit={profit}
+                periodFromIso={monthStart.toISOString()}
+                periodToIso={new Date().toISOString()}
+                periodLabel="this month"
+                canWrite={hasAny(['finance.create_expense', 'finance.update_expense'])}
+                canDelete={has('finance.delete_expense')}
+                canViewProfit={has('finance.view_profit')}
+              />
+            </div>
+          )}
+
+          {has('ai.view') && (
+            <div>
+              <h2 className="font-bold text-sm mb-3">Assistant</h2>
+              <AiChat slug={slug} />
+            </div>
+          )}
         </>
       )}
     </div>
