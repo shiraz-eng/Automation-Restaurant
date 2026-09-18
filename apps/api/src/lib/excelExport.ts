@@ -48,7 +48,7 @@ function addTable(
   columns: { header: string; key: string; width?: number; style?: Partial<ExcelJS.Style> }[],
   rows: Record<string, unknown>[],
   emptyNote?: string,
-) {
+): number {
   sheet.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width ?? 18, style: c.style }));
   styleHeaderRow(sheet.getRow(1));
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
@@ -57,9 +57,38 @@ function addTable(
     const r = sheet.addRow([emptyNote ?? 'No records for this period.']);
     r.font = { italic: true, color: { argb: 'FF64748B' } };
     sheet.mergeCells(r.number, 1, r.number, Math.max(columns.length, 1));
-    return;
+    return 0;
   }
   for (const row of rows) sheet.addRow(row);
+  return rows.length;
+}
+
+const COLUMN_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const colLetter = (n: number) => COLUMN_LETTERS[n - 1] ?? 'A';
+
+// Excel's own native "data bar" conditional formatting (spec's "pictorial
+// representation in Excel") — an in-cell bar rendered by Excel itself off
+// the real cell values, so it can never drift from the numbers next to it
+// and needs no chart-image rendering pipeline (ExcelJS has no native
+// chart-object API). Applied to one representative money/percent column
+// per table sheet, in the same brand orange as the header row and the
+// PDF's own bar charts (both rgb(234,88,12)).
+function addDataBar(sheet: ExcelJS.Worksheet, columnIndex: number, rowCount: number, argb = 'FFEA580C') {
+  if (rowCount <= 0) return;
+  const col = colLetter(columnIndex);
+  sheet.addConditionalFormatting({
+    ref: `${col}2:${col}${rowCount + 1}`,
+    rules: [
+      {
+        type: 'dataBar',
+        priority: 1,
+        gradient: false,
+        border: false,
+        cfvo: [{ type: 'min' }, { type: 'max' }],
+        color: { argb },
+      } as ExcelJS.DataBarRuleType & { color: { argb: string } },
+    ],
+  });
 }
 
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
@@ -206,7 +235,7 @@ export async function buildExcelWorkbook(
 
   // ── 02 Profit Summary — the reconciliation-grade sheet (spec §18) ─────
   const profitSheet = wb.addWorksheet('Profit Summary');
-  addTable(
+  const profitSummaryCount = addTable(
     profitSheet,
     [
       { header: 'Metric', key: 'metric', width: 26 },
@@ -227,6 +256,7 @@ export async function buildExcelWorkbook(
       { metric: 'Net Profit', amount: centsToDollars(profit.net_profit_cents), calc: 'Gross Profit - Operating Expenses', source: 'CALCULATED' },
     ],
   );
+  addDataBar(profitSheet, 2, profitSummaryCount);
 
   // ── 03 Daily Performance ───────────────────────────────────────────
   const daily = wb.addWorksheet('Daily Performance');
@@ -236,7 +266,7 @@ export async function buildExcelWorkbook(
     orders: d.orders_count,
     aov: d.orders_count > 0 ? Math.round(d.net_sales_cents / d.orders_count) / 100 : 0,
   }));
-  addTable(
+  const dailyCount = addTable(
     daily,
     [
       { header: 'Date', key: 'date', width: 14 },
@@ -246,6 +276,10 @@ export async function buildExcelWorkbook(
     ],
     dailyRows,
   );
+  // Day-wise sales, sortable via the sheet's own autoFilter (click the
+  // Date column header to sort ascending/descending) and now visualized
+  // in-cell — the "day wise ... sorting option ... pictorial" request.
+  addDataBar(daily, 2, dailyCount);
 
   // ── 04 Orders ────────────────────────────────────────────────────────
   const ordersSheet = wb.addWorksheet('Orders');
@@ -304,7 +338,7 @@ export async function buildExcelWorkbook(
       contribution: centsToDollars(p.contribution_cents),
       margin_pct: p.contribution_margin_pct ?? null,
     }));
-  addTable(
+  const productsCount = addTable(
     products,
     [
       { header: 'Item', key: 'item', width: 26 },
@@ -317,6 +351,7 @@ export async function buildExcelWorkbook(
     productRows,
     'No à la carte sales in this period.',
   );
+  addDataBar(products, 5, productsCount);
 
   // ── 06 Deal Profitability ────────────────────────────────────────────
   const deals = wb.addWorksheet('Deal Profitability');
@@ -333,7 +368,7 @@ export async function buildExcelWorkbook(
     contribution: centsToDollars(d.contribution_cents),
     margin_pct: d.contribution_margin_pct ?? null,
   }));
-  addTable(
+  const dealsCount = addTable(
     deals,
     [
       { header: 'Deal', key: 'deal', width: 22 },
@@ -348,6 +383,7 @@ export async function buildExcelWorkbook(
     dealRows,
     'No deals sold in this period.',
   );
+  addDataBar(deals, 7, dealsCount);
 
   // ── Promotions ───────────────────────────────────────────────────────
   const promotions = wb.addWorksheet('Promotions');
@@ -362,7 +398,7 @@ export async function buildExcelWorkbook(
     discount_given: centsToDollars(p.total_discount_cents),
     order_revenue: centsToDollars(p.total_order_revenue_cents),
   }));
-  addTable(
+  const promotionsCount = addTable(
     promotions,
     [
       { header: 'Promotion', key: 'promotion', width: 22 },
@@ -375,6 +411,7 @@ export async function buildExcelWorkbook(
     promoRows,
     'No promotions redeemed in this period.',
   );
+  addDataBar(promotions, 6, promotionsCount);
 
   // ── 07 Purchasing ────────────────────────────────────────────────────
   const purchasing = wb.addWorksheet('Purchasing');
@@ -390,7 +427,7 @@ export async function buildExcelWorkbook(
     received: p.received_at ? p.received_at.slice(0, 10) : '—',
     subtotal: centsToDollars(p.subtotal_cents),
   }));
-  addTable(
+  const purchasingCount = addTable(
     purchasing,
     [
       { header: 'PO #', key: 'po_number', width: 10 },
@@ -404,6 +441,7 @@ export async function buildExcelWorkbook(
     poRows,
     'No purchase orders created in this period.',
   );
+  addDataBar(purchasing, 7, purchasingCount);
 
   // ── 08 Accounts Payable ──────────────────────────────────────────────
   const ap = wb.addWorksheet('Accounts Payable');
@@ -423,7 +461,7 @@ export async function buildExcelWorkbook(
       outstanding: centsToDollars(r.outstanding_cents),
       overdue: centsToDollars(r.overdue_cents),
     }));
-  addTable(
+  const apCount = addTable(
     ap,
     [
       { header: 'Supplier', key: 'supplier', width: 20 },
@@ -438,6 +476,7 @@ export async function buildExcelWorkbook(
     apRows,
     'No supplier invoices recorded yet.',
   );
+  addDataBar(ap, 7, apCount);
 
   // ── 09 Supplier Payments ─────────────────────────────────────────────
   const payments = wb.addWorksheet('Supplier Payments');
@@ -450,7 +489,7 @@ export async function buildExcelWorkbook(
     method: p.method,
     reference: p.reference ?? '—',
   }));
-  addTable(
+  const paymentsCount = addTable(
     payments,
     [
       { header: 'Date', key: 'date', width: 12 },
@@ -462,6 +501,7 @@ export async function buildExcelWorkbook(
     paymentRows,
     'No supplier payments made in this period.',
   );
+  addDataBar(payments, 3, paymentsCount);
 
   // ── Supplier Performance — fill rate/on-time/lead time, not price alone
   // (spec §6). Not period-scoped (reflects all-time purchase order history
@@ -481,7 +521,7 @@ export async function buildExcelWorkbook(
     on_time_pct: s.on_time_pct,
     avg_lead_time_days: s.avg_lead_time_days,
   }));
-  addTable(
+  const supplierPerfCount = addTable(
     supplierPerf,
     [
       { header: 'Supplier', key: 'supplier', width: 20 },
@@ -495,6 +535,8 @@ export async function buildExcelWorkbook(
     supplierPerfRows,
     'No purchase order or catalog activity found.',
   );
+  addDataBar(supplierPerf, 4, supplierPerfCount, 'FF3B82F6');
+  addDataBar(supplierPerf, 6, supplierPerfCount, 'FF3B82F6');
 
   // ── 10 Inventory ─────────────────────────────────────────────────────
   const inv = wb.addWorksheet('Inventory');
@@ -509,7 +551,7 @@ export async function buildExcelWorkbook(
       low_stock: Number(i.stock_qty) <= Number(i.min_threshold) ? 'Yes' : 'No',
     }))
     .sort((a, b) => b.value - a.value);
-  addTable(
+  const invCount = addTable(
     inv,
     [
       { header: 'Item', key: 'item', width: 22 },
@@ -522,6 +564,7 @@ export async function buildExcelWorkbook(
     ],
     invRows,
   );
+  addDataBar(inv, 6, invCount);
 
   // ── 11 Expenses ──────────────────────────────────────────────────────
   const expenses = wb.addWorksheet('Expenses');
@@ -531,7 +574,7 @@ export async function buildExcelWorkbook(
     description: e.description ?? '—',
     amount: centsToDollars(e.amount_cents),
   }));
-  addTable(
+  const expensesCount = addTable(
     expenses,
     [
       { header: 'Date', key: 'date', width: 12 },
@@ -542,6 +585,7 @@ export async function buildExcelWorkbook(
     expenseRows,
     'No expense records dated in this period.',
   );
+  addDataBar(expenses, 4, expensesCount);
 
   // ── 12 Management Activity ───────────────────────────────────────────
   const ownerActivity = ownerActivityRaw as {
