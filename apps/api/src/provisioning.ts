@@ -137,7 +137,29 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       payments.approve_refund (or can_write()) for any refund over
 //       that threshold. New payments.approve_refund key, granted to
 //       manager by default.
-const SCHEMA_VERSION = 41;
+//   v42 Owner/Manager portal separation: removed the can_write()/
+//       is_staff() manager-or-any-staff bypass from payments/refunds
+//       reads, business_settings writes, expenses, and the Recipes &
+//       Food Cost domain (recipes/recipe_versions/recipe_ingredients/
+//       recipe_cost_log/recipe_import_drafts + the 4 recipe RPCs) — each
+//       now requires the actual has_perm() grant, so the Owner's Portal
+//       & Access Control configuration genuinely restricts a manager
+//       instead of the role name silently overriding it. Also removed
+//       can_write() from public.roles' own write policy (a manager could
+//       previously edit their own role's permissions array directly,
+//       bypassing /api/staff/access's anti-escalation check) and added
+//       protect_owner_only_permissions, a trigger that rejects '*' on
+//       any role row except 'owner' even for a caller who does hold
+//       roles.update.
+//   v43 Narrows the live 'manager' role's default permissions to exclude
+//       payments.refund/approve_refund/adjust/reconcile, finance.view,
+//       inventory.manage_recipes/view_cost, and portals.view —
+//       subtractive (removes exactly these keys from whatever the
+//       role's current array is), so any prior Owner customization to
+//       'manager' survives untouched. Matches 0042's new default in
+//       schema.sql; 0042 alone only removed the can_write() bypass that
+//       made this restriction meaningless.
+const SCHEMA_VERSION = 43;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -47,11 +47,22 @@ staffRouter.post(
     const { email, full_name, role, password } = parsed.data;
     const { admin } = req.tenant!;
 
+    // Without this, app_metadata.permissions is absent -> every
+    // permission check downstream (has_perm/permits/can) reads it as an
+    // empty array and falls back to the "transitional: an owner/manager
+    // with no explicit permissions still writes" rule — silently giving
+    // a BRAND NEW manager full owner-equivalent access from account
+    // creation, before the Owner ever visits Portal & Access Control.
+    // Embedding the role's real current permission set here is what
+    // makes that configuration actually take effect from day one.
+    const { data: roleRow } = await admin.from('roles').select('permissions').eq('key', role).maybeSingle();
+    const rolePermissions = (roleRow?.permissions as string[] | undefined) ?? [];
+
     const { data: created, error: cErr } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      app_metadata: { role },
+      app_metadata: { role, permissions: rolePermissions },
       user_metadata: full_name ? { full_name } : {},
     });
     if (cErr || !created?.user) {

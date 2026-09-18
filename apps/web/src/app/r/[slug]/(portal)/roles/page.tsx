@@ -10,7 +10,7 @@ export default async function RolesPage({ params }: { params: Promise<{ slug: st
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const { role, perms } = await gatePortalPage(t.client, slug, 'roles.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'roles.view', { ownerOnly: true });
   const canEdit = can(perms, role, 'roles.update');
 
   const [{ data: roles, error }, { data: catalog }] = await Promise.all([
@@ -25,10 +25,14 @@ export default async function RolesPage({ params }: { params: Promise<{ slug: st
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-xl font-black">Roles</h1>
+        <h1 className="text-xl font-black">Roles & Access Control</h1>
         <p className="text-muted text-xs mt-1">
-          Named permission presets. A staff member&apos;s effective access is their role plus any
-          extra grants — assign a role on the Staff page.
+          Named permission presets — toggle a whole portal/domain at once, or fine-tune individual
+          permissions below it. A staff member&apos;s effective access is their role&apos;s
+          permissions plus any extra grants, enforced server-side (RLS) regardless of what this
+          screen shows — never just hidden navigation. Owner-only capabilities (unrestricted
+          access, Roles & Access Control itself, Kiosk Portals, Billing, Policies) can never be
+          granted to another role from here.
         </p>
       </div>
 

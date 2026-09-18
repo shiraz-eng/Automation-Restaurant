@@ -270,18 +270,26 @@ declare base text[] := array[
 begin
   insert into public.roles (key, name, permissions, is_system) values
     ('owner','Owner', array['*'], true),
+    -- Default Manager: operational/business access, NOT ownership-level.
+    -- Deliberately excludes payments.refund/approve_refund/adjust/reconcile,
+    -- finance.view, and the Recipes & Food Cost cost-visibility keys
+    -- (inventory.manage_recipes/inventory.view_cost) — an Owner grants
+    -- these per-manager from Roles & Access Control (or per-member via
+    -- Staff's extra grants) when a specific manager needs them; they are
+    -- never automatic just from holding the 'manager' role. portals.view
+    -- (Kiosk Portal management) is owner-only regardless of grant — left
+    -- out of the default for the same reason.
     ('manager','Manager', base || array[
       'orders.create','orders.update','orders.cancel','orders.reopen',
       'orders.apply_discount','orders.override_price',
-      'payments.view','payments.accept','payments.refund','payments.approve_refund','payments.void',
-      'payments.adjust','payments.reconcile','receipts.view','receipts.print',
+      'payments.view','payments.accept','payments.void','receipts.view','receipts.print',
       'kitchen.update_status','kitchen.manage_availability','kitchen.record_waste',
       'menu.create','menu.update','menu.archive',
       'variants.view','variants.create','variants.update','variants.archive',
       'deals.view','deals.create','deals.update','deals.archive',
       'availability.view','availability.update',
       'stock.update','stock.adjust','stock.history','stock.count',
-      'inventory.manage_waste','inventory.manage_recipes','inventory.view_cost',
+      'inventory.manage_waste',
       'tables.create','tables.update',
       'customers.view','customers.create','customers.update',
       'supplier.view','supplier.create','supplier.update','supplier.manage',
@@ -292,7 +300,7 @@ begin
       'attendance.view_reports','attendance.view_employee_reports',
       'attendance.view_history','attendance.correct','attendance.approve_correction',
       'reports.view','reports.generate','reports.export',
-      'analytics.view','finance.view','settings.view','portals.view',
+      'analytics.view','settings.view',
       'notifications.manage','ai.view','ai.execute_read',
       'social.view','social.manage','social.propose_post','social.approve_post'
     ], true),
@@ -401,7 +409,12 @@ grant execute on function public.set_member_access(uuid, text, text[]) to servic
 
 alter table public.roles enable row level security;
 create policy staff_read on public.roles for select using (app.has_perm('roles.view') or app.is_staff());
-create policy mgr_write on public.roles for all using (app.has_perm('roles.update') or app.can_write()) with check (app.has_perm('roles.update') or app.can_write());
+-- No can_write() fallback: editing a role's OWN permission array is
+-- exactly the self-escalation vector (Manager Portal spec §9) — writing
+-- public.roles now requires the caller to explicitly hold roles.update,
+-- never just "being a manager". protect_owner_only_permissions below is
+-- the second, independent backstop even for a caller who does hold it.
+create policy mgr_write on public.roles for all using (app.has_perm('roles.update')) with check (app.has_perm('roles.update'));
 
 create or replace function app.protect_system_roles() returns trigger
 language plpgsql as $$
@@ -415,6 +428,24 @@ begin
 end $$;
 create trigger protect_system_roles before update or delete on public.roles
   for each row execute function app.protect_system_roles();
+
+-- '*' (unconditional full access — the same marker owner's own row uses)
+-- may only ever live on the 'owner' row. This is the server-side
+-- backstop for "Owner-only capabilities cannot be granted through
+-- Manager portal configuration": it holds even for a caller who legitimately
+-- holds roles.update, and even against a direct table write that bypasses
+-- routes/staff.ts's own anti-escalation check entirely. Centralized here
+-- rather than duplicated in the Roles UI's own validation.
+create or replace function app.protect_owner_only_permissions() returns trigger
+language plpgsql as $$
+begin
+  if new.key <> 'owner' and '*' = any(new.permissions) then
+    raise exception 'only the owner role may hold unrestricted (*) access' using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end $$;
+create trigger protect_owner_only_permissions before insert or update on public.roles
+  for each row execute function app.protect_owner_only_permissions();
 
 -- ── Menu ───────────────────────────────────────────────────────────────────
 create table public.menu_categories (
@@ -787,7 +818,9 @@ language plpgsql security definer set search_path = public, app as $fn$
 declare
   v_recipe_id uuid; v_version_id uuid; v_ing jsonb; v_cost int;
 begin
-  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write()) then
+  -- Recipes & Food Cost is an opt-in domain for Manager (Owner's Portal
+  -- & Access Control grants it per-manager) — no can_write() fallback.
+  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes')) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   if coalesce(trim(p_name), '') = '' then
@@ -841,7 +874,9 @@ declare
   v_next_version int; v_version_id uuid; v_ing jsonb; v_cost int;
   v_prev_yield_qty numeric; v_prev_yield_unit text;
 begin
-  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write()) then
+  -- Recipes & Food Cost is an opt-in domain for Manager (Owner's Portal
+  -- & Access Control grants it per-manager) — no can_write() fallback.
+  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes')) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   if not exists (select 1 from public.recipes where id = p_recipe_id) then
@@ -894,7 +929,9 @@ returns void language plpgsql security definer set search_path = public, app as 
 declare
   v_recipe_id uuid; v_recipe public.recipes; v_prev_active uuid; v_cost int;
 begin
-  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write()) then
+  -- Recipes & Food Cost is an opt-in domain for Manager (Owner's Portal
+  -- & Access Control grants it per-manager) — no can_write() fallback.
+  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes')) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
 
@@ -966,7 +1003,9 @@ create or replace function public.archive_recipe(p_recipe_id uuid)
 returns void language plpgsql security definer set search_path = public, app as $fn$
 declare v_recipe public.recipes;
 begin
-  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write()) then
+  -- Recipes & Food Cost is an opt-in domain for Manager (Owner's Portal
+  -- & Access Control grants it per-manager) — no can_write() fallback.
+  if not (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes')) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
   select * into v_recipe from public.recipes where id = p_recipe_id;
@@ -1071,27 +1110,30 @@ grant execute on function public.recipe_recent_cost_changes(numeric) to authenti
 alter table public.recipes enable row level security;
 create policy staff_read on public.recipes for select using (app.has_perm('menu.view') or app.is_staff());
 create policy mgr_write on public.recipes for all
-  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write())
-  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write());
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'))
+  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'));
 
 alter table public.recipe_versions enable row level security;
 create policy staff_read on public.recipe_versions for select using (app.has_perm('menu.view') or app.is_staff());
 create policy mgr_write on public.recipe_versions for all
-  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write())
-  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write());
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'))
+  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'));
 
 alter table public.recipe_ingredients enable row level security;
 create policy staff_read on public.recipe_ingredients for select using (app.has_perm('menu.view') or app.is_staff());
 create policy mgr_write on public.recipe_ingredients for all
-  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write())
-  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write());
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'))
+  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'));
 
 -- Cost figures only, unlike the tables above — gated on inventory.view_cost
 -- (not menu.view) so kitchen-only roles see recipes/instructions but not
 -- the cost trend, matching how InventoryManager already hides dollar
 -- columns from roles without inventory.view_cost.
 alter table public.recipe_cost_log enable row level security;
-create policy staff_read on public.recipe_cost_log for select using (app.has_perm('inventory.view_cost') or app.can_write());
+-- Cost history is dollar data — same narrow finance-style exception,
+-- no can_write() fallback, so it respects a manager's actual
+-- inventory.view_cost grant rather than their role name.
+create policy staff_read on public.recipe_cost_log for select using (app.has_perm('inventory.view_cost'));
 
 -- ── Orders ─────────────────────────────────────────────────────────────────
 create table public.order_counter (
@@ -1385,10 +1427,10 @@ create table public.recipe_import_drafts (
 );
 alter table public.recipe_import_drafts enable row level security;
 create policy staff_read on public.recipe_import_drafts for select
-  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.is_staff());
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'));
 create policy mgr_write on public.recipe_import_drafts for all
-  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write())
-  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes') or app.can_write());
+  using (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'))
+  with check (app.has_perm('inventory.manage_recipes') or app.has_perm('finance.manage_recipes'));
 
 -- ── AI Table Import ───────────────────────────────────────────────────────
 -- Create-only — a table label that already exists is left alone rather
@@ -2174,8 +2216,15 @@ create index order_adjustments_order_idx on public.order_adjustments(order_id, c
 alter table public.payments enable row level security;
 alter table public.refunds enable row level security;
 alter table public.order_adjustments enable row level security;
-create policy staff_read on public.payments for select using (app.has_perm('payments.view') or app.is_staff());
-create policy staff_read on public.refunds for select using (app.has_perm('payments.view') or app.is_staff());
+-- Financial read — deliberately NOT "or app.is_staff()" (unlike most
+-- tables here): payment/refund amounts are exactly the kind of data a
+-- manager should only see when explicitly granted payments.view, per
+-- the Owner's Portal & Access Control configuration. Every other
+-- read/write policy in this file keeps its existing is_staff()/
+-- can_write() fallback untouched — this is a deliberately narrow,
+-- named exception for the finance domain, not a schema-wide change.
+create policy staff_read on public.payments for select using (app.has_perm('payments.view'));
+create policy staff_read on public.refunds for select using (app.has_perm('payments.view'));
 create policy staff_read on public.order_adjustments for select using (app.has_perm('orders.view') or app.is_staff());
 alter publication supabase_realtime add table public.payments;
 
@@ -3823,7 +3872,11 @@ insert into public.attendance_settings (id) values (true);
 alter table public.business_settings enable row level security;
 alter table public.attendance_settings enable row level security;
 create policy staff_read on public.business_settings for select using (app.has_perm('settings.view') or app.is_staff());
-create policy mgr_write  on public.business_settings for all using (app.has_perm('settings.update') or app.can_write()) with check (app.has_perm('settings.update') or app.can_write());
+-- Writing business_settings includes the refund-approval-threshold
+-- policy (tenant-migrations/0041) — deliberately requires explicit
+-- settings.update rather than the usual can_write() manager-bypass, so
+-- an unconfigured manager can't quietly raise/remove that limit.
+create policy mgr_write  on public.business_settings for all using (app.has_perm('settings.update')) with check (app.has_perm('settings.update'));
 create policy staff_read on public.attendance_settings for select using (app.has_perm('settings.view') or app.is_staff());
 create policy mgr_write  on public.attendance_settings for all using (app.has_perm('settings.update') or app.can_write()) with check (app.has_perm('settings.update') or app.can_write());
 
@@ -4422,10 +4475,13 @@ create table public.expenses (
 );
 create index expenses_date_idx on public.expenses(expense_date desc);
 alter table public.expenses enable row level security;
-create policy staff_read on public.expenses for select using (app.has_perm('finance.view') or app.is_staff());
-create policy staff_insert on public.expenses for insert with check (app.has_perm('finance.create_expense') or app.can_write());
-create policy staff_update on public.expenses for update using (app.has_perm('finance.update_expense') or app.can_write()) with check (app.has_perm('finance.update_expense') or app.can_write());
-create policy staff_delete on public.expenses for delete using (app.has_perm('finance.delete_expense') or app.can_write());
+-- Finance domain (same narrow exception as payments/refunds above): no
+-- is_staff()/can_write() fallback, so expense records stay invisible to
+-- a manager until the Owner explicitly grants finance.*.
+create policy staff_read on public.expenses for select using (app.has_perm('finance.view'));
+create policy staff_insert on public.expenses for insert with check (app.has_perm('finance.create_expense'));
+create policy staff_update on public.expenses for update using (app.has_perm('finance.update_expense')) with check (app.has_perm('finance.update_expense'));
+create policy staff_delete on public.expenses for delete using (app.has_perm('finance.delete_expense'));
 create trigger audit after insert or update or delete on public.expenses for each row execute function app.audit_row();
 
 -- ── COGS & Profitability engine (recipe/inventory/costing spec §22-31, §49) ─

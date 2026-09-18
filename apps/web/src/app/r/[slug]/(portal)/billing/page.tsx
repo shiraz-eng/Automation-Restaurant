@@ -12,7 +12,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  await gatePortalPage(t.client, slug, 'settings.view');
+  await gatePortalPage(t.client, slug, 'settings.view', { ownerOnly: true });
 
   const config = await getTenantConfig(slug);
   const tier = isPlanTier(config?.tier) ? config!.tier : 'starter';

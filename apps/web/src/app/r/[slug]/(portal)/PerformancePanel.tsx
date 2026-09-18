@@ -352,7 +352,11 @@ export function PerformancePanel({
         if (cancelled) return;
         if (catRes.error) throw catRes.error;
         if (payRes.error) throw payRes.error;
-        if (itemRes.error) throw itemRes.error;
+        // item_profitability requires finance.view_profit/finance.view_cogs/
+        // inventory.view_cost (same cost-visibility gate as period_profitability
+        // above) — degrades the same way that already does (an empty Top
+        // Products list) rather than throwing and blanking the whole panel
+        // for a caller who simply isn't granted cost visibility.
         if (fbRes.error) throw fbRes.error;
 
         setCategoryMix(
@@ -367,10 +371,21 @@ export function PerformancePanel({
             value: r.revenue_cents / 100,
           })),
         );
-        setTopItems(((itemRes.data as ItemRow[]) ?? []).slice(0, 8));
+        setTopItems(itemRes.error ? [] : ((itemRes.data as ItemRow[]) ?? []).slice(0, 8));
         setFeedback((fbRes.data as FeedbackRow[] | null)?.[0] ?? null);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        // Supabase RPC errors are plain {message, code, ...} objects, not
+        // Error instances — String(e) on one of those prints "[object
+        // Object]" rather than anything useful.
+        if (!cancelled) {
+          const message =
+            e instanceof Error
+              ? e.message
+              : typeof e === 'object' && e !== null && 'message' in e
+                ? String((e as { message: unknown }).message)
+                : String(e);
+          setError(message);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

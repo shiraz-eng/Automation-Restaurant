@@ -14,6 +14,29 @@ export type Role = {
 };
 export type PermRow = { key: string; grp: string; label: string };
 
+// Portal-level bundles (spec: Owner's Portal & Access Control — "[x]
+// Operations [x] Kitchen ... [ ] Finance"). Each toggle is a shorthand
+// over the SAME permission_catalog keys the granular checkboxes below
+// already offer — no separate authorization concept, no new permission
+// system, just a faster way to grant/revoke a whole domain at once.
+// Roles & Access Control / Kiosk Portals / Billing / Policies are
+// deliberately absent — those stay owner-only regardless of what's
+// toggled here (enforced server-side by gatePortalPage's ownerOnly flag
+// and the protect_owner_only_permissions DB trigger, not by this list).
+const PORTAL_BUNDLES: { portal: string; keys: string[] }[] = [
+  { portal: 'Operations', keys: ['orders.view', 'orders.create', 'orders.update', 'orders.cancel', 'orders.reopen', 'orders.apply_discount', 'orders.override_price', 'tables.view', 'tables.create', 'tables.update', 'availability.view', 'availability.update'] },
+  { portal: 'Kitchen', keys: ['kitchen.view', 'kitchen.update_status', 'kitchen.manage_availability', 'kitchen.record_waste'] },
+  { portal: 'Cashier', keys: ['payments.view', 'payments.accept', 'receipts.view', 'receipts.print'] },
+  { portal: 'Recipes & Food Cost', keys: ['inventory.manage_recipes', 'finance.manage_recipes', 'inventory.view_cost'] },
+  { portal: 'Inventory', keys: ['stock.view', 'stock.update', 'stock.adjust', 'stock.history', 'stock.count', 'inventory.manage_waste'] },
+  { portal: 'Suppliers & Purchasing', keys: ['supplier.view', 'supplier.create', 'supplier.update', 'supplier.manage', 'purchases.view', 'purchases.create', 'purchases.update', 'purchases.delete', 'purchases.receive', 'purchases.approve', 'invoices.view', 'invoices.create', 'invoices.match', 'payables.view', 'payables.record_payment', 'payables.manage'] },
+  { portal: 'Finance', keys: ['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_cogs', 'finance.view_profit', 'finance.manage_costs', 'finance.reconcile', 'finance.close_day', 'finance.reopen_day', 'payments.refund', 'payments.approve_refund', 'payments.void', 'payments.adjust'] },
+  { portal: 'Analytics', keys: ['analytics.view', 'analytics.export', 'reports.generate', 'reports.export'] },
+  { portal: 'Marketing & Social', keys: ['deals.view', 'deals.create', 'deals.update', 'deals.archive', 'social.view', 'social.manage', 'social.propose_post', 'social.approve_post'] },
+  { portal: 'Staff', keys: ['staff.view', 'staff.create', 'staff.update', 'staff.disable', 'attendance.view', 'attendance.mark', 'attendance.view_dashboard', 'attendance.view_reports', 'attendance.correct', 'attendance.approve_correction'] },
+  { portal: 'AI Assistant', keys: ['ai.view', 'ai.execute_read', 'ai.execute_write', 'ai.approve_sensitive_action'] },
+];
+
 function slugKey(name: string): string {
   return name
     .toLowerCase()
@@ -73,6 +96,16 @@ export function RolesManager({
       return next;
     });
   }
+  function togglePortal(keys: string[], nowOn: boolean) {
+    setDraft((s) => {
+      const next = new Set(s);
+      for (const k of keys) {
+        if (nowOn) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+  }
 
   async function saveEdit(r: Role) {
     setBusy(true);
@@ -111,33 +144,66 @@ export function RolesManager({
   }
 
   const picker = (
-    <div className="mt-3 space-y-3">
+    <div className="mt-3 space-y-4">
       <Input
         placeholder="Role name"
         value={draftName}
         onChange={(e) => setDraftName(e.target.value)}
         className="max-w-xs"
       />
-      <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
-        {groups.map(([grp, rows]) => (
-          <div key={grp}>
-            <div className="text-[10px] uppercase tracking-wide text-muted font-bold mb-1">{grp}</div>
-            <div className="space-y-1">
-              {rows.map((p) => (
-                <label key={p.key} className="flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={draft.has(p.key)}
-                    onChange={() => toggle(p.key)}
-                  />
-                  <span className="font-mono text-[11px]">{p.key}</span>
-                  <span className="text-muted">— {p.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        ))}
+
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-muted font-bold mb-1.5">Portals</div>
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
+          {PORTAL_BUNDLES.map(({ portal, keys }) => {
+            const allOn = keys.every((k) => draft.has(k));
+            const someOn = !allOn && keys.some((k) => draft.has(k));
+            return (
+              <label key={portal} className="flex items-center gap-2 text-xs py-0.5">
+                <input
+                  type="checkbox"
+                  checked={allOn}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someOn;
+                  }}
+                  onChange={() => togglePortal(keys, !allOn)}
+                />
+                <span className="font-semibold">{portal}</span>
+                <span className="text-muted text-[10px]">({keys.length} permission{keys.length === 1 ? '' : 's'})</span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="text-muted text-[10px] mt-1.5">
+          Roles &amp; Access Control, Kiosk Portals, Billing, and Policies are owner-only — they
+          can&apos;t be granted here, no matter which permissions are checked below.
+        </p>
       </div>
+
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-muted font-bold mb-1.5">Individual permissions</div>
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+          {groups.map(([grp, rows]) => (
+            <div key={grp}>
+              <div className="text-[10px] uppercase tracking-wide text-muted font-bold mb-1">{grp}</div>
+              <div className="space-y-1">
+                {rows.map((p) => (
+                  <label key={p.key} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={draft.has(p.key)}
+                      onChange={() => toggle(p.key)}
+                    />
+                    <span className="font-mono text-[11px]">{p.key}</span>
+                    <span className="text-muted">— {p.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {error && <p className="text-danger text-xs">{error}</p>}
     </div>
   );

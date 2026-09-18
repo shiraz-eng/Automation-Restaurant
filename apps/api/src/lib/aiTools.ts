@@ -2747,13 +2747,22 @@ export const AI_TOOLS: AiTool[] = [
         ...INTELLIGENCE_PERIOD_SCHEMA,
       },
     },
-    async run(admin, args) {
+    async run(admin, args, actor) {
       const r = resolvePeriod(args);
       // Forward the already-resolved absolute range, not the bare period
       // name — the only case that matters is 'custom', which a sub-tool
       // can't reconstruct from a name alone, but forwarding it exactly
       // keeps every composed tool consistent regardless.
       const range = forwardRange(r);
+      // analytics.view (this tool's own gate) does NOT imply finance
+      // visibility — a manager can legitimately hold one without the
+      // other (spec: "Manager must NOT automatically receive ...
+      // unrestricted accounting"). period_profitability()/supplier_
+      // payable()'s OWN internal has_perm() checks can't enforce this
+      // here: they always pass under this admin client (service_role
+      // unconditionally satisfies app.has_perm(), see AiActor's comment
+      // above computeAttentionItems) — this flag is the real gate.
+      const includeFinancial = !!actor && permits(actor.permissions, actor.role, 'finance.view');
       const [profitRes, purchasing, payable, supplierPaymentsRes, feedback, scorecard, attention, positives, areas, activity] = await Promise.all([
         admin.rpc('period_profitability', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         runToolByName(admin, 'get_purchasing_summary', range),
@@ -2761,12 +2770,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', r.from.toISOString()).lt('paid_at', r.to.toISOString()),
         admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         runToolByName(admin, 'get_owner_scorecard', range),
-        // This whole tool is gated at analytics.view (not the much
-        // broader orders.view get_attention_items/get_daily_brief use)
-        // and already unconditionally surfaces payables/financial figures
-        // below regardless of this call — includeFinancial: true matches
-        // that existing scope rather than silently dropping items here.
-        computeActiveAttentionItems(admin, { includeFinancial: true }),
+        computeActiveAttentionItems(admin, { includeFinancial }),
         runToolByName(admin, 'get_positive_highlights', range),
         runToolByName(admin, 'get_areas_to_review', range),
         runToolByName(admin, 'get_owner_activity', range),
@@ -2791,17 +2795,19 @@ export const AI_TOOLS: AiTool[] = [
           ? {
               gross_sales_cents: profit.gross_sales_cents,
               net_sales_cents: profit.net_sales_cents,
-              gross_profit_cents: profit.gross_profit_cents,
-              net_profit_cents: profit.net_profit_cents,
-              food_cost_pct: profit.food_cost_pct,
+              gross_profit_cents: includeFinancial ? profit.gross_profit_cents : undefined,
+              net_profit_cents: includeFinancial ? profit.net_profit_cents : undefined,
+              food_cost_pct: includeFinancial ? profit.food_cost_pct : undefined,
               purchasing_cents: (purchasing as { total_purchases_cents: number }).total_purchases_cents,
-              supplier_payments_cents: supplierPaymentsCents,
-              outstanding_payables_cents: outstandingPayableCents,
+              supplier_payments_cents: includeFinancial ? supplierPaymentsCents : undefined,
+              outstanding_payables_cents: includeFinancial ? outstandingPayableCents : undefined,
               waste_cents: wasteCents,
               customer_rating: fb?.avg_overall ?? null,
             }
           : { note: 'No sales recorded in this period.' },
-        scorecard: scorecardRows,
+        scorecard: includeFinancial
+          ? scorecardRows
+          : scorecardRows.filter((s) => s.domain !== 'Profitability' && s.domain !== 'Cash Flow'),
         attention_items: attention.slice(0, 5),
         positive_highlights: (positives as { highlights: string[] }).highlights.slice(0, 5),
         areas_to_review: (areas as { areas: { area: string; evidence: string; recommendation: string }[] }).areas.slice(0, 5),

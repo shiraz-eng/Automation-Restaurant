@@ -10,7 +10,7 @@ export default async function PoliciesPage({ params }: { params: Promise<{ slug:
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  const { role, perms } = await gatePortalPage(t.client, slug, 'settings.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'settings.view', { ownerOnly: true });
   const canEdit = can(perms, role, 'settings.update');
 
   const { data, error } = await t.client

@@ -14,7 +14,7 @@ export default async function PortalsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'portals.view');
+  await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
 
   const [{ data: portals, error }, { data: perms }] = await Promise.all([
     t.client

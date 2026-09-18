@@ -1063,11 +1063,11 @@ aiRouter.get('/export/download/:id', requirePortalPerm('reports.view'), async (r
  * the same period, never a second computation.
  */
 aiRouter.get('/intelligence', requirePortalPerm('analytics.view'), async (req: Request, res: Response) => {
-  const { admin } = req.tenant!;
+  const { admin, role, permissions } = req.tenant!;
   const tool = AI_TOOLS.find((t) => t.name === 'analyze_restaurant');
   if (!tool) return res.status(500).json({ error: 'tool_missing' });
   try {
-    const result = await tool.run(admin, { period: req.query.period, from: req.query.from, to: req.query.to });
+    const result = await tool.run(admin, { period: req.query.period, from: req.query.from, to: req.query.to }, { role, permissions });
     res.json(result);
   } catch (err) {
     console.error('[ai] intelligence fetch failed:', err);
