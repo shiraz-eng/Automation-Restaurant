@@ -15,7 +15,9 @@ export type Expense = {
   description: string | null;
   amount_cents: number;
   expense_date: string;
+  supplier_id?: string | null;
 };
+export type ExpenseSupplier = { id: string; name: string };
 
 type ProfitRow = {
   orders_count: number;
@@ -38,6 +40,7 @@ const EMPTY = {
   description: '',
   amount: '',
   expense_date: new Date().toISOString().slice(0, 10),
+  supplier_id: '',
 };
 
 const pct = (n: number | null) => (n == null ? '—' : `${n}%`);
@@ -51,6 +54,7 @@ export function ExpensesManager({
   canWrite,
   canDelete,
   canViewProfit,
+  suppliers = [],
 }: {
   expenses: Expense[];
   profit: ProfitRow | null;
@@ -60,6 +64,7 @@ export function ExpensesManager({
   canWrite: boolean;
   canDelete: boolean;
   canViewProfit: boolean;
+  suppliers?: ExpenseSupplier[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -92,6 +97,7 @@ export function ExpensesManager({
       description: ex.description ?? '',
       amount: (ex.amount_cents / 100).toFixed(2),
       expense_date: ex.expense_date,
+      supplier_id: ex.supplier_id ?? '',
     });
   }
 
@@ -107,6 +113,7 @@ export function ExpensesManager({
       description: form.description.trim() || null,
       amount_cents: cents,
       expense_date: form.expense_date,
+      supplier_id: form.supplier_id || null,
     };
     const ok = await run(() =>
       editId ? supabase.from('expenses').update(row).eq('id', editId) : supabase.from('expenses').insert(row),
@@ -185,12 +192,22 @@ export function ExpensesManager({
       {canWrite && (
         <Card>
           <h2 className="font-bold mb-3 text-sm">{editId ? 'Edit expense' : 'Add expense'}</h2>
-          <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+          <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
             <Field label="Category">
               <Select value={form.category} onChange={(e) => set('category', e.target.value)}>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Supplier">
+              <Select value={form.supplier_id} onChange={(e) => set('supplier_id', e.target.value)}>
+                <option value="">— none —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
                   </option>
                 ))}
               </Select>
@@ -269,7 +286,14 @@ export function ExpensesManager({
                     <tr key={ex.id} className="border-b border-border/60 last:border-0">
                       <td className="p-3 text-muted">{ex.expense_date}</td>
                       <td className="p-3 font-semibold">{ex.category}</td>
-                      <td className="p-3 text-muted">{ex.description ?? '—'}</td>
+                      <td className="p-3 text-muted">
+                        {ex.description ?? '—'}
+                        {ex.supplier_id && (
+                          <span className="text-primary text-[10px] font-semibold ml-1.5">
+                            · {suppliers.find((s) => s.id === ex.supplier_id)?.name ?? 'supplier'}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 text-right font-mono">{formatCents(ex.amount_cents)}</td>
                       {(canWrite || canDelete) && (
                         <td className="p-3 text-right whitespace-nowrap">

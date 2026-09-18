@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
-import { ExpensesManager, type Expense } from './ExpensesManager';
+import { ExpensesManager, type Expense, type ExpenseSupplier } from './ExpensesManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,14 +33,17 @@ export default async function ExpensesPage({ params }: { params: Promise<{ slug:
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [{ data: expenses, error }, profitRes] = await Promise.all([
+  const [{ data: expenses, error }, profitRes, { data: suppliers }] = await Promise.all([
     t.client
       .from('expenses')
-      .select('id, category, description, amount_cents, expense_date')
+      .select('id, category, description, amount_cents, expense_date, supplier_id')
       .order('expense_date', { ascending: false })
       .limit(200),
     canViewProfit
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: now.toISOString() })
+      : Promise.resolve({ data: null }),
+    canWrite
+      ? t.client.from('suppliers').select('id, name').eq('is_active', true).order('name')
       : Promise.resolve({ data: null }),
   ]);
 
@@ -70,6 +73,7 @@ export default async function ExpensesPage({ params }: { params: Promise<{ slug:
           canWrite={canWrite}
           canDelete={canDelete}
           canViewProfit={canViewProfit}
+          suppliers={(suppliers as ExpenseSupplier[] | null) ?? []}
         />
       )}
     </div>

@@ -1350,6 +1350,19 @@ create policy "menu-images staff write" on storage.objects for all
   using (bucket_id = 'menu-images' and (app.has_perm('menu.update') or app.can_write()))
   with check (bucket_id = 'menu-images' and (app.has_perm('menu.update') or app.can_write()));
 
+-- Receipt/branding logo storage (0045): public read (shown on a printed/PDF
+-- receipt handed to a guest), write gated to settings.update — no
+-- can_write() fallback, matching business_settings' own write policy below
+-- (Policies is an ownerOnly page in the web app besides).
+insert into storage.buckets (id, name, public)
+values ('branding', 'branding', true)
+on conflict (id) do nothing;
+create policy "branding public read" on storage.objects for select
+  using (bucket_id = 'branding');
+create policy "branding settings write" on storage.objects for all
+  using (bucket_id = 'branding' and app.has_perm('settings.update'))
+  with check (bucket_id = 'branding' and app.has_perm('settings.update'));
+
 -- ── AI Menu Import ───────────────────────────────────────────────────────
 -- A document-derived menu draft: file (PDF text today) -> LLM structuring
 -- -> validation -> diff against the LIVE menu -> owner review -> selective
@@ -2721,7 +2734,13 @@ create table public.business_settings (
   -- behavior unchanged: anyone holding payments.refund can refund any
   -- amount. Set by an owner/manager in Settings; enforced inside
   -- refund_payment() below, never only in the UI.
-  max_refund_without_approval_cents int
+  max_refund_without_approval_cents int,
+  -- Receipt customization (0045) — null receipt_template_html means "use
+  -- the built-in printed-receipt layout"; when set it's plain HTML with
+  -- {{placeholder}} tokens substituted client-side before printing.
+  receipt_logo_url     text,
+  receipt_footer_text  text,
+  receipt_template_html text
 );
 insert into public.business_settings (id) values (true);
 
@@ -4514,6 +4533,9 @@ create table public.expenses (
   amount_cents int not null check (amount_cents > 0),
   expense_date date not null default current_date,
   recorded_by  uuid,
+  -- Which supplier this was actually paid to (0045) — optional, most
+  -- categories (Rent/Utilities/Labor) have none.
+  supplier_id  uuid references public.suppliers(id) on delete set null,
   created_at   timestamptz not null default now()
 );
 create index expenses_date_idx on public.expenses(expense_date desc);

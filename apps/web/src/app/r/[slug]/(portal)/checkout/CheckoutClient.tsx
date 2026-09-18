@@ -5,6 +5,17 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Input } from '@/components/ui';
 import { formatCents } from '@/lib/format';
+import { downloadReceiptPdf } from '@/lib/generateReceipt';
+import { NewOrderPanel } from './NewOrderPanel';
+
+export type ReceiptConfig = { logoUrl: string | null; footerText: string | null; templateHtml: string | null };
+export type NewOrderCategory = { id: string; name: string };
+export type NewOrderItem = {
+  id: string;
+  name: string;
+  category_id: string | null;
+  menu_variants: { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean }[];
+};
 
 type Line = {
   id: string;
@@ -50,22 +61,86 @@ function due(b: Bill): number {
   return Math.max(0, b.total_cents - b.refunded_cents - netPaid(b));
 }
 
+const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!);
+
+/** Substitutes {{placeholder}} tokens in an owner-supplied custom receipt
+ *  template. Plain string replacement only — never evaluated/executed —
+ *  so a malformed or even hostile template can only ever mis-print, never
+ *  run anything. */
+function renderCustomTemplate(html: string, tokens: Record<string, string>): string {
+  return html.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, key: string) => tokens[key.toLowerCase()] ?? '');
+}
+
 /** Opens a small print-ready receipt in a new tab and triggers the browser
- *  print dialog. No PDF library, no server round-trip — just the same
- *  numbers already on screen, formatted for a till printer or A4 page. */
-function printInvoice(bill: Bill, restaurantName: string) {
-  const w = window.open('', '_blank', 'width=380,height=640');
+ *  print dialog. No server round-trip — the same numbers already on
+ *  screen, formatted for a till printer or A4 page, using the owner's
+ *  custom HTML template (Settings → Policies) when one is set, else a
+ *  built-in layout. Either way, the logo (if configured) is embedded as
+ *  a plain <img>.
+ *
+ *  Accepts an already-opened window when the caller can't call
+ *  window.open() itself inside a user gesture (e.g. right after an
+ *  awaited RPC) — most browsers silently block window.open() called
+ *  asynchronously, so takePayment() below opens the blank window
+ *  SYNCHRONOUSLY on click, before awaiting record_payment, and hands
+ *  that handle in here once the payment succeeds. */
+function printInvoice(bill: Bill, restaurantName: string, receipt: ReceiptConfig, paidViaOverride?: string, existingWindow?: Window | null) {
+  const w = existingWindow ?? window.open('', '_blank', 'width=380,height=640');
   if (!w) return;
   const paidVia =
-    bill.payments
+    paidViaOverride ??
+    (bill.payments
       .filter((p) => p.status !== 'voided')
       .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
-      .join(', ') || 'unpaid';
-  const esc = (s: string) => s.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!);
+      .join(', ') ||
+      'unpaid');
+  const logoHtml = receipt.logoUrl ? `<img src="${esc(receipt.logoUrl)}" alt="" style="max-width:120px;max-height:60px;display:block;margin:0 auto 8px" />` : '';
+  const linesHtml = bill.order_lines
+    .map((l) => `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`)
+    .join('');
+  const discountRow = bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : '';
+  const refundedRow = bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : '';
+  const footerHtml = receipt.footerText ? `<div class="muted" style="margin-top:8px">${esc(receipt.footerText)}</div>` : '';
+
+  const body = receipt.templateHtml
+    ? renderCustomTemplate(receipt.templateHtml, {
+        restaurant_name: esc(restaurantName),
+        logo_html: logoHtml,
+        order_number: String(bill.order_number),
+        table: bill.table_label ? esc(bill.table_label) : '',
+        customer: bill.customer_name ? esc(bill.customer_name) : '',
+        date: new Date(bill.created_at).toLocaleString(),
+        lines_html: linesHtml,
+        subtotal: formatCents(bill.subtotal_cents),
+        discount_row: discountRow,
+        tax: formatCents(bill.tax_cents),
+        refunded_row: refundedRow,
+        total: formatCents(bill.total_cents),
+        paid_via: esc(paidVia),
+        footer: footerHtml,
+      })
+    : `${logoHtml}
+<h1>${esc(restaurantName)}</h1>
+<div class="muted">Order #${bill.order_number}${bill.table_label ? ' · ' + esc(bill.table_label) : ''}${bill.customer_name ? ' · ' + esc(bill.customer_name) : ''}</div>
+<div class="muted">${new Date(bill.created_at).toLocaleString()}</div>
+<hr/>
+<table>${linesHtml}</table>
+<hr/>
+<table>
+<tr><td>Subtotal</td><td class="right">${formatCents(bill.subtotal_cents)}</td></tr>
+${discountRow}
+<tr><td>Tax</td><td class="right">${formatCents(bill.tax_cents)}</td></tr>
+${refundedRow}
+<tr class="total"><td>Total</td><td class="right">${formatCents(bill.total_cents)}</td></tr>
+</table>
+<hr/>
+<div class="muted">Paid via: ${esc(paidVia)}</div>
+${footerHtml}`;
+
   w.document.write(`<!doctype html><html><head><title>Invoice #${bill.order_number}</title><meta charset="utf-8">
 <style>
   body{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#111;padding:18px;max-width:340px}
-  h1{font-size:14px;margin:0 0 2px}
+  h1{font-size:14px;margin:0 0 2px;text-align:center}
   .muted{color:#666;font-size:10px;margin-bottom:2px}
   table{width:100%;border-collapse:collapse;margin-top:8px}
   td{padding:2px 0}
@@ -73,26 +148,7 @@ function printInvoice(bill: Bill, restaurantName: string) {
   hr{border:none;border-top:1px dashed #999;margin:8px 0}
   .total{font-weight:bold;font-size:13px}
 </style></head><body>
-<h1>${esc(restaurantName)}</h1>
-<div class="muted">Order #${bill.order_number}${bill.table_label ? ' · ' + esc(bill.table_label) : ''}${bill.customer_name ? ' · ' + esc(bill.customer_name) : ''}</div>
-<div class="muted">${new Date(bill.created_at).toLocaleString()}</div>
-<hr/>
-<table>${bill.order_lines
-    .map(
-      (l) =>
-        `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`,
-    )
-    .join('')}</table>
-<hr/>
-<table>
-<tr><td>Subtotal</td><td class="right">${formatCents(bill.subtotal_cents)}</td></tr>
-${bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : ''}
-<tr><td>Tax</td><td class="right">${formatCents(bill.tax_cents)}</td></tr>
-${bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : ''}
-<tr class="total"><td>Total</td><td class="right">${formatCents(bill.total_cents)}</td></tr>
-</table>
-<hr/>
-<div class="muted">Paid via: ${esc(paidVia)}</div>
+${body}
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
   w.document.close();
@@ -105,6 +161,11 @@ export function CheckoutClient({
   canVoid,
   canDiscount,
   canCancel,
+  receipt,
+  canCreateOrder,
+  taxRateBps,
+  menuCategories,
+  menuItems,
 }: {
   restaurantName: string;
   initial: Bill[];
@@ -112,6 +173,11 @@ export function CheckoutClient({
   canVoid: boolean;
   canDiscount: boolean;
   canCancel: boolean;
+  receipt: ReceiptConfig;
+  canCreateOrder: boolean;
+  taxRateBps: number;
+  menuCategories: NewOrderCategory[];
+  menuItems: NewOrderItem[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -123,6 +189,7 @@ export function CheckoutClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'bills' | 'new'>(initial.length === 0 ? 'new' : 'bills');
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -134,6 +201,13 @@ export function CheckoutClient({
       .order('created_at', { ascending: true });
     if (data) setBills(data as Bill[]);
   }, [supabase]);
+
+  async function onOrderPlaced(orderId: string) {
+    await load();
+    setOpen(orderId);
+    setViewMode('bills');
+    router.refresh();
+  }
 
   useEffect(() => {
     const ch = supabase
@@ -156,7 +230,7 @@ export function CheckoutClient({
   async function run(
     fn: () => PromiseLike<{ error: { message: string } | null }>,
     ok?: string,
-  ) {
+  ): Promise<boolean> {
     setBusy(true);
     setError(null);
     setNote(null);
@@ -164,18 +238,26 @@ export function CheckoutClient({
     setBusy(false);
     if (e) {
       setError(e.message);
-      return;
+      return false;
     }
     if (ok) setNote(ok);
     setAmount('');
     setTendered('');
     await load();
     router.refresh();
+    return true;
   }
 
   async function takePayment() {
     if (!bill || amountCents <= 0) return;
-    await run(
+    const paidBill = bill;
+    const paidMethod = method;
+    const paidAmount = amountCents;
+    // Must open synchronously, still inside this click's user gesture —
+    // opening it AFTER the awaited RPC below gets silently blocked as a
+    // popup by most browsers. Written into (or closed) once the RPC settles.
+    const printWindow = window.open('', '_blank', 'width=380,height=640');
+    const ok = await run(
       () =>
         supabase.rpc('record_payment', {
           p_order_id: bill.id,
@@ -186,6 +268,15 @@ export function CheckoutClient({
         }),
       'Payment recorded.',
     );
+    // Print immediately on a successful payment — line items/totals don't
+    // change from taking a payment, so the pre-payment bill plus what was
+    // just taken is already the accurate receipt; no need to wait on the
+    // refetch to know what to print.
+    if (ok) {
+      printInvoice(paidBill, restaurantName, receipt, `${paidMethod} ${formatCents(paidAmount)}`, printWindow);
+    } else {
+      printWindow?.close();
+    }
   }
 
   async function discount() {
@@ -233,15 +324,36 @@ export function CheckoutClient({
     await run(() => supabase.rpc('void_payment', { p_payment_id: p.id, p_reason: reason }));
   }
 
-  if (bills.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted text-sm">
-        No open bills.
-      </div>
-    );
-  }
-
   return (
+    <div className="space-y-4">
+      {canCreateOrder && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode('bills')}
+            className={`px-3 py-1.5 rounded text-xs font-semibold ${
+              viewMode === 'bills' ? 'bg-primary text-primary-fg' : 'border border-border'
+            }`}
+          >
+            Open bills{bills.length > 0 ? ` (${bills.length})` : ''}
+          </button>
+          <button
+            onClick={() => setViewMode('new')}
+            className={`px-3 py-1.5 rounded text-xs font-semibold ${
+              viewMode === 'new' ? 'bg-primary text-primary-fg' : 'border border-border'
+            }`}
+          >
+            + New order
+          </button>
+        </div>
+      )}
+
+      {viewMode === 'new' && canCreateOrder ? (
+        <NewOrderPanel taxRateBps={taxRateBps} categories={menuCategories} items={menuItems} onPlaced={onOrderPlaced} />
+      ) : bills.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted text-sm">
+          No open bills.
+        </div>
+      ) : (
     <div className="flex flex-col lg:flex-row gap-4">
       <div className="lg:w-64 shrink-0 space-y-1.5">
         {bills.map((b) => (
@@ -277,10 +389,37 @@ export function CheckoutClient({
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
               <button
-                onClick={() => printInvoice(bill, restaurantName)}
+                onClick={() => printInvoice(bill, restaurantName, receipt)}
                 className="text-primary text-xs font-semibold underline"
               >
                 Print invoice
+              </button>
+              <button
+                onClick={() =>
+                  downloadReceiptPdf({
+                    restaurantName,
+                    logoUrl: receipt.logoUrl,
+                    orderNumber: bill.order_number,
+                    tableLabel: bill.table_label,
+                    customerName: bill.customer_name,
+                    createdAt: bill.created_at,
+                    lines: bill.order_lines.map((l) => ({ qty: l.qty, name: l.name_snapshot, totalCents: l.line_total_cents })),
+                    subtotalCents: bill.subtotal_cents,
+                    discountCents: bill.discount_cents,
+                    taxCents: bill.tax_cents,
+                    refundedCents: bill.refunded_cents,
+                    totalCents: bill.total_cents,
+                    paidVia:
+                      bill.payments
+                        .filter((p) => p.status !== 'voided')
+                        .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
+                        .join(', ') || null,
+                    footerText: receipt.footerText,
+                  })
+                }
+                className="text-primary text-xs font-semibold underline"
+              >
+                Download PDF
               </button>
             </div>
           </div>
@@ -412,6 +551,8 @@ export function CheckoutClient({
           {error && <p className="text-danger text-xs mt-2">{error}</p>}
           {note && <p className="text-ok text-xs mt-2">{note}</p>}
         </Card>
+      )}
+    </div>
       )}
     </div>
   );

@@ -15,7 +15,7 @@ export default async function PoliciesPage({ params }: { params: Promise<{ slug:
 
   const { data, error } = await t.client
     .from('business_settings')
-    .select('max_refund_without_approval_cents')
+    .select('max_refund_without_approval_cents, receipt_logo_url, receipt_footer_text, receipt_template_html')
     .eq('id', true)
     .maybeSingle();
 
@@ -33,6 +33,9 @@ export default async function PoliciesPage({ params }: { params: Promise<{ slug:
         <PoliciesManager
           slug={slug}
           maxRefundWithoutApprovalCents={data?.max_refund_without_approval_cents ?? null}
+          receiptLogoUrl={data?.receipt_logo_url ?? null}
+          receiptFooterText={data?.receipt_footer_text ?? null}
+          receiptTemplateHtml={data?.receipt_template_html ?? null}
           canEdit={canEdit}
         />
       )}

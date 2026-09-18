@@ -25,7 +25,6 @@ const NAV: [string, string, string?, boolean?][] = [
   ['exceptions', 'Attention', 'orders.view'],
   ['approvals', 'Approvals', 'ai.approve_sensitive_action'],
   ['live', 'Live ops', 'orders.view'],
-  ['pos', 'Counter POS', 'orders.create'],
   ['checkout', 'Checkout', 'payments.view'],
   ['close', 'Day close', 'finance.view'],
   ['expenses', 'Expenses', 'finance.view'],

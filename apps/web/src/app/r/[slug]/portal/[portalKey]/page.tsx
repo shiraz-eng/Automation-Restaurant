@@ -10,9 +10,9 @@ import {
   type Counter,
 } from './KitchenPortalBoard';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
-import { CheckoutClient, type Bill } from '../../(portal)/checkout/CheckoutClient';
+import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from '../../(portal)/checkout/CheckoutClient';
 import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
-import { ExpensesManager, type Expense } from '../../(portal)/expenses/ExpensesManager';
+import { ExpensesManager, type Expense, type ExpenseSupplier } from '../../(portal)/expenses/ExpensesManager';
 import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/SuppliersManager';
 import { AiChat } from '../../(portal)/ai/AiChat';
 
@@ -105,13 +105,27 @@ export default async function PortalHome({
   }
 
   if (portal.type === 'checkout') {
-    const { data: bills } = await t.client
-      .from('orders')
-      .select(
-        'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
-      )
-      .in('status', UNPAID)
-      .order('created_at', { ascending: true });
+    const canCreateOrder = has('orders.create');
+    const [{ data: bills }, { data: settings }, { data: menuCategories }, { data: menuItems }] = await Promise.all([
+      t.client
+        .from('orders')
+        .select(
+          'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
+        )
+        .in('status', UNPAID)
+        .order('created_at', { ascending: true }),
+      t.client.from('business_settings').select('receipt_logo_url, receipt_footer_text, receipt_template_html').eq('id', true).maybeSingle(),
+      canCreateOrder
+        ? t.client.from('menu_categories').select('id, name').order('sort_order')
+        : Promise.resolve({ data: null }),
+      canCreateOrder
+        ? t.client
+            .from('menu_items')
+            .select('id, name, category_id, menu_variants(id, name, price_cents, sort_order, is_available)')
+            .eq('is_available', true)
+            .order('name')
+        : Promise.resolve({ data: null }),
+    ]);
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-black">{portal.name}</h1>
@@ -122,6 +136,15 @@ export default async function PortalHome({
           canVoid={has('payments.void')}
           canDiscount={has('orders.apply_discount')}
           canCancel={has('orders.cancel')}
+          receipt={{
+            logoUrl: settings?.receipt_logo_url ?? null,
+            footerText: settings?.receipt_footer_text ?? null,
+            templateHtml: settings?.receipt_template_html ?? null,
+          }}
+          canCreateOrder={canCreateOrder}
+          taxRateBps={800}
+          menuCategories={(menuCategories as NewOrderCategory[] | null) ?? []}
+          menuItems={(menuItems as unknown as NewOrderItem[] | null) ?? []}
         />
       </div>
     );
@@ -175,7 +198,7 @@ export default async function PortalHome({
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: new Date().toISOString() })
       : Promise.resolve({ data: null, error: null }),
     canFinance
-      ? t.client.from('expenses').select('id, category, description, amount_cents, expense_date').order('expense_date', { ascending: false }).limit(200)
+      ? t.client.from('expenses').select('id, category, description, amount_cents, expense_date, supplier_id').order('expense_date', { ascending: false }).limit(200)
       : Promise.resolve({ data: null }),
     canSuppliers
       ? t.client
@@ -262,6 +285,7 @@ export default async function PortalHome({
                 canWrite={hasAny(['finance.create_expense', 'finance.update_expense'])}
                 canDelete={has('finance.delete_expense')}
                 canViewProfit={has('finance.view_profit')}
+                suppliers={suppliers as unknown as ExpenseSupplier[]}
               />
             </div>
           )}

@@ -171,7 +171,12 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       re-check the caller's own permissions before letting them grant
 //       what they don't hold. Linking the Super Admin portal is refused
 //       outright.
-const SCHEMA_VERSION = 44;
+//   v45 Receipt customization (business_settings.receipt_logo_url/
+//       receipt_footer_text/receipt_template_html) + a 'branding' storage
+//       bucket for the logo (public read, settings.update write) +
+//       expenses.supplier_id so an expense can optionally be tied to a
+//       real supplier record.
+const SCHEMA_VERSION = 45;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
