@@ -17,6 +17,7 @@ const NAV: [string, string, string?][] = [
   ['pos', 'Counter POS', 'orders.create'],
   ['checkout', 'Checkout', 'payments.view'],
   ['close', 'Day close', 'finance.view'],
+  ['expenses', 'Expenses', 'finance.view'],
   ['kds', 'Kitchen Display', 'kitchen.view'],
   ['tables', 'Tables & QR', 'tables.view'],
   ['reservations', 'Reservations', 'tables.view'],
