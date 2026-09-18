@@ -124,7 +124,14 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       export's row with storage_path after it renders and uploads the
 //       file (the row itself was inserted server-side earlier, before the
 //       PDF bytes existed).
-const SCHEMA_VERSION = 39;
+//   v40 Social media integration (Instagram): social_accounts (one
+//       connected Instagram Business account, via Facebook Login for
+//       Business OAuth) and social_posts (a draft/approval queue —
+//       draft_social_post proposes one, a manager separately approves and
+//       publishes it; nothing posts automatically). Four new social.*
+//       permission_catalog keys, granted to manager by default (owner
+//       already has '*').
+const SCHEMA_VERSION = 40;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

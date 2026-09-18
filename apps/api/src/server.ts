@@ -16,6 +16,7 @@ import { supplierPriceImportRouter } from './routes/supplierPriceImport';
 import { poImportRouter } from './routes/poImport';
 import { staffImportRouter } from './routes/staffImport';
 import { importClassifyRouter } from './routes/importClassify';
+import { socialRouter } from './routes/social';
 import { retryFailedProvisions } from './provisioning';
 import { runLowStockSweepAllTenants } from './lib/lowStockAutomation';
 import { runRecipeCostSweepAllTenants } from './lib/recipeAutomation';
@@ -42,6 +43,7 @@ app.use('/api/ai', supplierPriceImportRouter);
 app.use('/api/ai', poImportRouter);
 app.use('/api/ai', staffImportRouter);
 app.use('/api/ai', importClassifyRouter);
+app.use('/api/social', socialRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

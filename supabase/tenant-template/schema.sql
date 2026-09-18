@@ -207,7 +207,11 @@ insert into public.permission_catalog (key, grp, label) values
   ('ai.view','AI','Use the AI assistant'),
   ('ai.execute_read','AI','AI read actions'),
   ('ai.execute_write','AI','AI write actions'),
-  ('ai.approve_sensitive_action','AI','Approve sensitive AI actions')
+  ('ai.approve_sensitive_action','AI','Approve sensitive AI actions'),
+  ('social.view','Social','View connected social accounts & posts'),
+  ('social.manage','Social','Connect/disconnect social accounts'),
+  ('social.propose_post','Social','Draft a social media post'),
+  ('social.approve_post','Social','Approve & publish a social media post')
 on conflict (key) do update set grp = excluded.grp, label = excluded.label;
 
 alter table public.permission_catalog enable row level security;
@@ -288,7 +292,8 @@ begin
       'attendance.view_history','attendance.correct','attendance.approve_correction',
       'reports.view','reports.generate','reports.export',
       'analytics.view','finance.view','settings.view','portals.view',
-      'notifications.manage','ai.view','ai.execute_read'
+      'notifications.manage','ai.view','ai.execute_read',
+      'social.view','social.manage','social.propose_post','social.approve_post'
     ], true),
     ('cashier','Cashier', base || array[
       'orders.create','orders.update','orders.apply_discount',
@@ -4827,6 +4832,74 @@ create policy "reports staff read" on storage.objects for select
 create policy "reports staff write" on storage.objects for all
   using (bucket_id = 'reports' and (app.has_perm('reports.export') or app.has_perm('reports.generate') or app.can_write()))
   with check (bucket_id = 'reports' and (app.has_perm('reports.export') or app.has_perm('reports.generate') or app.can_write()));
+
+-- ── Social media (Instagram) — connected accounts + a draft/approval queue
+-- for AI-proposed posts. Publishing is a SEPARATE, explicit human action
+-- (POST /api/social/publish/:id, social.approve_post) from drafting
+-- (social.propose_post) — the same two-gate shape as draft_deal (created
+-- off, a manager must separately switch it on) and draft_recipe (created
+-- draft, must be separately activated). Nothing here ever posts on its own.
+create table public.social_accounts (
+  id                 uuid primary key default gen_random_uuid(),
+  platform           text not null check (platform in ('instagram')),
+  account_name       text,
+  account_id         text not null,
+  -- The long-lived Page access token used for the Instagram Graph API
+  -- (never the short-lived user token from the OAuth callback itself).
+  access_token       text not null,
+  token_expires_at   timestamptz,
+  status             text not null default 'connected' check (status in ('connected', 'expired', 'disconnected')),
+  connected_by       uuid,
+  connected_at       timestamptz not null default now(),
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  unique (platform, account_id)
+);
+create table public.social_posts (
+  id                 uuid primary key default gen_random_uuid(),
+  platform           text not null check (platform in ('instagram')),
+  account_id         uuid references public.social_accounts(id) on delete set null,
+  caption            text not null,
+  -- A publicly reachable image URL (Instagram's Graph API requires one to
+  -- build the media container) — auto-filled from the referenced deal/menu
+  -- item's own image_url when draft_social_post is given one that has a
+  -- photo on file; left null otherwise for a manager to add before publishing.
+  media_url          text,
+  related_type       text check (related_type is null or related_type in ('deal', 'promotion', 'menu_item')),
+  related_id         uuid,
+  status             text not null default 'draft' check (status in ('draft', 'approved', 'rejected', 'published', 'failed')),
+  proposed_by        uuid,
+  proposed_by_role   text,
+  approved_by        uuid,
+  approved_at        timestamptz,
+  published_at       timestamptz,
+  external_post_id   text,
+  error              text,
+  created_at         timestamptz not null default now()
+);
+create index social_posts_status_idx on public.social_posts(status, created_at desc);
+alter table public.social_accounts enable row level security;
+alter table public.social_posts enable row level security;
+create policy staff_read on public.social_accounts for select
+  using (app.has_perm('social.view') or app.can_write());
+create policy staff_write on public.social_accounts for all
+  using (app.has_perm('social.manage') or app.can_write())
+  with check (app.has_perm('social.manage') or app.can_write());
+create policy staff_read on public.social_posts for select
+  using (app.has_perm('social.view') or app.can_write());
+create policy staff_insert on public.social_posts for insert
+  with check (app.has_perm('social.propose_post') or app.can_write());
+-- Covers both a manager editing a draft (caption/media_url) and actually
+-- publishing it (status -> 'published') — the API re-checks
+-- social.approve_post specifically before ever calling the Graph API,
+-- this policy is the data-layer backstop, not the only gate.
+create policy staff_update on public.social_posts for update
+  using (app.has_perm('social.propose_post') or app.has_perm('social.approve_post') or app.can_write())
+  with check (app.has_perm('social.propose_post') or app.has_perm('social.approve_post') or app.can_write());
+create trigger audit_social_accounts after insert or update or delete on public.social_accounts
+  for each row execute function app.audit_row();
+create trigger audit_social_posts after insert or update or delete on public.social_posts
+  for each row execute function app.audit_row();
 
 -- ── Seed ─────────────────────────────────────────────────────────────────
 insert into public.menu_categories (name) values ('Uncategorised');

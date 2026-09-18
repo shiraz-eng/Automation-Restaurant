@@ -76,6 +76,17 @@ const schema = z.object({
   GEMINI_MODEL: z.string().trim().default('gemini-flash-lite-latest'),
   ANTHROPIC_API_KEY: z.string().trim().optional(),
   AI_MODEL: z.string().trim().default('claude-sonnet-5'),
+
+  // Social media (Instagram, via Facebook Login for Business — a Meta App
+  // with Instagram Graph API access). Both blank -> social features stay
+  // visible but inert ("not configured"), the same pattern as the AI keys
+  // above. Create the app at developers.facebook.com; it needs the
+  // instagram_basic, instagram_content_publish, pages_show_list and
+  // business_management permissions, and META_REDIRECT_URI registered as
+  // a valid OAuth redirect URI.
+  META_APP_ID: z.string().trim().optional(),
+  META_APP_SECRET: z.string().trim().optional(),
+  META_REDIRECT_URI: z.string().url().default('http://localhost:4000/api/social/connect/callback'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -99,6 +110,9 @@ export const aiProvider: 'gemini' | 'anthropic' | null = env.GEMINI_API_KEY
     ? 'anthropic'
     : null;
 export const aiEnabled = aiProvider !== null;
+
+/** True when a Meta App is configured — Instagram connect/publish is usable. */
+export const socialEnabled = Boolean(env.META_APP_ID && env.META_APP_SECRET);
 
 /** Real Stripe is usable (secret key + at least one price mapping). */
 const stripeConfigured =
