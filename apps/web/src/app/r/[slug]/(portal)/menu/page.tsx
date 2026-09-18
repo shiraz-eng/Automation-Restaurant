@@ -13,7 +13,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
   await gatePortalPage(t.client, slug, 'menu.view');
 
   const [{ data: categories }, { data: items, error }, { data: ingredients }] = await Promise.all([
-    t.client.from('menu_categories').select('id, name').order('sort_order'),
+    t.client.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     t.client
       .from('menu_items')
       .select(

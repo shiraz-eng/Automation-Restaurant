@@ -7,7 +7,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 
-type Category = { id: string; name: string };
+type Category = { id: string; name: string; sort_order?: number };
 type Variant = {
   id: string;
   name: string;
@@ -86,6 +86,10 @@ export function MenuManager({
   const [price, setPrice] = useState('');
   const [categoryId, setCategoryId] = useState('');
 
+  const [newCatName, setNewCatName] = useState('');
+  const [catNameDraft, setCatNameDraft] = useState<Record<string, string>>({});
+  const sortedCategories = [...categories].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
   // per-item "add variant" draft
   const [vDraft, setVDraft] = useState<Record<string, { name: string; price: string; sku: string }>>({});
   // per-item "add modifier group" draft
@@ -147,6 +151,55 @@ export function MenuManager({
     }
     router.refresh();
     return true;
+  }
+
+  async function addCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newCatName.trim()) {
+      setError('Give the category a name.');
+      return;
+    }
+    const nextSort = sortedCategories.length
+      ? Math.max(...sortedCategories.map((c) => c.sort_order ?? 0)) + 1
+      : 0;
+    const ok = await run(() =>
+      supabase.from('menu_categories').insert({ name: newCatName.trim(), sort_order: nextSort }),
+    );
+    if (ok) setNewCatName('');
+  }
+
+  async function renameCategory(id: string, current: string) {
+    const draft = (catNameDraft[id] ?? current).trim();
+    if (!draft || draft === current) return;
+    await run(() => supabase.from('menu_categories').update({ name: draft }).eq('id', id));
+  }
+
+  async function deleteCategory(id: string, catName: string, itemCount: number) {
+    if (
+      itemCount > 0 &&
+      !window.confirm(`"${catName}" has ${itemCount} item${itemCount === 1 ? '' : 's'} — they'll become uncategorised, not deleted. Continue?`)
+    ) {
+      return;
+    }
+    await run(() => supabase.from('menu_categories').delete().eq('id', id));
+  }
+
+  async function moveCategory(index: number, direction: -1 | 1) {
+    const other = sortedCategories[index + direction];
+    const cur = sortedCategories[index];
+    if (!other || !cur) return;
+    setBusy(true);
+    setError(null);
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      supabase.from('menu_categories').update({ sort_order: other.sort_order ?? 0 }).eq('id', cur.id),
+      supabase.from('menu_categories').update({ sort_order: cur.sort_order ?? 0 }).eq('id', other.id),
+    ]);
+    setBusy(false);
+    if (e1 || e2) {
+      setError(e1?.message ?? e2?.message ?? 'Could not reorder.');
+      return;
+    }
+    router.refresh();
   }
 
   async function addItem(e: React.FormEvent) {
@@ -244,6 +297,67 @@ export function MenuManager({
       )}
 
       <Card>
+        <h2 className="font-bold mb-3 text-sm">Categories</h2>
+        {sortedCategories.length === 0 ? (
+          <p className="text-muted text-xs mb-3">No categories yet.</p>
+        ) : (
+          <div className="space-y-1.5 mb-3">
+            {sortedCategories.map((c, i) => {
+              const itemCount = items.filter((it) => it.category_id === c.id).length;
+              return (
+                <div key={c.id} className="flex items-center gap-2">
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      disabled={busy || i === 0}
+                      onClick={() => moveCategory(i, -1)}
+                      className="text-muted text-[10px] leading-none disabled:opacity-30"
+                      aria-label="Move up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || i === sortedCategories.length - 1}
+                      onClick={() => moveCategory(i, 1)}
+                      className="text-muted text-[10px] leading-none disabled:opacity-30"
+                      aria-label="Move down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <Input
+                    className="flex-1"
+                    value={catNameDraft[c.id] ?? c.name}
+                    onChange={(e) => setCatNameDraft((s) => ({ ...s, [c.id]: e.target.value }))}
+                    onBlur={() => renameCategory(c.id, c.name)}
+                  />
+                  <span className="text-muted text-[11px] w-20 shrink-0">
+                    {itemCount} item{itemCount === 1 ? '' : 's'}
+                  </span>
+                  <Button
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() => deleteCategory(c.id, c.name, itemCount)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <form onSubmit={addCategory} className="flex items-end gap-2">
+          <Field label="New category">
+            <Input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="Desserts" />
+          </Field>
+          <Button type="submit" disabled={busy}>
+            Add category
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
         <h2 className="font-bold mb-3 text-sm">Add item</h2>
         <form onSubmit={addItem} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
           <Field label="Name">
@@ -261,7 +375,7 @@ export function MenuManager({
           <Field label="Category">
             <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
               <option value="">— none —</option>
-              {categories.map((c) => (
+              {sortedCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

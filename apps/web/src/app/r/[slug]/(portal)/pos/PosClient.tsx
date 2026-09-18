@@ -11,9 +11,10 @@ type Variant = { id: string; name: string; price_cents: number; sort_order: numb
 type RawItem = { id: string; name: string; category_id: string | null; menu_variants: Variant[] };
 type Item = { id: string; name: string; price_cents: number; category_id: string | null };
 type CartLine = { item: Item; qty: number };
-type Placed = { order_number: number; total_cents: number; discount_cents: number };
+type Placed = { order_id: string; order_number: number; total_cents: number; discount_cents: number };
 
 const CHANNELS = ['dine_in', 'takeaway', 'delivery'] as const;
+const METHODS = ['cash', 'card', 'mobile'] as const;
 
 /** One row per available variant, labelled with its item. id = variant id. */
 function toProducts(items: RawItem[]): Item[] {
@@ -53,6 +54,9 @@ export function PosClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<Placed | null>(null);
+  const [method, setMethod] = useState<(typeof METHODS)[number]>('cash');
+  const [tendered, setTendered] = useState('');
+  const [paid, setPaid] = useState(false);
 
   const shown = products.filter((i) => activeCat === 'all' || i.category_id === activeCat);
   const lines = Object.values(cart);
@@ -65,6 +69,7 @@ export function PosClient({
 
   function add(item: Item) {
     setPlaced(null);
+    setPaid(false);
     setCart((c) => ({ ...c, [item.id]: { item, qty: (c[item.id]?.qty ?? 0) + 1 } }));
   }
   function bump(id: string, delta: number) {
@@ -101,13 +106,41 @@ export function PosClient({
       setError(`Code "${promo.trim()}" isn’t valid — order sent at full price.`);
     }
     setPlaced({
+      order_id: row.order_id,
       order_number: row.order_number,
       total_cents: row.total_cents,
       discount_cents: row.discount_cents ?? 0,
     });
+    setPaid(false);
+    setMethod('cash');
+    setTendered('');
     setCart({});
     setTable('');
     setPromo('');
+    router.refresh();
+  }
+
+  const tenderedCents = tendered.trim() ? Math.round(parseFloat(tendered) * 100) : null;
+  const change =
+    method === 'cash' && tenderedCents != null && placed ? tenderedCents - placed.total_cents : null;
+
+  async function takePayment() {
+    if (!placed) return;
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.rpc('record_payment', {
+      p_order_id: placed.order_id,
+      p_amount_cents: placed.total_cents,
+      p_method: method,
+      p_tendered_cents: method === 'cash' ? tenderedCents : null,
+      p_reference: null,
+    });
+    setBusy(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setPaid(true);
     router.refresh();
   }
 
@@ -224,10 +257,52 @@ export function PosClient({
         </div>
 
         {error && <p className="text-danger text-xs mt-2">{error}</p>}
-        {placed && (
-          <p className="text-ok text-xs mt-2">
-            Order #{placed.order_number} sent · {formatCents(placed.total_cents)}
-            {placed.discount_cents > 0 && ` · ${formatCents(placed.discount_cents)} off`}
+
+        {placed && !paid && (
+          <div className="mt-3 pt-3 border-t border-border space-y-2">
+            <p className="text-ok text-xs">
+              Order #{placed.order_number} sent · {formatCents(placed.total_cents)}
+              {placed.discount_cents > 0 && ` · ${formatCents(placed.discount_cents)} off`}
+            </p>
+            <div className="text-[10px] uppercase tracking-wide text-muted font-bold">Take payment</div>
+            <div className="grid grid-cols-3 gap-2">
+              {METHODS.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMethod(m)}
+                  className={`rounded py-1.5 text-xs font-semibold capitalize ${
+                    method === m ? 'bg-primary text-primary-fg' : 'border border-border'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            {method === 'cash' && (
+              <Input
+                placeholder="Cash tendered"
+                value={tendered}
+                onChange={(e) => setTendered(e.target.value)}
+              />
+            )}
+            {change != null && (
+              <p className={`text-xs font-bold ${change < 0 ? 'text-danger' : 'text-ok'}`}>
+                {change < 0 ? 'Short ' : 'Change '}
+                {formatCents(Math.abs(change))}
+              </p>
+            )}
+            <Button
+              className="w-full"
+              disabled={busy || (method === 'cash' && (change ?? 0) < 0)}
+              onClick={takePayment}
+            >
+              {busy ? 'Working…' : `Take ${formatCents(placed.total_cents)}`}
+            </Button>
+          </div>
+        )}
+        {placed && paid && (
+          <p className="text-ok text-xs font-bold mt-3 pt-3 border-t border-border">
+            Order #{placed.order_number} paid ({method}) · {formatCents(placed.total_cents)}
           </p>
         )}
 
