@@ -176,7 +176,10 @@ export async function buildExcelWorkbook(
       .lt('expense_date', toDate)
       .order('expense_date', { ascending: false }),
     AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),
-    computeAttentionItems(admin),
+    // Gated at reports.export (not orders.view) and this workbook already
+    // includes full expenses/supplier-payment/cost data below regardless
+    // — includeFinancial: true matches that existing scope.
+    computeAttentionItems(admin, { includeFinancial: true }),
     admin.rpc('promotion_performance', { p_from: fromIso, p_to: toIso }),
     AI_TOOLS.find((t) => t.name === 'get_supplier_performance')!.run(admin, {}),
     admin

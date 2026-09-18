@@ -90,6 +90,7 @@ insert into public.permission_catalog (key, grp, label) values
   ('payments.view','Payments','View payments'),
   ('payments.accept','Payments','Accept payment'),
   ('payments.refund','Payments','Refund payment'),
+  ('payments.approve_refund','Payments','Approve a refund above the configured threshold'),
   ('kitchen.view','Kitchen','View kitchen queue'),
   ('kitchen.update_status','Kitchen','Update order/prep status'),
   ('menu.view','Menu','View menu'),
@@ -272,7 +273,7 @@ begin
     ('manager','Manager', base || array[
       'orders.create','orders.update','orders.cancel','orders.reopen',
       'orders.apply_discount','orders.override_price',
-      'payments.view','payments.accept','payments.refund','payments.void',
+      'payments.view','payments.accept','payments.refund','payments.approve_refund','payments.void',
       'payments.adjust','payments.reconcile','receipts.view','receipts.print',
       'kitchen.update_status','kitchen.manage_availability','kitchen.record_waste',
       'menu.create','menu.update','menu.archive',
@@ -2238,7 +2239,7 @@ create or replace function public.refund_payment(
   p_payment_id uuid, p_amount_cents int, p_reason text, p_method text default null
 ) returns public.refunds
 language plpgsql security definer set search_path = public, app as $fn$
-declare v_pay public.payments; v_ref public.refunds; v_remaining int;
+declare v_pay public.payments; v_ref public.refunds; v_remaining int; v_threshold int;
 begin
   if not app.has_perm('payments.refund') then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
@@ -2253,11 +2254,28 @@ begin
     raise exception 'bad_refund_amount: max %', v_remaining using errcode = 'check_violation';
   end if;
 
+  -- Configurable amount-tiered approval (spec §6/§18): a restaurant that
+  -- has set max_refund_without_approval_cents requires payments.approve_refund
+  -- (or full can_write()) for anything over it — enforced here, not only
+  -- by whether the UI happens to show an Approve button.
+  select max_refund_without_approval_cents into v_threshold from public.business_settings where id;
+  if v_threshold is not null and p_amount_cents > v_threshold
+     and not (app.has_perm('payments.approve_refund') or app.can_write()) then
+    raise exception 'refund_needs_approval: max % without manager approval', v_threshold
+      using errcode = 'insufficient_privilege';
+  end if;
+
   insert into public.refunds
-    (payment_id, order_id, amount_cents, reason, method, requested_by, portal_id)
+    (payment_id, order_id, amount_cents, reason, method, requested_by, approved_by, portal_id)
   values
     (p_payment_id, v_pay.order_id, p_amount_cents, trim(p_reason),
-     coalesce(nullif(p_method, ''), v_pay.method), app.jwt_sub(), app.current_portal_id())
+     coalesce(nullif(p_method, ''), v_pay.method), app.jwt_sub(),
+     -- Only recorded when an approval threshold actually applied and this
+     -- caller's own approve permission is what let it through — a refund
+     -- under the threshold (or when none is configured) needed no
+     -- approval decision, so approved_by stays null for it.
+     case when v_threshold is not null and p_amount_cents > v_threshold then app.jwt_sub() else null end,
+     app.current_portal_id())
   returning * into v_ref;
 
   update public.payments
@@ -2604,7 +2622,14 @@ create table public.business_settings (
   timezone                  text not null default 'UTC',
   business_day_start_minutes int not null default 0,
   currency_code             text not null default 'USD',
-  week_start                int not null default 1
+  week_start                int not null default 1,
+  -- Configurable approval policy (spec: "Action + amount + role + policy
+  -- = authorization" — never hardcode a threshold when the restaurant
+  -- should be able to set its own). Null = no ceiling, i.e. today's
+  -- behavior unchanged: anyone holding payments.refund can refund any
+  -- amount. Set by an owner/manager in Settings; enforced inside
+  -- refund_payment() below, never only in the UI.
+  max_refund_without_approval_cents int
 );
 insert into public.business_settings (id) values (true);
 

@@ -131,7 +131,13 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       publishes it; nothing posts automatically). Four new social.*
 //       permission_catalog keys, granted to manager by default (owner
 //       already has '*').
-const SCHEMA_VERSION = 40;
+//   v41 Configurable refund approval policy: business_settings gains
+//       max_refund_without_approval_cents (null = unrestricted, today's
+//       behavior unchanged); refund_payment() now requires
+//       payments.approve_refund (or can_write()) for any refund over
+//       that threshold. New payments.approve_refund key, granted to
+//       manager by default.
+const SCHEMA_VERSION = 41;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

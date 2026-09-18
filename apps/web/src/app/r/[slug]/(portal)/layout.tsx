@@ -39,6 +39,7 @@ const NAV: [string, string, string?][] = [
   ['social', 'Social', 'social.view'],
   ['billing', 'Billing', 'settings.view'],
   ['settings/theme', 'Theme', 'settings.view'],
+  ['settings/policies', 'Policies', 'settings.view'],
 ];
 
 export default async function PortalLayout({

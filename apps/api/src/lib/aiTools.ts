@@ -1,4 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { permits } from '../middleware/portalAuth';
+
+// The caller's real role/permissions, threaded into a tool's run() only
+// where a tool internally blends data of different sensitivity (see
+// computeAttentionItems below). Optional and additive — every existing
+// tool's run(admin) / run(admin, args) still satisfies this type
+// unchanged; only tools that declare the third parameter read it.
+//
+// Why this exists: every AI tool runs against a SERVICE-ROLE admin client
+// (routes/ai.ts's req.tenant.admin), and app.has_perm() in schema.sql
+// unconditionally returns true for service_role (it bypasses RLS by
+// design — see tenantAdmin.ts). That means a comment like "the RPC's own
+// permission check decides that" is FALSE for anything called through
+// the AI: RLS/app.has_perm() cannot filter these results, because there
+// is no real caller JWT once execution reaches the database. The single
+// per-tool `needs` gate (checked in JS before the model is even offered
+// the tool) is the ONLY enforcement point for AI tool calls — a tool
+// whose `needs` is broad but whose run() reaches genuinely
+// finance/cost-sensitive data must filter that internally, using this.
+export type AiActor = { role: string | null; permissions: string[] };
 
 /**
  * The AI assistant's tool allowlist. Every tool is READ-ONLY, maps to a real
@@ -11,7 +31,7 @@ export type AiTool = {
   description: string;
   needs: string; // permission key
   input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
-  run: (admin: SupabaseClient, args: Record<string, unknown>) => Promise<unknown>;
+  run: (admin: SupabaseClient, args: Record<string, unknown>, actor?: AiActor) => Promise<unknown>;
 };
 
 const startOfToday = () => {
@@ -272,11 +292,25 @@ async function topItems(admin: SupabaseClient, sinceIso: string, n: number) {
 // Shared by get_attention_items and get_daily_brief so "what needs
 // attention" is computed exactly once, never two competing exception
 // lists. Every check is deterministic SQL/RPC evidence, never an LLM
-// judgment call, and each category is independently permission-gated by
-// its own existing RLS policy or RPC check — a caller without access to a
-// category simply gets no items from it.
+// judgment call.
+//
+// `admin` here is always a SERVICE-ROLE client (see AiActor's comment
+// above) — RLS/app.has_perm() cannot scope any of these queries by
+// caller, because service_role bypasses that check entirely. So THIS
+// function is the enforcement point: `includeFinancial` must be passed
+// in from the caller's REAL permissions (never assumed true), and it
+// gates every category that would otherwise surface supplier
+// costs/balances or recipe/COGS figures to a caller who only has
+// operational visibility (spec: a manager may know "Chicken Burger is
+// unavailable" without needing to know its ingredient cost). Every other
+// category here is operational and stays visible to anyone who can see
+// attention items at all.
 export type AttentionItem = { severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'; category: string; message: string; open_in: string };
-export async function computeAttentionItems(admin: SupabaseClient): Promise<AttentionItem[]> {
+export async function computeAttentionItems(
+  admin: SupabaseClient,
+  opts?: { includeFinancial?: boolean },
+): Promise<AttentionItem[]> {
+  const includeFinancial = opts?.includeFinancial ?? false;
   const items: AttentionItem[] = [];
   const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
 
@@ -299,37 +333,79 @@ export async function computeAttentionItems(admin: SupabaseClient): Promise<Atte
     }
   }
 
-  // Payment holds — open supplier invoice holds, with the real reason.
-  const holds = await admin
-    .from('supplier_payment_holds')
-    .select('reason, amount_cents, supplier_invoices(supplier_invoice_number, suppliers(name))')
-    .eq('status', 'open');
-  if (!holds.error) {
-    for (const r of (holds.data ?? []) as { reason: string; amount_cents: number; supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null }[]) {
-      const inv = one(r.supplier_invoices);
-      const sup = inv ? one(inv.suppliers) : null;
+  if (includeFinancial) {
+    // Payment holds — open supplier invoice holds, with the real reason.
+    const holds = await admin
+      .from('supplier_payment_holds')
+      .select('reason, amount_cents, supplier_invoices(supplier_invoice_number, suppliers(name))')
+      .eq('status', 'open');
+    if (!holds.error) {
+      for (const r of (holds.data ?? []) as { reason: string; amount_cents: number; supplier_invoices: { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null } | { supplier_invoice_number: string; suppliers: { name: string } | { name: string }[] | null }[] | null }[]) {
+        const inv = one(r.supplier_invoices);
+        const sup = inv ? one(inv.suppliers) : null;
+        items.push({
+          severity: r.amount_cents >= 50_000 ? 'HIGH' : 'MEDIUM',
+          category: 'payables',
+          message: `${sup?.name ?? 'A supplier'} invoice ${inv?.supplier_invoice_number ?? ''} (${formatCentsPlain(r.amount_cents)}) is on hold: ${r.reason}`,
+          open_in: 'Purchasing',
+        });
+      }
+    }
+
+    // Overdue payables — via the authoritative ledger.
+    const payable = await admin.rpc('supplier_payable');
+    if (!payable.error) {
+      for (const r of (payable.data ?? []) as { supplier_name: string; overdue_cents: number }[]) {
+        if (r.overdue_cents > 0) {
+          items.push({
+            severity: 'HIGH',
+            category: 'payables',
+            message: `${formatCentsPlain(r.overdue_cents)} owed to ${r.supplier_name} is overdue.`,
+            open_in: 'Purchasing',
+          });
+        }
+      }
+    }
+
+    // Purchase orders sitting in Draft — a draft PO is, by definition,
+    // awaiting purchases.approve (send_purchase_order() requires an
+    // approved_at timestamp) — this IS the "pending purchase approval"
+    // queue, just under its existing status name.
+    const draftPOs = await admin.from('purchase_orders').select('id', { count: 'exact', head: true }).eq('status', 'draft');
+    if (!draftPOs.error && (draftPOs.count ?? 0) > 0) {
       items.push({
-        severity: r.amount_cents >= 50_000 ? 'HIGH' : 'MEDIUM',
-        category: 'payables',
-        message: `${sup?.name ?? 'A supplier'} invoice ${inv?.supplier_invoice_number ?? ''} (${formatCentsPlain(r.amount_cents)}) is on hold: ${r.reason}`,
+        severity: 'MEDIUM',
+        category: 'purchasing',
+        message: `${draftPOs.count} purchase order${draftPOs.count === 1 ? '' : 's'} still in Draft, awaiting approval.`,
         open_in: 'Purchasing',
       });
     }
-  }
 
-  // Overdue payables — via the authoritative ledger; silently omitted
-  // for a caller without payables/finance visibility (the RPC's own
-  // permission check decides that, not this tool).
-  const payable = await admin.rpc('supplier_payable');
-  if (!payable.error) {
-    for (const r of (payable.data ?? []) as { supplier_name: string; overdue_cents: number }[]) {
-      if (r.overdue_cents > 0) {
-        items.push({
-          severity: 'HIGH',
-          category: 'payables',
-          message: `${formatCentsPlain(r.overdue_cents)} owed to ${r.supplier_name} is overdue.`,
-          open_in: 'Purchasing',
-        });
+    // Unusual expense — a recent expense well above its own category's
+    // trailing average. A plain outlier check, not a fraud/ML claim:
+    // flagged as worth a look, never asserted as wrong.
+    const since90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const expenseBaseline = await admin.from('expenses').select('category, amount_cents, expense_date').gte('expense_date', since90);
+    if (!expenseBaseline.error) {
+      const rows = (expenseBaseline.data ?? []) as { category: string; amount_cents: number; expense_date: string }[];
+      const byCategory = new Map<string, number[]>();
+      for (const r of rows) {
+        if (!byCategory.has(r.category)) byCategory.set(r.category, []);
+        byCategory.get(r.category)!.push(r.amount_cents);
+      }
+      for (const r of rows.filter((r) => r.expense_date >= sinceWeek)) {
+        const all = byCategory.get(r.category) ?? [];
+        if (all.length < 4) continue; // need real history before calling anything "unusual"
+        const avg = all.reduce((s, v) => s + v, 0) / all.length;
+        if (avg > 0 && r.amount_cents >= avg * 3 && r.amount_cents - avg >= 5000) {
+          items.push({
+            severity: 'MEDIUM',
+            category: 'expenses',
+            message: `A ${r.category} expense of ${formatCentsPlain(r.amount_cents)} is well above the recent ${r.category} average (${formatCentsPlain(Math.round(avg))}).`,
+            open_in: 'Expenses',
+          });
+        }
       }
     }
   }
@@ -387,9 +463,9 @@ export async function computeAttentionItems(admin: SupabaseClient): Promise<Atte
 
   // Recipe cost alerts (spec §35) — reads the SAME evidence
   // recipe_recent_cost_changes() gives the AI assistant for "why did my
-  // recipe cost change" questions; the RPC's own inventory.view_cost check
-  // silently empties this for a caller without cost visibility.
-  const costChanges = await admin.rpc('recipe_recent_cost_changes', { p_min_pct: 5 });
+  // recipe cost change" questions. Ingredient/recipe cost is COGS —
+  // gated the same as payables.
+  const costChanges = includeFinancial ? await admin.rpc('recipe_recent_cost_changes', { p_min_pct: 5 }) : { data: [], error: null };
   if (!costChanges.error) {
     for (const r of (costChanges.data ?? []) as { name: string; previous_cost_cents: number; new_cost_cents: number; change_pct: number | null }[]) {
       const pctText = r.change_pct != null ? `${r.change_pct > 0 ? '+' : ''}${r.change_pct}%` : '';
@@ -399,6 +475,53 @@ export async function computeAttentionItems(admin: SupabaseClient): Promise<Atte
         message: `${r.name} recipe cost changed from ${formatCentsPlain(r.previous_cost_cents)} to ${formatCentsPlain(r.new_cost_cents)} (${pctText}).`,
         open_in: 'Recipes',
       });
+    }
+  }
+
+  // Promotions ending soon — no dollar figures, just a name and a
+  // countdown, so this stays visible to anyone who can see attention
+  // items at all (matches spec's "expiring promotion/deal" example).
+  const soon = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+  const nowIso = new Date().toISOString();
+  const expiringPromos = await admin
+    .from('promotions')
+    .select('name, ends_at')
+    .eq('active', true)
+    .not('ends_at', 'is', null)
+    .gte('ends_at', nowIso)
+    .lte('ends_at', soon);
+  if (!expiringPromos.error) {
+    for (const r of (expiringPromos.data ?? []) as { name: string; ends_at: string }[]) {
+      const hoursLeft = Math.max(1, Math.round((new Date(r.ends_at).getTime() - Date.now()) / 3600000));
+      items.push({ severity: 'LOW', category: 'marketing', message: `Promotion "${r.name}" ends in ${hoursLeft}h.`, open_in: 'Promotions' });
+    }
+  }
+
+  // A menu variant marked unavailable that was still selling well this
+  // week — the spec's own example of what operations SHOULD see
+  // ("Chicken Burger is unavailable"), no cost figures involved.
+  const sinceWeekIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const [unavailableVariants, recentLines] = await Promise.all([
+    admin.from('menu_variants').select('id, name, menu_items(name)').eq('is_available', false),
+    admin.from('order_lines').select('variant_id, qty').gte('created_at', sinceWeekIso).not('variant_id', 'is', null),
+  ]);
+  if (!unavailableVariants.error && !recentLines.error) {
+    const qtyByVariant = new Map<string, number>();
+    for (const l of (recentLines.data ?? []) as { variant_id: string; qty: number }[]) {
+      qtyByVariant.set(l.variant_id, (qtyByVariant.get(l.variant_id) ?? 0) + l.qty);
+    }
+    for (const v of (unavailableVariants.data ?? []) as { id: string; name: string; menu_items: { name: string } | { name: string }[] | null }[]) {
+      const qty = qtyByVariant.get(v.id) ?? 0;
+      if (qty >= 5) {
+        const parentName = one(v.menu_items)?.name;
+        const label = v.name === 'Regular' ? (parentName ?? v.name) : `${parentName ?? ''} · ${v.name}`;
+        items.push({
+          severity: 'HIGH',
+          category: 'menu',
+          message: `${label} sold ${qty} in the last 7 days but is currently marked unavailable.`,
+          open_in: 'Menu',
+        });
+      }
     }
   }
 
@@ -416,8 +539,8 @@ export async function computeAttentionItems(admin: SupabaseClient): Promise<Atte
  *  handled on the Exception Center page, which is confusing and wrong,
  *  not merely cosmetic. An 'acknowledged' item stays in the list (it's
  *  been seen, not solved). */
-async function computeActiveAttentionItems(admin: SupabaseClient): Promise<AttentionItem[]> {
-  const items = await computeAttentionItems(admin);
+async function computeActiveAttentionItems(admin: SupabaseClient, opts?: { includeFinancial?: boolean }): Promise<AttentionItem[]> {
+  const items = await computeAttentionItems(admin, opts);
   if (items.length === 0) return items;
   const fingerprints = items.map((i) => `${i.category}::${i.message}`);
   const { data: states } = await admin.from('exception_states').select('fingerprint, status').in('fingerprint', fingerprints);
@@ -463,11 +586,12 @@ export const AI_TOOLS: AiTool[] = [
   {
     name: 'get_attention_items',
     description:
-      'The single most important AI command: "what needs my attention". Scans stock, payment holds, overdue supplier payables, kitchen delays, missing staff check-outs and a customer-rating drop, and returns ONLY the real exceptions found — each with a severity, the evidence behind it, and which part of the app to open. Never invents an item; a category with nothing wrong is simply absent from the list.',
+      'The single most important AI command: "what needs my attention". Scans stock, kitchen delays, missing staff check-outs, a customer-rating drop, an unavailable item that was still selling well, and a promotion ending soon — plus, for a caller with finance visibility, payment holds, overdue supplier payables, draft purchase orders awaiting approval, an unusually large expense, and recipe/COGS cost changes. Returns ONLY the real exceptions found, each with a severity, the evidence behind it, and which part of the app to open. Never invents an item; a category with nothing wrong (or nothing the caller has visibility into) is simply absent from the list.',
     needs: 'orders.view',
     input_schema: { type: 'object', properties: {} },
-    async run(admin) {
-      const items = await computeActiveAttentionItems(admin);
+    async run(admin, _args, actor) {
+      const includeFinancial = !!actor && permits(actor.permissions, actor.role, 'finance.view');
+      const items = await computeActiveAttentionItems(admin, { includeFinancial });
       return { count: items.length, items, note: items.length === 0 ? 'Nothing needs attention right now.' : undefined };
     },
   },
@@ -477,8 +601,9 @@ export const AI_TOOLS: AiTool[] = [
       'One plain-language "how are we doing overall" read — HEALTHY / WATCH / ATTENTION / CRITICAL — derived directly from the exact same exception list get_attention_items returns, banded by the worst severity present. Never a separately invented score, never an industry benchmark (there is no configured target to compare against, so none is assumed). Use for "how healthy is my restaurant" / "give me the big picture".',
     needs: 'orders.view',
     input_schema: { type: 'object', properties: {} },
-    async run(admin) {
-      const items = await computeActiveAttentionItems(admin);
+    async run(admin, _args, actor) {
+      const includeFinancial = !!actor && permits(actor.permissions, actor.role, 'finance.view');
+      const items = await computeActiveAttentionItems(admin, { includeFinancial });
       const counts = {
         critical: items.filter((i) => i.severity === 'CRITICAL').length,
         high: items.filter((i) => i.severity === 'HIGH').length,
@@ -512,8 +637,9 @@ export const AI_TOOLS: AiTool[] = [
       'The morning AI Restaurant Brief (spec §17): yesterday\'s sales/orders/AOV/food cost/rating, today\'s low-stock count, pending supplier deliveries, total outstanding payables, today\'s missing staff check-outs, yesterday\'s customer feedback, and the same exception list as get_attention_items. Use for "morning brief" / "how did we do yesterday and what\'s going on" / "give me today\'s brief" — this is the one-call daily rollup, not a substitute for the deeper period tools when the owner asks a narrower question.',
     needs: 'orders.view',
     input_schema: { type: 'object', properties: {} },
-    async run(admin) {
+    async run(admin, _args, actor) {
       const { from: yFrom, to: yTo } = periodRange('yesterday');
+      const includeFinancial = !!actor && permits(actor.permissions, actor.role, 'finance.view');
 
       const [profitRes, feedbackRes, lowStockRes, pendingPoRes, payableRes, rosterRes, attentionItems, lowRatedRes] =
         await Promise.all([
@@ -523,7 +649,7 @@ export const AI_TOOLS: AiTool[] = [
           admin.from('purchase_orders').select('id').in('status', ['sent', 'partial']),
           admin.rpc('supplier_payable'),
           admin.rpc('attendance_roster', {}),
-          computeActiveAttentionItems(admin),
+          computeActiveAttentionItems(admin, { includeFinancial }),
           admin
             .from('feedback')
             .select('overall, comment, table_label, guest_name')
@@ -535,7 +661,13 @@ export const AI_TOOLS: AiTool[] = [
       const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
       const profit = (profitRes.data as { net_sales_cents: number; orders_count: number; gross_profit_cents: number; food_cost_pct: number | null }[] | null)?.[0];
       const feedback = (feedbackRes.data as { responses: number; avg_overall: number | null }[] | null)?.[0];
-      const canSeeFinance = !profitRes.error && !payableRes.error;
+      // Was previously `!profitRes.error && !payableRes.error` — a no-op
+      // under this tool's SERVICE-ROLE admin client, since
+      // app.has_perm() unconditionally passes for service_role (see
+      // AiActor's comment above computeAttentionItems). Neither RPC would
+      // ever actually error here regardless of the real caller's
+      // permissions, so that check never filtered anything.
+      const canSeeFinance = includeFinancial;
 
       const payableRows = (payableRes.data ?? []) as { supplier_name: string; outstanding_cents: number; overdue_cents: number }[];
       const roster = (rosterRes.data ?? []) as { full_name: string | null; status: string }[];
@@ -2629,7 +2761,12 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', r.from.toISOString()).lt('paid_at', r.to.toISOString()),
         admin.rpc('feedback_summary', { p_from: r.from.toISOString(), p_to: r.to.toISOString() }),
         runToolByName(admin, 'get_owner_scorecard', range),
-        computeActiveAttentionItems(admin),
+        // This whole tool is gated at analytics.view (not the much
+        // broader orders.view get_attention_items/get_daily_brief use)
+        // and already unconditionally surfaces payables/financial figures
+        // below regardless of this call — includeFinancial: true matches
+        // that existing scope rather than silently dropping items here.
+        computeActiveAttentionItems(admin, { includeFinancial: true }),
         runToolByName(admin, 'get_positive_highlights', range),
         runToolByName(admin, 'get_areas_to_review', range),
         runToolByName(admin, 'get_owner_activity', range),
@@ -3834,7 +3971,10 @@ async function buildReportData(
     runToolByName(admin, 'get_purchasing_summary', forwardRange({ from, to })),
     admin.rpc('supplier_payable'),
     runToolByName(admin, 'get_owner_activity', forwardRange({ from, to })),
-    computeActiveAttentionItems(admin),
+    // Report generation is gated at reports.generate/reports.export (not
+    // the broad orders.view) and already builds the full P&L/expenses/
+    // payables below regardless — includeFinancial: true matches that.
+    computeActiveAttentionItems(admin, { includeFinancial: true }),
     admin.rpc('deal_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('promotion_performance', { p_from: from.toISOString(), p_to: to.toISOString() }),
     runToolByName(admin, 'get_inventory_reconciliation', forwardRange({ from, to })),

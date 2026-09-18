@@ -122,9 +122,9 @@ function exceptionFingerprint(item: { category: string; message: string }): stri
 }
 
 aiRouter.get('/attention', requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
-  const { admin } = req.tenant!;
+  const { admin, permissions, role } = req.tenant!;
   try {
-    const items = await computeAttentionItems(admin);
+    const items = await computeAttentionItems(admin, { includeFinancial: permits(permissions, role, 'finance.view') });
     const fingerprints = items.map(exceptionFingerprint);
     const { data: states } =
       fingerprints.length > 0
@@ -284,7 +284,7 @@ type AgentResult = {
 /** Who is chatting — threaded through to proposeAction() so a persisted
  *  ai_pending_actions row (the Approval Inbox, spec §29) always knows who
  *  proposed it, not just who eventually confirmed it. */
-type Actor = { userId: string; email: string | null; role: string | null };
+type Actor = { userId: string; email: string | null; role: string | null; permissions: string[] };
 
 /** Retry a call through transient 429/503 "high demand" from the model host. */
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -310,13 +310,14 @@ async function callTool(
   trace: { name: string; ok: boolean }[],
   name: string,
   capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard },
+  actor: Actor,
 ): Promise<unknown> {
   if (!tool) {
     trace.push({ name, ok: false });
     return { error: 'tool_not_available' };
   }
   try {
-    const out = await tool.run(admin, input);
+    const out = await tool.run(admin, input, { role: actor.role, permissions: actor.permissions });
     trace.push({ name, ok: true });
     // Last one wins if the model calls the same tool more than once in a
     // turn (e.g. comparing two periods, or two orders) — the card always
@@ -446,6 +447,7 @@ async function runGemini(
         trace,
         c.functionCall.name,
         capture,
+        actor,
       );
       const response =
         out !== null && typeof out === 'object' && !Array.isArray(out)
@@ -594,6 +596,7 @@ async function runAnthropic(
         trace,
         block.name,
         capture,
+        actor,
       );
       results.push({
         type: 'tool_result',
@@ -675,7 +678,7 @@ aiRouter.post(
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
     const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
-    const actor: Actor = { userId, email, role };
+    const actor: Actor = { userId, email, role, permissions };
 
     try {
       const result =
