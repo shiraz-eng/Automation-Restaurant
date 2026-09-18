@@ -4778,12 +4778,22 @@ end $$;
 create table public.export_audit_log (
   id                 uuid primary key default gen_random_uuid(),
   format             text not null check (format in ('pdf', 'excel')),
+  -- 'complete' = the full multi-section report/workbook; any other value
+  -- names the one section it was scoped to (e.g. 'suppliers',
+  -- 'purchasing', 'inventory', 'orders', 'expenses') — a per-section
+  -- export reuses the exact same generator, just narrowed.
+  domain             text not null default 'complete',
   period_label       text not null,
   period_from        timestamptz not null,
   period_to          timestamptz not null,
   -- Only meaningful for a 'excel' export narrowed by the Custom Export
   -- sheet picker (spec §37) — null means the full workbook.
   sheets             text[],
+  -- Path inside the private 'reports' bucket the generated file was
+  -- saved to, so it can be re-downloaded later instead of regenerated —
+  -- null when the file is not (or not yet) permanently stored (e.g. a
+  -- 'failed' row, or before this column existed).
+  storage_path       text,
   requested_by       uuid,
   requested_by_email text,
   requested_by_role  text,
@@ -4797,6 +4807,26 @@ create policy staff_read on public.export_audit_log for select
   using (app.has_perm('reports.view') or app.has_perm('reports.export') or app.has_perm('reports.generate') or app.is_staff());
 create policy staff_insert on public.export_audit_log for insert
   with check (app.has_perm('reports.generate') or app.has_perm('reports.export') or app.can_write());
+-- PDF generation happens client-side — the row is inserted server-side
+-- before the PDF bytes exist, then patched with storage_path once the
+-- browser renders and uploads the file. Excel is generated server-side in
+-- one request, so its row never needs this update path.
+create policy staff_update on public.export_audit_log for update
+  using (app.has_perm('reports.generate') or app.has_perm('reports.export') or app.can_write())
+  with check (app.has_perm('reports.generate') or app.has_perm('reports.export') or app.can_write());
+
+-- Permanent report storage: every generated PDF/Excel file is saved here
+-- (private bucket — a restaurant's financial reports are never public),
+-- keyed by the export_audit_log row's storage_path. A report is still
+-- always COMPUTED fresh from live data each time it's generated; storing
+-- the resulting file just means it can be re-downloaded byte-for-byte
+-- later without re-running the generation.
+insert into storage.buckets (id, name, public) values ('reports', 'reports', false) on conflict (id) do nothing;
+create policy "reports staff read" on storage.objects for select
+  using (bucket_id = 'reports' and (app.has_perm('reports.view') or app.has_perm('reports.export') or app.has_perm('reports.generate') or app.is_staff()));
+create policy "reports staff write" on storage.objects for all
+  using (bucket_id = 'reports' and (app.has_perm('reports.export') or app.has_perm('reports.generate') or app.can_write()))
+  with check (bucket_id = 'reports' and (app.has_perm('reports.export') or app.has_perm('reports.generate') or app.can_write()));
 
 -- ── Seed ─────────────────────────────────────────────────────────────────
 insert into public.menu_categories (name) values ('Uncategorised');

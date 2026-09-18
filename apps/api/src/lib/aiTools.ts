@@ -3246,11 +3246,14 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'generate_report',
     description:
-      'Build a real PDF performance report for a period (e.g. "create my September report", "generate this month\'s report", "report for last 6 months", or a custom date range) — the exact same PDF the Dashboard\'s own "Generate Report" button produces, from the exact same authoritative figures (period_profitability, sales_by_day, top-selling items, feedback_summary, attendance_roster, purchasing, supplier payables, management activity, attention items — nothing recomputed or estimated). Unlike every other action here, this one doesn\'t mutate anything: confirming it opens/downloads the PDF in your browser. Pass either `period` or an exact `from`/`to` custom range — not both.',
+      'Build a real PDF performance report for a period (e.g. "create my September report", "generate this month\'s report", "report for last 6 months", or a custom date range) — the exact same PDF the Dashboard\'s own "Generate Report" button produces, from the exact same authoritative figures (period_profitability, sales_by_day, top-selling items, feedback_summary, attendance_roster, purchasing, supplier payables, management activity, attention items — nothing recomputed or estimated). Unlike every other action here, this one doesn\'t mutate anything: confirming it opens/downloads the PDF in your browser. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `domain` (one of: suppliers, purchasing, inventory, orders, expenses) for a report focused on just that section instead of the full restaurant report — e.g. "generate a purchasing report for this month".',
     needs: 'reports.generate',
     input_schema: {
       type: 'object',
-      properties: { ...INTELLIGENCE_PERIOD_SCHEMA },
+      properties: {
+        ...INTELLIGENCE_PERIOD_SCHEMA,
+        domain: { type: 'string', enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses'], description: 'Default complete (the full report).' },
+      },
     },
     async describe(admin, args) {
       const resolved = await buildReportData(admin, args);
@@ -3282,6 +3285,11 @@ export const AI_ACTIONS: AiAction[] = [
           items: { type: 'string' },
           description:
             'Optional — only include these sheets (by name: Daily Performance, Orders, Product Profitability, Deal Profitability, Promotions, Purchasing, Accounts Payable, Supplier Payments, Supplier Performance, Inventory, Expenses, Management Activity, AI Actions). Omit for the full workbook.',
+        },
+        domain: {
+          type: 'string',
+          enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses'],
+          description: 'Optional shortcut instead of naming sheets — a preset sheet list for that one section. Ignored if sheets is given explicitly. Default complete (the full workbook).',
         },
       },
     },
@@ -3316,7 +3324,8 @@ export const AI_ACTIONS: AiAction[] = [
       // endpoint and trigger the download, the same way generate_report's
       // result is handed to the client-side PDF renderer.
       const range = forwardRange(r);
-      return { ready: true, period: r.period, from: range.from, to: range.to, label: r.label, sheets };
+      const domain = typeof args.domain === 'string' ? args.domain : 'complete';
+      return { ready: true, period: r.period, from: range.from, to: range.to, label: r.label, sheets, domain };
     },
   },
 ];

@@ -77,6 +77,17 @@ export const EXCEL_OPTIONAL_SHEETS = [
   'Expenses', 'Management Activity', 'AI Actions',
 ] as const;
 
+// Per-section export (Suppliers/Purchasing/Inventory/Orders/Expenses each
+// getting their own focused workbook): mirrors REPORT_DOMAIN_SECTIONS in
+// apps/web's generateReport.ts for the PDF side of the same feature.
+export const EXCEL_DOMAIN_SHEETS: Record<string, string[]> = {
+  suppliers: ['Accounts Payable', 'Supplier Payments', 'Supplier Performance'],
+  purchasing: ['Purchasing'],
+  inventory: ['Inventory'],
+  orders: ['Orders', 'Product Profitability', 'Deal Profitability'],
+  expenses: ['Expenses'],
+};
+
 export async function buildExcelWorkbook(
   admin: SupabaseClient,
   restaurantName: string,

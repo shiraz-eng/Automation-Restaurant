@@ -129,13 +129,19 @@ export function AiChat({ slug }: { slug: string }) {
       const body = await res.json().catch(() => ({}));
       // generate_report is the one action that doesn't mutate anything —
       // its "result" is the report data itself, which this component turns
-      // into a real PDF client-side (the same generateReportPdf() the
+      // into a real PDF client-side (the same buildReportDoc() the
       // Dashboard's own "Generate Report" button calls), rather than the
-      // server trying to produce/host a file.
+      // server trying to produce/host a file. saveAndStoreReportPdf also
+      // permanently stores it (spec's permanent-storage requirement),
+      // patching the audit row /confirm already created using its
+      // returned auditId — non-fatal if that fails, the download itself
+      // already happened by then.
       if (res.ok && action.name === 'generate_report' && body.result) {
         try {
-          const { generateReportPdf } = await import('@/lib/generateReport');
-          generateReportPdf(body.result);
+          const { saveAndStoreReportPdf, REPORT_DOMAIN_SECTIONS } = await import('@/lib/generateReport');
+          const domain = (action.args.domain as string | undefined) ?? 'complete';
+          const sections = domain !== 'complete' ? REPORT_DOMAIN_SECTIONS[domain] : undefined;
+          await saveAndStoreReportPdf(body.result, { sections, domain }, { supabase, auditId: body.auditId ?? null, domain });
         } catch (err) {
           console.error('PDF generation failed:', err);
         }

@@ -114,7 +114,17 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       Intelligence spec §39), written by the API after each export
 //       succeeds or fails. Records exports only; report content is never
 //       stored, every report regenerates fresh each time.
-const SCHEMA_VERSION = 37;
+//   v38 Permanent report storage: a private 'reports' storage bucket, plus
+//       export_audit_log.storage_path/domain — a generated PDF/Excel is
+//       still always computed fresh, now also saved so it can be
+//       re-downloaded later without regenerating. domain distinguishes a
+//       per-section export (Suppliers/Purchasing/Inventory/Orders/
+//       Expenses) from the full multi-section report.
+//   v39 export_audit_log update policy — lets the client patch a PDF
+//       export's row with storage_path after it renders and uploads the
+//       file (the row itself was inserted server-side earlier, before the
+//       PDF bytes existed).
+const SCHEMA_VERSION = 39;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

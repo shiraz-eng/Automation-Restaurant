@@ -5,7 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
-import { buildExcelWorkbook } from '../lib/excelExport';
+import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -20,32 +20,43 @@ async function logExportAudit(
   admin: SupabaseClient,
   entry: {
     format: 'pdf' | 'excel';
+    domain?: string; // 'complete' (default) or a section name — spec's per-section exports
     periodLabel: string;
     from: Date;
     to: Date;
     sheets?: string[];
+    storagePath?: string; // known up front for Excel (built server-side); set later via PATCH for PDF
     userId?: string | null;
     email?: string | null;
     role?: string | null;
     status: 'ready' | 'failed';
     error?: string;
   },
-) {
+): Promise<string | null> {
   try {
-    await admin.from('export_audit_log').insert({
-      format: entry.format,
-      period_label: entry.periodLabel,
-      period_from: entry.from.toISOString(),
-      period_to: entry.to.toISOString(),
-      sheets: entry.sheets && entry.sheets.length > 0 ? entry.sheets : null,
-      requested_by: entry.userId ?? null,
-      requested_by_email: entry.email ?? null,
-      requested_by_role: entry.role ?? null,
-      status: entry.status,
-      error: entry.error ?? null,
-    });
+    const { data, error } = await admin
+      .from('export_audit_log')
+      .insert({
+        format: entry.format,
+        domain: entry.domain ?? 'complete',
+        period_label: entry.periodLabel,
+        period_from: entry.from.toISOString(),
+        period_to: entry.to.toISOString(),
+        sheets: entry.sheets && entry.sheets.length > 0 ? entry.sheets : null,
+        storage_path: entry.storagePath ?? null,
+        requested_by: entry.userId ?? null,
+        requested_by_email: entry.email ?? null,
+        requested_by_role: entry.role ?? null,
+        status: entry.status,
+        error: entry.error ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) throw error;
+    return data?.id ?? null;
   } catch (err) {
     console.warn('[ai] export audit log write skipped (export_audit_log likely not migrated yet):', err);
+    return null;
   }
 }
 
@@ -667,6 +678,7 @@ aiRouter.post(
       }
       return res.status(409).json({ error: 'stale', message: described.error });
     }
+    let auditId: string | null = null;
     try {
       const result = await action.run(admin, parsed.data.args);
       // generate_report can't know the restaurant's display name (the
@@ -679,8 +691,13 @@ aiRouter.post(
       }
       if (action.name === 'generate_report' && result && typeof result === 'object' && 'periodLabel' in result) {
         const { from, to } = resolvePeriod(parsed.data.args);
-        await logExportAudit(admin, {
+        // The row is inserted now (report DATA succeeded), before the PDF
+        // bytes exist — jsPDF renders client-side. Its id is handed back
+        // so the client can PATCH in storage_path once it actually
+        // renders and uploads the file to the 'reports' bucket.
+        auditId = await logExportAudit(admin, {
           format: 'pdf',
+          domain: typeof parsed.data.args.domain === 'string' ? parsed.data.args.domain : 'complete',
           periodLabel: (result as { periodLabel: string }).periodLabel,
           from,
           to,
@@ -710,7 +727,7 @@ aiRouter.post(
           .eq('id', pendingId)
           .eq('status', 'pending');
       }
-      return res.json({ ok: true, message: `Done — ${described.summary}`, result: result ?? null });
+      return res.json({ ok: true, message: `Done — ${described.summary}`, result: result ?? null, auditId });
     } catch (err) {
       console.error('[ai] confirm failed:', err);
       const message = String((err as Error).message ?? err).slice(0, 300);
@@ -844,18 +861,22 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
 aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
   const { admin, slug, userId, email, role } = req.tenant!;
   const range = resolvePeriod({ period: req.query.period, from: req.query.from, to: req.query.to });
+  const domain = typeof req.query.domain === 'string' && req.query.domain ? req.query.domain : 'complete';
   try {
     // Custom Export (spec §37): ?sheets=Orders,Expenses,Inventory picks
     // which optional sheets to include; omit for the full 16-sheet
-    // workbook. Always sends the anchor sheets (Executive Summary, Profit
-    // Summary, Verification) regardless.
+    // workbook. A per-section export (?domain=suppliers etc.) falls back
+    // to that domain's own preset sheet list when sheets isn't given
+    // explicitly — an explicit ?sheets always wins over the preset.
+    // Always sends the anchor sheets (Executive Summary, Profit Summary,
+    // Verification) regardless.
     const sheetsParam = typeof req.query.sheets === 'string' ? req.query.sheets : undefined;
     const includeSheets = sheetsParam
       ? sheetsParam
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
-      : undefined;
+      : EXCEL_DOMAIN_SHEETS[domain];
     const built = await buildExcelWorkbook(
       admin,
       slug,
@@ -867,18 +888,38 @@ aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: R
       includeSheets,
     );
     if (!built.ok) {
-      await logExportAudit(admin, { format: 'excel', periodLabel: range.label, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'failed', error: built.error });
+      await logExportAudit(admin, { format: 'excel', domain, periodLabel: range.label, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'failed', error: built.error });
       return res.status(409).json({ error: 'export_failed', message: built.error });
     }
     const buffer = await built.workbook.xlsx.writeBuffer();
     const stamp = new Date().toISOString().slice(0, 10);
+    const filenameBase = domain === 'complete' ? `${slug}-export` : `${slug}-${domain}-export`;
+
+    // Permanent storage: save the generated workbook to the private
+    // 'reports' bucket before responding, so it can be re-downloaded
+    // later byte-for-byte instead of regenerated. Non-fatal — a storage
+    // failure (bucket not migrated yet, transient error) must never break
+    // the export the caller is actively waiting on.
+    let storagePath: string | undefined;
+    try {
+      const path = `${domain}/${stamp}-${Date.now()}.xlsx`;
+      const { error: upErr } = await admin.storage.from('reports').upload(path, Buffer.from(buffer), {
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        upsert: false,
+      });
+      if (upErr) throw upErr;
+      storagePath = path;
+    } catch (err) {
+      console.warn('[ai] excel report storage upload skipped (reports bucket likely not migrated yet):', err);
+    }
+
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${slug}-export-${stamp}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}-${stamp}.xlsx"`);
     res.send(Buffer.from(buffer));
-    await logExportAudit(admin, { format: 'excel', periodLabel: built.periodLabel, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'ready' });
+    await logExportAudit(admin, { format: 'excel', domain, periodLabel: built.periodLabel, from: range.from, to: range.to, sheets: includeSheets, storagePath, userId, email, role, status: 'ready' });
   } catch (err) {
     console.error('[ai] excel export failed:', err);
-    await logExportAudit(admin, { format: 'excel', periodLabel: range.label, from: range.from, to: range.to, userId, email, role, status: 'failed', error: String((err as Error).message ?? err).slice(0, 300) });
+    await logExportAudit(admin, { format: 'excel', domain, periodLabel: range.label, from: range.from, to: range.to, userId, email, role, status: 'failed', error: String((err as Error).message ?? err).slice(0, 300) });
     res.status(500).json({ error: 'export_failed', message: String((err as Error).message ?? err).slice(0, 300) });
   }
 });
@@ -898,7 +939,7 @@ aiRouter.get('/export-history', requirePortalPerm('reports.view'), async (req: R
   const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 200);
   const { data, error } = await admin
     .from('export_audit_log')
-    .select('id, format, period_label, period_from, period_to, sheets, requested_by_email, requested_by_role, status, error, created_at')
+    .select('id, format, domain, period_label, period_from, period_to, sheets, storage_path, requested_by_email, requested_by_role, status, error, created_at')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
@@ -906,6 +947,26 @@ aiRouter.get('/export-history', requirePortalPerm('reports.view'), async (req: R
     return res.json({ items: [], migrated: false });
   }
   res.json({ items: data ?? [], migrated: true });
+});
+
+/**
+ * GET /api/ai/export/download/:id — re-downloads a previously generated,
+ * permanently-stored report (spec's permanent storage requirement) instead
+ * of regenerating it. Signs a short-lived URL against the private
+ * 'reports' bucket rather than proxying the bytes through this server.
+ */
+aiRouter.get('/export/download/:id', requirePortalPerm('reports.view'), async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
+  const { data: row, error } = await admin
+    .from('export_audit_log')
+    .select('storage_path, format, domain, period_label')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (error || !row) return res.status(404).json({ error: 'not_found' });
+  if (!row.storage_path) return res.status(404).json({ error: 'not_stored', message: 'This export was not permanently saved (generated before permanent storage was added, or the upload failed).' });
+  const { data: signed, error: signErr } = await admin.storage.from('reports').createSignedUrl(row.storage_path, 300);
+  if (signErr || !signed) return res.status(500).json({ error: 'sign_failed', message: signErr?.message });
+  res.json({ url: signed.signedUrl, format: row.format, domain: row.domain, periodLabel: row.period_label });
 });
 
 /**

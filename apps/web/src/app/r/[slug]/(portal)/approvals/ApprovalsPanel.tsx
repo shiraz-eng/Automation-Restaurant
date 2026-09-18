@@ -91,12 +91,16 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
         return;
       }
       // generate_report doesn't mutate anything — its result IS the report
-      // data, turned into a real PDF client-side here (same generateReportPdf()
-      // the Dashboard's own button and AiChat.tsx's inline confirm both use).
+      // data, turned into a real PDF client-side here (same buildReportDoc()
+      // the Dashboard's own button and AiChat.tsx's inline confirm both
+      // use), and permanently stored via the audit row's id (/confirm's
+      // response) the same way — see AiChat.tsx's identical comment.
       if (item.action_name === 'generate_report' && body.result) {
         try {
-          const { generateReportPdf } = await import('@/lib/generateReport');
-          generateReportPdf(body.result);
+          const { saveAndStoreReportPdf, REPORT_DOMAIN_SECTIONS } = await import('@/lib/generateReport');
+          const domain = (item.args.domain as string | undefined) ?? 'complete';
+          const sections = domain !== 'complete' ? REPORT_DOMAIN_SECTIONS[domain] : undefined;
+          await saveAndStoreReportPdf(body.result, { sections, domain }, { supabase, auditId: body.auditId ?? null, domain });
         } catch (err) {
           console.error('PDF generation failed:', err);
         }

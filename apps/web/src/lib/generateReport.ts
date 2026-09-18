@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { formatCents } from './format';
 
 export type ReportKpis = {
@@ -162,13 +163,36 @@ function pct(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 1000) / 10}%` : '—';
 }
 
+// Per-section PDF exports (Suppliers/Purchasing/Inventory/Orders/Expenses
+// each getting their own focused report): every section key below maps to
+// one of this function's existing, already-guarded blocks. Passing
+// `sections` narrows the PDF to just those — Executive Summary, Profit &
+// Loss, and AI Summary always render regardless (the anchor/context every
+// report needs), mirroring exactly how the Excel export always keeps its
+// three anchor sheets no matter which ones are picked.
+export type ReportSection =
+  | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
+  | 'purchasing' | 'supplier_payments' | 'deals' | 'promotions' | 'inventory'
+  | 'management_activity' | 'attention_items' | 'ai_insights';
+export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
+  suppliers: ['supplier_payments'],
+  purchasing: ['purchasing'],
+  inventory: ['inventory'],
+  orders: ['products', 'deals', 'promotions'],
+  expenses: ['expenses'],
+};
+
 /**
- * Builds and downloads a real, vector PDF report — not a screenshot of the
- * page (spec §21, §35). Every number comes from the same data the
- * dashboard's own authoritative RPCs already returned to the caller;
- * this module only lays it out.
+ * Builds a real, vector PDF report — not a screenshot of the page (spec
+ * §21, §35). Every number comes from the same data the dashboard's own
+ * authoritative RPCs already returned to the caller; this module only
+ * lays it out. Returns the jsPDF doc (not yet saved/downloaded) and the
+ * filename it should be saved as, so a caller can either just download it
+ * (generateReportPdf below) or also read its bytes to permanently store
+ * it (saveAndStoreReportPdf).
  */
-export function generateReportPdf(data: ReportData): void {
+export function buildReportDoc(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): { doc: jsPDF; filename: string } {
+  const showSection = (key: ReportSection) => !opts?.sections || opts.sections.includes(key);
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   let y = MARGIN;
 
@@ -310,7 +334,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Sales trend (hand-drawn vector bars — not a screenshot) ─────────
-  if (data.dailySales.length > 1) {
+  if (data.dailySales.length > 1 && showSection('sales_trend')) {
     y = ensureSpace(doc, y, 55);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -348,7 +372,7 @@ export function generateReportPdf(data: ReportData): void {
   // ── Product profitability (spec §33) — a richer table (COGS,
   // contribution, margin) when that data is present, falling back to the
   // plain units/revenue table for a caller without cost visibility. ────
-  if (data.topProducts.length > 0) {
+  if (data.topProducts.length > 0 && showSection('products')) {
     const hasCogs = data.topProducts.some((p) => p.cogs_cents != null);
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
@@ -392,7 +416,7 @@ export function generateReportPdf(data: ReportData): void {
   // mystery number. Undefined means "no visibility into expenses" and
   // omits the section entirely; an empty array means "genuinely none
   // recorded" and says so explicitly rather than skipping silently. ────
-  if (data.expenseRecords) {
+  if (data.expenseRecords && showSection('expenses')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -450,7 +474,7 @@ export function generateReportPdf(data: ReportData): void {
   // ── Revenue mix / payment mix side by side (as tables) ──────────────
   const totalCat = data.categoryMix.reduce((s, c) => s + c.revenue_cents, 0);
   const totalPay = data.paymentMix.reduce((s, c) => s + c.revenue_cents, 0);
-  if (data.categoryMix.length > 0 || data.paymentMix.length > 0) {
+  if ((data.categoryMix.length > 0 || data.paymentMix.length > 0) && showSection('revenue_mix')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -490,7 +514,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Customer experience ──────────────────────────────────────────────
-  if (data.feedback && data.feedback.responses > 0) {
+  if (data.feedback && data.feedback.responses > 0 && showSection('customer_experience')) {
     y = ensureSpace(doc, y, 30);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -527,7 +551,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Staff attendance (today) ─────────────────────────────────────────
-  if (data.attendance && data.attendance.length > 0) {
+  if (data.attendance && data.attendance.length > 0 && showSection('staff_attendance')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -547,7 +571,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Purchasing (spec §28) ─────────────────────────────────────────────
-  if (data.purchasing) {
+  if (data.purchasing && showSection('purchasing')) {
     const pu = data.purchasing;
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
@@ -588,7 +612,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Supplier Payments / Accounts Payable (spec §28) ────────────────────
-  if (data.supplierPayable) {
+  if (data.supplierPayable && showSection('supplier_payments')) {
     const sp = data.supplierPayable;
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
@@ -652,7 +676,7 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   // ── Deal & Promotion Performance (spec §11) ─────────────────────────────
-  if (data.deals) {
+  if (data.deals && showSection('deals')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -686,7 +710,7 @@ export function generateReportPdf(data: ReportData): void {
       y = (doc as any).lastAutoTable.finalY + 8;
     }
   }
-  if (data.promotions) {
+  if (data.promotions && showSection('promotions')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -722,7 +746,7 @@ export function generateReportPdf(data: ReportData): void {
 
   // ── Inventory (spec §7) — real movement from the stock ledger against
   // the current closing value; never a forced/fabricated reconciliation. ──
-  if (data.inventoryReconciliation) {
+  if (data.inventoryReconciliation && showSection('inventory')) {
     const inv = data.inventoryReconciliation;
     y = ensureSpace(doc, y, 30);
     doc.setFont('helvetica', 'bold');
@@ -762,7 +786,7 @@ export function generateReportPdf(data: ReportData): void {
 
   // ── Management Activity (spec §2, §13, §19) — what the owner actually
   // did, every count from a real audit/activity record. ──────────────────
-  if (data.managementActivity) {
+  if (data.managementActivity && showSection('management_activity')) {
     const ma = data.managementActivity;
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
@@ -793,7 +817,7 @@ export function generateReportPdf(data: ReportData): void {
 
   // ── Attention Items (spec §21) — ranked exceptions, each with real
   // evidence; never presented as fabricated advice. ──────────────────────
-  if (data.attentionItems) {
+  if (data.attentionItems && showSection('attention_items')) {
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
@@ -831,7 +855,7 @@ export function generateReportPdf(data: ReportData): void {
   // figure; a RECOMMENDATION is always a suggestion, never a claim of
   // proven cause. Positives and concerns are shown separately so this
   // never reads as only a list of warnings. ──────────────────────────────
-  if (data.aiInsights) {
+  if (data.aiInsights && showSection('ai_insights')) {
     const ai = data.aiInsights;
     y = ensureSpace(doc, y, 20);
     doc.setFont('helvetica', 'bold');
@@ -924,7 +948,49 @@ export function generateReportPdf(data: ReportData): void {
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
-  doc.save(`${data.restaurantName.replace(/[^a-z0-9]+/gi, '-')}-report-${stamp}.pdf`);
+  const suffix = opts?.domain && opts.domain !== 'complete' ? `-${opts.domain}` : '';
+  const filename = `${data.restaurantName.replace(/[^a-z0-9]+/gi, '-')}${suffix}-report-${stamp}.pdf`;
+  return { doc, filename };
+}
+
+/** Thin wrapper over buildReportDoc for callers that only want the
+ *  download, not permanent storage (kept so every existing call site —
+ *  the Dashboard's own button, AI chat, Approvals — needs no changes). */
+export function generateReportPdf(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): void {
+  const { doc, filename } = buildReportDoc(data, opts);
+  doc.save(filename);
+}
+
+/**
+ * Same as generateReportPdf (still downloads immediately — the user never
+ * waits on the upload), but also permanently stores the file: uploads the
+ * rendered PDF to the private 'reports' Storage bucket, then patches the
+ * export_audit_log row POST /api/ai/confirm already created (before the
+ * PDF bytes existed) with the resulting storage_path. `auditId` is that
+ * row's id from the /confirm response — null when the server-side insert
+ * itself failed (e.g. export_audit_log not migrated yet on this tenant),
+ * in which case there's nothing to patch and storage is skipped entirely.
+ * Non-fatal throughout: a storage failure never affects the download that
+ * already happened, and is only logged, never surfaced to the user.
+ */
+export async function saveAndStoreReportPdf(
+  data: ReportData,
+  opts: { sections?: ReportSection[]; domain?: string } | undefined,
+  ctx: { supabase: SupabaseClient; auditId: string | null; domain: string },
+): Promise<void> {
+  const { doc, filename } = buildReportDoc(data, opts);
+  doc.save(filename);
+  if (!ctx.auditId) return;
+  try {
+    const blob = doc.output('blob') as Blob;
+    const path = `${ctx.domain}/${filename}`;
+    const { error: upErr } = await ctx.supabase.storage.from('reports').upload(path, blob, { contentType: 'application/pdf', upsert: false });
+    if (upErr) throw upErr;
+    const { error: patchErr } = await ctx.supabase.from('export_audit_log').update({ storage_path: path }).eq('id', ctx.auditId);
+    if (patchErr) throw patchErr;
+  } catch (err) {
+    console.warn('PDF permanent storage skipped:', err);
+  }
 }
 
 /** A hand-drawn vector horizontal bar chart (not a screenshot) — reused for

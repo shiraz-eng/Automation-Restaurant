@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
-import { generateReportPdf } from '@/lib/generateReport';
+import { saveAndStoreReportPdf } from '@/lib/generateReport';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import type {
   ReportPurchasing,
@@ -427,6 +427,7 @@ export function PerformancePanel({
     let promotions: ReportPromotion[] | undefined;
     let inventoryReconciliation: ReportInventory | undefined;
     let aiInsights: ReportAiInsights | undefined;
+    let auditId: string | null = null;
     try {
       const {
         data: { session },
@@ -446,13 +447,14 @@ export function PerformancePanel({
         promotions = body.result.promotions ?? undefined;
         inventoryReconciliation = body.result.inventoryReconciliation ?? undefined;
         aiInsights = body.result.aiInsights ?? undefined;
+        auditId = body.auditId ?? null;
       }
     } catch {
       // Non-fatal — the PDF still generates with every section this panel
       // already had locally, just without the intelligence sections.
     }
 
-    generateReportPdf({
+    await saveAndStoreReportPdf({
       restaurantName,
       periodLabel,
       kpis: {
@@ -487,7 +489,7 @@ export function PerformancePanel({
       inventoryReconciliation,
       aiInsights,
       aiSummary: aiSummary ?? null,
-    });
+    }, undefined, { supabase, auditId, domain: 'complete' });
   }
 
   const [exporting, setExporting] = useState(false);
