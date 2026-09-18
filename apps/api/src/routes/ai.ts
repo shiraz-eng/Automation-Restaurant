@@ -4,8 +4,50 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, type AiTool, type AiAction, type Period } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { buildExcelWorkbook } from '../lib/excelExport';
+
+/**
+ * Export audit trail (spec §39) — one row per generated report/export,
+ * written right after it actually succeeds or fails. Best-effort and
+ * non-fatal by design: export_audit_log is a NEW table (tenant-migrations/
+ * 0037) that an existing tenant's database won't have until that migration
+ * is applied, and a missing audit table must never break the export itself
+ * — the report/workbook has already been built and handed back by the time
+ * this runs, so a logging failure here is swallowed, not surfaced.
+ */
+async function logExportAudit(
+  admin: SupabaseClient,
+  entry: {
+    format: 'pdf' | 'excel';
+    periodLabel: string;
+    from: Date;
+    to: Date;
+    sheets?: string[];
+    userId?: string | null;
+    email?: string | null;
+    role?: string | null;
+    status: 'ready' | 'failed';
+    error?: string;
+  },
+) {
+  try {
+    await admin.from('export_audit_log').insert({
+      format: entry.format,
+      period_label: entry.periodLabel,
+      period_from: entry.from.toISOString(),
+      period_to: entry.to.toISOString(),
+      sheets: entry.sheets && entry.sheets.length > 0 ? entry.sheets : null,
+      requested_by: entry.userId ?? null,
+      requested_by_email: entry.email ?? null,
+      requested_by_role: entry.role ?? null,
+      status: entry.status,
+      error: entry.error ?? null,
+    });
+  } catch (err) {
+    console.warn('[ai] export audit log write skipped (export_audit_log likely not migrated yet):', err);
+  }
+}
 
 /** Anything the model can be offered as a callable function — a read tool or a proposable action. */
 type ToolLike = { name: string; description: string; input_schema: AiTool['input_schema'] };
@@ -635,6 +677,19 @@ aiRouter.post(
       if (action.name === 'generate_report' && result && typeof result === 'object' && 'restaurantName' in result) {
         (result as { restaurantName: string }).restaurantName = req.tenant!.slug;
       }
+      if (action.name === 'generate_report' && result && typeof result === 'object' && 'periodLabel' in result) {
+        const { from, to } = resolvePeriod(parsed.data.args);
+        await logExportAudit(admin, {
+          format: 'pdf',
+          periodLabel: (result as { periodLabel: string }).periodLabel,
+          from,
+          to,
+          userId,
+          email,
+          role,
+          status: 'ready',
+        });
+      }
       await admin.from('audit_logs').insert({
         actor_id: userId,
         actor_email: email,
@@ -659,6 +714,20 @@ aiRouter.post(
     } catch (err) {
       console.error('[ai] confirm failed:', err);
       const message = String((err as Error).message ?? err).slice(0, 300);
+      if (action.name === 'generate_report' || action.name === 'export_excel_report') {
+        const { from, to, label } = resolvePeriod(parsed.data.args);
+        await logExportAudit(admin, {
+          format: action.name === 'generate_report' ? 'pdf' : 'excel',
+          periodLabel: label,
+          from,
+          to,
+          userId,
+          email,
+          role,
+          status: 'failed',
+          error: message,
+        });
+      }
       if (pendingId) {
         await admin
           .from('ai_pending_actions')
@@ -773,7 +842,8 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
  * the query string.
  */
 aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
-  const { admin, slug } = req.tenant!;
+  const { admin, slug, userId, email, role } = req.tenant!;
+  const range = resolvePeriod({ period: req.query.period, from: req.query.from, to: req.query.to });
   try {
     // Custom Export (spec §37): ?sheets=Orders,Expenses,Inventory picks
     // which optional sheets to include; omit for the full 16-sheet
@@ -796,16 +866,46 @@ aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: R
       },
       includeSheets,
     );
-    if (!built.ok) return res.status(409).json({ error: 'export_failed', message: built.error });
+    if (!built.ok) {
+      await logExportAudit(admin, { format: 'excel', periodLabel: range.label, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'failed', error: built.error });
+      return res.status(409).json({ error: 'export_failed', message: built.error });
+    }
     const buffer = await built.workbook.xlsx.writeBuffer();
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${slug}-export-${stamp}.xlsx"`);
     res.send(Buffer.from(buffer));
+    await logExportAudit(admin, { format: 'excel', periodLabel: built.periodLabel, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'ready' });
   } catch (err) {
     console.error('[ai] excel export failed:', err);
+    await logExportAudit(admin, { format: 'excel', periodLabel: range.label, from: range.from, to: range.to, userId, email, role, status: 'failed', error: String((err as Error).message ?? err).slice(0, 300) });
     res.status(500).json({ error: 'export_failed', message: String((err as Error).message ?? err).slice(0, 300) });
   }
+});
+
+/**
+ * GET /api/ai/export-history — the "Report & Export History" page (spec
+ * §41): every PDF/Excel export this tenant has generated, most recent
+ * first. Reads export_audit_log directly (RLS already scopes it to
+ * staff/reports permissions) rather than a second permission check here.
+ * Returns an empty list (not an error) when the table doesn't exist yet on
+ * a tenant that hasn't received tenant-migrations/0037 — same
+ * non-fatal-by-design posture as logExportAudit's own write side, so a
+ * not-yet-migrated tenant sees an empty history page instead of a broken one.
+ */
+aiRouter.get('/export-history', requirePortalPerm('reports.view'), async (req: Request, res: Response) => {
+  const { admin } = req.tenant!;
+  const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '50'), 10) || 50, 1), 200);
+  const { data, error } = await admin
+    .from('export_audit_log')
+    .select('id, format, period_label, period_from, period_to, sheets, requested_by_email, requested_by_role, status, error, created_at')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('[ai] export history read failed (export_audit_log likely not migrated yet):', error.message);
+    return res.json({ items: [], migrated: false });
+  }
+  res.json({ items: data ?? [], migrated: true });
 });
 
 /**

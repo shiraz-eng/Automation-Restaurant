@@ -109,7 +109,12 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       fixed creatable-role list, plus the same anti-escalation check
 //       POST /api/staff/access uses; an existing email is never touched).
 //       Broadens the 'ai-imports' bucket's RLS once more.
-const SCHEMA_VERSION = 36;
+//   v37 Export audit trail: export_audit_log — one row per generated
+//       PDF/Excel report (Restaurant Performance & Owner Activity
+//       Intelligence spec §39), written by the API after each export
+//       succeeds or fails. Records exports only; report content is never
+//       stored, every report regenerates fresh each time.
+const SCHEMA_VERSION = 37;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
@@ -220,71 +225,91 @@ export async function provisionTenant(input: {
       .eq('id', tenantId);
 
     // Idempotency: reuse an existing project if provisioning half-completed.
+    // The registry row is written as soon as the project exists — BEFORE the
+    // schema is applied below — specifically so a schema failure (a bad
+    // migration, a transient API error, ...) leaves a resumable row instead
+    // of an unregistered orphan that would make every retry collide with
+    // Supabase's "project with this name already exists".
     const existing = await supabaseAdmin
       .from('tenant_projects')
-      .select('project_ref, project_url, service_key')
+      .select('project_ref, project_url, organization_id, service_key, db_password, schema_version')
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
     let projectUrl: string;
     let serviceKey: string;
 
-    if (existing.data?.service_key) {
+    if (existing.data?.service_key && existing.data.schema_version === SCHEMA_VERSION) {
       projectUrl = existing.data.project_url;
       serviceKey = existing.data.service_key;
       console.log(`[provision] ${slug}: reusing project ${existing.data.project_ref}`);
     } else {
-      const dbPassword = strongPassword();
+      const dbPassword = existing.data?.db_password ?? strongPassword();
 
       // Model B: the owner's own org via their OAuth token. Model A: the
       // platform org pool.
       let mgmt: MgmtClient;
-      let project: CreatedProject;
+      let projectRef: string;
       let organizationId: string;
-      if (connected) {
+      if (existing.data?.project_ref) {
+        // A previous attempt created (and registered) the project but never
+        // got through schema application — resume on that SAME project
+        // rather than asking Supabase for a new one, which would just be
+        // rejected as a duplicate name.
+        projectRef = existing.data.project_ref;
+        organizationId = existing.data.organization_id ?? '';
+        mgmt = connected ? mgmtClient((await getFreshConnection(tenantId)).access_token) : platformMgmt;
+        console.log(`[provision] ${slug}: resuming project ${projectRef}, re-applying schema…`);
+      } else if (connected) {
         const conn = await getFreshConnection(tenantId);
         mgmt = mgmtClient(conn.access_token);
         organizationId = conn.organization_id;
-        project = await mgmt.createProject({
+        const project = await mgmt.createProject({
           organizationId,
           name: `ar-${slug}`.slice(0, 56),
           dbPass: dbPassword,
         });
+        projectRef = project.id;
         console.log(
-          `[provision] ${slug}: created project ${project.id} in owner org ${organizationId}, waiting for database…`,
+          `[provision] ${slug}: created project ${projectRef} in owner org ${organizationId}, waiting for database…`,
         );
       } else {
         mgmt = platformMgmt;
         const picked = await createProjectInPool(`ar-${slug}`.slice(0, 56), dbPassword);
-        project = picked.project;
+        projectRef = picked.project.id;
         organizationId = picked.organizationId;
         console.log(
-          `[provision] ${slug}: created project ${project.id} in org ${organizationId}, waiting for database…`,
+          `[provision] ${slug}: created project ${projectRef} in org ${organizationId}, waiting for database…`,
         );
       }
 
-      await mgmt.waitForQueryable(project.id);
-      const keys = await mgmt.getApiKeys(project.id);
+      await mgmt.waitForQueryable(projectRef);
+      const keys = await mgmt.getApiKeys(projectRef);
+      projectUrl = `https://${projectRef}.supabase.co`;
 
-      console.log(`[provision] ${slug}: applying tenant schema…`);
-      await mgmt.runSql(project.id, TENANT_SCHEMA_SQL);
-
-      projectUrl = `https://${project.id}.supabase.co`;
-      serviceKey = keys.service_role;
       const { error: regErr } = await supabaseAdmin.from('tenant_projects').upsert(
         {
           tenant_id: tenantId,
-          project_ref: project.id,
+          project_ref: projectRef,
           project_url: projectUrl,
-          organization_id: organizationId,
+          organization_id: organizationId || null,
           anon_key: keys.anon,
           service_key: keys.service_role,
           db_password: dbPassword,
-          schema_version: SCHEMA_VERSION,
         },
         { onConflict: 'tenant_id' },
       );
       if (regErr) throw new Error(`registry insert failed: ${regErr.message}`);
+
+      console.log(`[provision] ${slug}: applying tenant schema…`);
+      await mgmt.runSql(projectRef, TENANT_SCHEMA_SQL);
+
+      serviceKey = keys.service_role;
+      const { error: verErr } = await supabaseAdmin
+        .from('tenant_projects')
+        .update({ schema_version: SCHEMA_VERSION })
+        .eq('tenant_id', tenantId);
+      if (verErr) throw new Error(`schema_version update failed: ${verErr.message}`);
     }
 
     // Owner account in the restaurant's own project. A readable temporary

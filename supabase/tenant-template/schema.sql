@@ -1640,6 +1640,13 @@ end $$;
 revoke all on function public.submit_stock_count(uuid, numeric, text) from public;
 grant execute on function public.submit_stock_count(uuid, numeric, text) to authenticated, service_role;
 
+-- Declared ahead of place_order() below, which references it in a DECLARE
+-- block; plpgsql validates declared types at CREATE FUNCTION time, so the
+-- type must exist before this point even though the promotions table it
+-- belongs to isn't created until later (place_order only references that
+-- table inside the function body, which postgres binds lazily).
+create type app.promo_kind as enum ('percent', 'fixed', 'bogo');
+
 create or replace function public.place_order(
   p_channel text, p_table_label text, p_customer_name text,
   p_tax_rate_bps integer, p_lines jsonb,
@@ -2581,9 +2588,24 @@ grant execute on function public.record_waste(uuid, int, text, text) to authenti
 
 alter publication supabase_realtime add table public.menu_variants;
 
--- ── Promotions ───────────────────────────────────────────────────────────
-create type app.promo_kind as enum ('percent', 'fixed', 'bogo');
+-- Created ahead of its "Attendance & business settings" section below:
+-- app.promotion_is_valid_now() (in Promotions, just past this point) is a
+-- `language sql` function, whose body — unlike a plpgsql function's — is
+-- parsed and validated against the catalog at CREATE FUNCTION time, so the
+-- table it queries must already exist here. RLS/policies for it stay in
+-- their original spot since those only need the table to exist by then.
+create table public.business_settings (
+  id                        boolean primary key default true check (id),
+  timezone                  text not null default 'UTC',
+  business_day_start_minutes int not null default 0,
+  currency_code             text not null default 'USD',
+  week_start                int not null default 1
+);
+insert into public.business_settings (id) values (true);
 
+-- ── Promotions ───────────────────────────────────────────────────────────
+-- (app.promo_kind is created earlier, right before place_order() — see the
+-- comment there.)
 create table public.promotions (
   id                uuid primary key default gen_random_uuid(),
   name              text not null,
@@ -3750,14 +3772,8 @@ create index attendance_member_idx on public.attendance(membership_id, clock_in 
 create unique index attendance_member_date_uq on public.attendance(membership_id, business_date);
 
 -- ── Attendance & business settings (P6) ─────────────────────────────────
-create table public.business_settings (
-  id                        boolean primary key default true check (id),
-  timezone                  text not null default 'UTC',
-  business_day_start_minutes int not null default 0,
-  currency_code             text not null default 'USD',
-  week_start                int not null default 1
-);
-insert into public.business_settings (id) values (true);
+-- (public.business_settings is created earlier, ahead of Promotions — see
+-- the comment there.)
 
 create table public.attendance_settings (
   id                         boolean primary key default true check (id),
@@ -4751,6 +4767,36 @@ begin
     );
   end loop;
 end $$;
+
+-- ── Export audit trail (Restaurant Performance & Owner Activity
+-- Intelligence, spec §39) — one row per generated PDF/Excel report, so the
+-- owner can see who exported what, when, and for which period. Written by
+-- the API right after a report/export actually succeeds (or fails) —
+-- never backfilled or inferred, and this table records exports only, not
+-- the report CONTENT itself (which is never stored server-side; every
+-- report is generated fresh from the same authoritative data each time).
+create table public.export_audit_log (
+  id                 uuid primary key default gen_random_uuid(),
+  format             text not null check (format in ('pdf', 'excel')),
+  period_label       text not null,
+  period_from        timestamptz not null,
+  period_to          timestamptz not null,
+  -- Only meaningful for a 'excel' export narrowed by the Custom Export
+  -- sheet picker (spec §37) — null means the full workbook.
+  sheets             text[],
+  requested_by       uuid,
+  requested_by_email text,
+  requested_by_role  text,
+  status             text not null default 'ready' check (status in ('ready', 'failed')),
+  error              text,
+  created_at         timestamptz not null default now()
+);
+create index export_audit_log_created_idx on public.export_audit_log(created_at desc);
+alter table public.export_audit_log enable row level security;
+create policy staff_read on public.export_audit_log for select
+  using (app.has_perm('reports.view') or app.has_perm('reports.export') or app.has_perm('reports.generate') or app.is_staff());
+create policy staff_insert on public.export_audit_log for insert
+  with check (app.has_perm('reports.generate') or app.has_perm('reports.export') or app.can_write());
 
 -- ── Seed ─────────────────────────────────────────────────────────────────
 insert into public.menu_categories (name) values ('Uncategorised');
