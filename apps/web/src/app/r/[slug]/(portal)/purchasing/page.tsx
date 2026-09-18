@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from './PurchasingClient';
 
 export const dynamic = 'force-dynamic';
@@ -60,11 +61,14 @@ export default async function PurchasingPage({
 
   return (
     <div className="space-y-8 max-w-5xl">
-      <div>
-        <h1 className="text-xl font-black">Purchasing</h1>
-        <p className="text-muted text-xs mt-1">
-          Suppliers → purchase orders → receiving → invoices → matching → payables.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black">Purchasing</h1>
+          <p className="text-muted text-xs mt-1">
+            Suppliers → purchase orders → receiving → invoices → matching → payables.
+          </p>
+        </div>
+        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="purchasing" label="Purchasing" />
       </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { LiveRefresh } from '@/components/LiveRefresh';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { OrdersClient } from './OrdersClient';
 
 export const dynamic = 'force-dynamic';
@@ -23,11 +24,16 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <h1 className="text-xl font-black">Orders</h1>
-      <p className="text-muted text-xs -mt-4">
-        Kitchen-stage progress only — take payment in Checkout and cancel with a reason here; an order can&apos;t be
-        marked paid without a recorded payment.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black">Orders</h1>
+          <p className="text-muted text-xs mt-1">
+            Kitchen-stage progress only — take payment in Checkout and cancel with a reason here; an order can&apos;t
+            be marked paid without a recorded payment.
+          </p>
+        </div>
+        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="orders" label="Orders" />
+      </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
           {error.message}

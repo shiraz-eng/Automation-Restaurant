@@ -36,7 +36,13 @@ import {
 // Performance & Owner Activity Intelligence tools (spec §1) — the
 // dashboard's charts now offer the same range the AI chat/PDF/Excel export
 // already support.
-export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'last_3_months' | 'last_6_months' | 'last_year';
+// 'this_year' is deliberately NOT in PERIODS below (which drives the
+// Dashboard's own visible buttons — left untouched) — it exists on the
+// type/periodRange() so the new per-section report pages (Suppliers,
+// Purchasing, Inventory, Orders, Expenses), which define their own period
+// button list, can offer a calendar-year option without changing the
+// Dashboard.
+export type Period = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'last_3_months' | 'last_6_months' | 'this_year' | 'last_year';
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
@@ -103,6 +109,11 @@ export function periodRange(period: Period) {
     case 'last_6_months': {
       const from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
       const prevFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
+    }
+    case 'this_year': {
+      const from = new Date(now.getFullYear(), 0, 1);
+      const prevFrom = new Date(now.getFullYear() - 1, 0, 1);
       return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
     }
     case 'last_year': {

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { SuppliersManager, type Supplier } from './SuppliersManager';
 
 export const dynamic = 'force-dynamic';
@@ -25,12 +26,15 @@ export default async function SuppliersPage({
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-black">Suppliers</h1>
-        <p className="text-muted text-xs mt-1">
-          Vendors you raise purchase orders against. Receiving a PO adds its quantities to
-          inventory.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black">Suppliers</h1>
+          <p className="text-muted text-xs mt-1">
+            Vendors you raise purchase orders against. Receiving a PO adds its quantities to
+            inventory.
+          </p>
+        </div>
+        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="suppliers" label="Suppliers" />
       </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">

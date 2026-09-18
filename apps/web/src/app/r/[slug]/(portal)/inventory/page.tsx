@@ -4,6 +4,7 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { InventoryManager } from './InventoryManager';
 import { Card } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,7 +68,10 @@ export default async function InventoryPage({
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <h1 className="text-xl font-black">Inventory</h1>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <h1 className="text-xl font-black">Inventory</h1>
+        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="inventory" label="Inventory" />
+      </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
           {error.message}

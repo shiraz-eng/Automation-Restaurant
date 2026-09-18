@@ -44,8 +44,8 @@ const KITCHEN_ACTIVE = ['pending', 'in_kitchen', 'ready'];
 // touching ~30 already-verified call sites for a request none of them made.
 export type Period =
   | 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month'
-  | 'last_3_months' | 'last_6_months' | 'last_year' | 'custom';
-export const LONG_RANGE_PERIODS = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'last_3_months', 'last_6_months', 'last_year'] as const;
+  | 'last_3_months' | 'last_6_months' | 'this_year' | 'last_year' | 'custom';
+export const LONG_RANGE_PERIODS = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'last_3_months', 'last_6_months', 'this_year', 'last_year'] as const;
 export function periodRange(period: Period) {
   const startOfDay = (d: Date) => {
     const x = new Date(d);
@@ -90,6 +90,11 @@ export function periodRange(period: Period) {
       const from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
       const prevFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
       return { from, to: addDays(today0, 1), prevFrom, prevTo: from, label: 'Last 6 months' };
+    }
+    case 'this_year': {
+      const from = new Date(now.getFullYear(), 0, 1);
+      const prevFrom = new Date(now.getFullYear() - 1, 0, 1);
+      return { from, to: addDays(today0, 1), prevFrom, prevTo: from, label: 'This year' };
     }
     case 'last_year': {
       const from = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
