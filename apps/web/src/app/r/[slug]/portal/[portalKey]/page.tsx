@@ -12,6 +12,7 @@ import {
 } from './KitchenPortalBoard';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { CheckoutClient, type Bill } from '../../(portal)/checkout/CheckoutClient';
+import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,9 +121,21 @@ export default async function PortalHome({
   todayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
 
+  // orders.view (the Operations bundle's core permission) gets the SAME
+  // OrdersClient the regular Operations Portal's own Orders page uses —
+  // real order management, not just a read-only count — reused exactly
+  // like checkout/kitchen/attendance types already reuse their own
+  // dedicated client components. Today's stat is derived from this same
+  // fetch rather than a second query.
   const [ordersRes, kitchenRes, stockRes, profitRes] = await Promise.all([
     has('orders.view')
-      ? t.client.from('orders').select('total_cents, status, paid_at').gte('created_at', todayStart.toISOString())
+      ? t.client
+          .from('orders')
+          .select(
+            'id, order_number, status, channel, table_label, customer_name, subtotal_cents, tax_cents, total_cents, created_at, order_lines(name_snapshot, qty, line_total_cents, kds_status)',
+          )
+          .order('created_at', { ascending: false })
+          .limit(50)
       : Promise.resolve({ data: null }),
     has('kitchen.view')
       ? t.client.from('orders').select('id', { count: 'exact', head: true }).in('status', ACTIVE)
@@ -135,8 +148,9 @@ export default async function PortalHome({
       : Promise.resolve({ data: null, error: null }),
   ]);
 
-  const todayOrders = (ordersRes.data ?? []) as { total_cents: number; status: string; paid_at: string | null }[];
-  const revenueToday = todayOrders.filter((o) => o.paid_at).reduce((s, o) => s + o.total_cents, 0);
+  const orders = (ordersRes.data ?? []) as unknown as OrdersClientOrder[];
+  const todayOrders = orders.filter((o) => new Date(o.created_at) >= todayStart);
+  const revenueToday = todayOrders.filter((o) => o.status === 'paid').reduce((s, o) => s + o.total_cents, 0);
   const lowStock = ((stockRes.data ?? []) as { name: string; stock_qty: number; min_threshold: number; unit: string }[]).filter(
     (i) => Number(i.stock_qty) <= Number(i.min_threshold),
   );
@@ -145,7 +159,7 @@ export default async function PortalHome({
   const grantedBundles = PORTAL_BUNDLES.filter(({ keys }) => keys.some((k) => has(k)));
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <div>
         <h1 className="text-xl font-black">{portal.name}</h1>
         <p className="text-muted text-xs mt-1">{BLURB[portal.type] ?? BLURB.custom}</p>
@@ -190,6 +204,13 @@ export default async function PortalHome({
                 ))}
               </ul>
             </Card>
+          )}
+
+          {has('orders.view') && (
+            <div>
+              <h2 className="font-bold text-sm mb-3">Orders</h2>
+              <OrdersClient orders={orders} canCancel={has('orders.cancel')} />
+            </div>
           )}
 
           <Card>

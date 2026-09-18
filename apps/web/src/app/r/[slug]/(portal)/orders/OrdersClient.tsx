@@ -16,7 +16,7 @@ const EDITABLE_STATUSES = ['pending', 'in_kitchen', 'ready', 'served'] as const;
 const TERMINAL_LABEL: Record<string, string> = { paid: 'Paid', void: 'Void' };
 
 type Line = { name_snapshot: string; qty: number; line_total_cents: number; kds_status: string };
-type Order = {
+export type Order = {
   id: string;
   order_number: number;
   status: string;
