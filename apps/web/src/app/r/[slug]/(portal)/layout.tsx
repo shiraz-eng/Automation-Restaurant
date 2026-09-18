@@ -41,7 +41,6 @@ const NAV: [string, string, string?, boolean?][] = [
   ['suppliers', 'Suppliers', 'supplier.view'],
   ['purchasing', 'Purchasing', 'purchases.view'],
   ['staff', 'Staff', 'staff.view'],
-  ['roles', 'Roles & Access Control', 'roles.view', true],
   ['scheduling', 'Shifts', 'attendance.view'],
   ['portals', 'Kiosk Portals', 'portals.view', true],
   ['audit', 'Audit log', 'reports.view'],
