@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
-import { PORTAL_BUNDLES } from '@/lib/portalBundles';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -95,17 +94,6 @@ export function PortalsManager({
       return n;
     });
   }
-  function togglePortal(keys: string[], nowOn: boolean) {
-    setSelected((s) => {
-      const n = new Set(s);
-      for (const k of keys) {
-        if (nowOn) n.add(k);
-        else n.delete(k);
-      }
-      return n;
-    });
-  }
-
   async function createPortal(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -342,30 +330,12 @@ export function PortalsManager({
             </Field>
           </div>
           <div>
-            <span className="text-muted text-[11px] font-semibold">Portals</span>
-            <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-              {PORTAL_BUNDLES.map(({ portal, keys }) => {
-                const allOn = keys.every((k) => selected.has(k));
-                const someOn = !allOn && keys.some((k) => selected.has(k));
-                return (
-                  <label key={portal} className="flex items-center gap-2 text-xs py-0.5">
-                    <input
-                      type="checkbox"
-                      checked={allOn}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someOn;
-                      }}
-                      onChange={() => togglePortal(keys, !allOn)}
-                    />
-                    <span className="font-semibold">{portal}</span>
-                    <span className="text-muted text-[10px]">({keys.length})</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <span className="text-muted text-[11px] font-semibold">Individual permissions</span>
+            <span className="text-muted text-[11px] font-semibold">Permissions</span>
+            <p className="text-muted text-[10px] mt-0.5 mb-1.5">
+              This portal can do exactly what&rsquo;s checked below — nothing more. There&rsquo;s no
+              predefined &ldquo;Kitchen&rdquo; or &ldquo;Finance&rdquo; portal to pick; select the individual
+              permissions this portal needs and it gets that functionality.
+            </p>
             <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
               {groups.map(([grp, rows]) => (
                 <div key={grp}>

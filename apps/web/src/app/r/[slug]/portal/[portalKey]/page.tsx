@@ -3,7 +3,6 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
-import { PORTAL_BUNDLES } from '@/lib/portalBundles';
 import {
   KitchenPortalBoard,
   type KOrder,
@@ -174,14 +173,14 @@ export default async function PortalHome({
   // ── Generated (manager/custom) portal — a composition of the SAME real
   // module implementations every single-purpose portal type above (and
   // every standalone Operations Portal page) already uses, one section per
-  // Portal Management "bundle" (@/lib/portalBundles) this portal actually
-  // holds a permission from. This is what makes the portal generator
-  // GENERIC: a bundle's inclusion is driven entirely by has()/hasAny()
-  // reads of portal.permissions (itself entirely Owner-configured in
-  // Portal Management), never a hard-coded "if this portal is named X".
-  // Registering a future module only means adding it to PORTAL_BUNDLES and
-  // one more conditional section here — nothing about this branching, the
-  // route, or the auth model needs to change.
+  // existing RMS area this portal actually holds a permission for. This is
+  // what makes the portal generator GENERIC: a section's inclusion is
+  // driven entirely by has()/hasAny() reads of portal.permissions (itself
+  // entirely Owner-configured, from individual permissions — Portal
+  // Management has no predefined "Kitchen portal"/"Finance portal" bundle
+  // concept), never a hard-coded "if this portal is named X". Registering
+  // a future module only means one more conditional section here — nothing
+  // about this branching, the route, or the auth model needs to change.
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
@@ -195,7 +194,7 @@ export default async function PortalHome({
   const includePurchasing = has('purchases.view');
   const canFinance = hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit']);
   const includeDayClose = has('finance.view');
-  const includeAnalytics = hasAny(PORTAL_BUNDLES.find((b) => b.portal === 'Analytics')?.keys ?? []);
+  const includeAnalytics = hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']);
   const includeDeals = has('deals.view');
   const includeSocial = has('social.view');
   const includeStaff = has('staff.view');
