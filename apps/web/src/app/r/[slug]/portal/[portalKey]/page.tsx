@@ -3,6 +3,7 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
+import { PORTAL_BUNDLES } from '@/lib/portalBundles';
 import {
   KitchenPortalBoard,
   type KOrder,
@@ -10,11 +11,20 @@ import {
   type Counter,
 } from './KitchenPortalBoard';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
+import { AnalyticsSection } from './AnalyticsSection';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from '../../(portal)/checkout/CheckoutClient';
 import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
 import { ExpensesManager, type Expense, type ExpenseSupplier } from '../../(portal)/expenses/ExpensesManager';
 import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/SuppliersManager';
 import { AiChat } from '../../(portal)/ai/AiChat';
+import { InventoryManager } from '../../(portal)/inventory/InventoryManager';
+import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption } from '../../(portal)/recipes/RecipesManager';
+import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from '../../(portal)/purchasing/PurchasingClient';
+import { DealsManager, type Deal, type MenuOption } from '../../(portal)/deals/DealsManager';
+import { SocialManager } from '../../(portal)/social/SocialManager';
+import { StaffManager } from '@/components/StaffManager';
+import { SchedulingClient, type Shift, type Attendance } from '../../(portal)/scheduling/SchedulingClient';
+import { DayCloseClient, type Closing } from '../../(portal)/close/DayCloseClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,12 +50,23 @@ type ProfitRow = {
 const ACTIVE = ['pending', 'in_kitchen', 'ready'];
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 
+/** Monday 00:00 of the week containing `d`, in the server's local zone — same rule as the standalone Scheduling page. */
+function weekStart(d = new Date()): Date {
+  const s = new Date(d);
+  s.setHours(0, 0, 0, 0);
+  s.setDate(s.getDate() - ((s.getDay() + 6) % 7));
+  return s;
+}
+
 export default async function PortalHome({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; portalKey: string }>;
+  searchParams: Promise<{ w?: string }>;
 }) {
   const { slug, portalKey } = await params;
+  const { w } = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
@@ -150,36 +171,81 @@ export default async function PortalHome({
     );
   }
 
-  // General board (manager/custom types) — a real, live operational
-  // summary instead of a bare permission list, built from the SAME
-  // queries/RPCs the Dashboard and other portals already use, each
-  // fetched only when this portal's own granted permissions cover it.
-  // t.client is the portal account's own RLS-scoped client (not
-  // service-role), so period_profitability's own has_perm() check is a
-  // second, real backstop here — not just this page's has() gate.
+  // ── Generated (manager/custom) portal — a composition of the SAME real
+  // module implementations every single-purpose portal type above (and
+  // every standalone Operations Portal page) already uses, one section per
+  // Portal Management "bundle" (@/lib/portalBundles) this portal actually
+  // holds a permission from. This is what makes the portal generator
+  // GENERIC: a bundle's inclusion is driven entirely by has()/hasAny()
+  // reads of portal.permissions (itself entirely Owner-configured in
+  // Portal Management), never a hard-coded "if this portal is named X".
+  // Registering a future module only means adding it to PORTAL_BUNDLES and
+  // one more conditional section here — nothing about this branching, the
+  // route, or the auth model needs to change.
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
 
-  // orders.view (the Operations bundle's core permission) gets the SAME
-  // OrdersClient the regular Operations Portal's own Orders page uses —
-  // real order management, not just a read-only count — reused exactly
-  // like checkout/kitchen/attendance types already reuse their own
-  // dedicated client components. Today's stat is derived from this same
-  // fetch rather than a second query.
-  // Finance (Expenses/profit) and Suppliers & Purchasing (Suppliers) get
-  // the SAME real, editable manager components their own pages in the
-  // Operations Portal use — not a read-only figure. finance.view alone
-  // doesn't imply expense-record access, so this checks every relevant
-  // key in the Finance bundle; period_profitability itself still
-  // requires finance.view_profit/finance.view_cogs/inventory.view_cost
-  // (checked against this portal's own RLS-scoped client, a real second
-  // backstop) and simply returns nothing if none is held.
+  const includeOperations = has('orders.view');
+  const includeKitchen = has('kitchen.view');
+  const includeCashier = has('payments.view');
+  const includeRecipes = hasAny(['inventory.manage_recipes', 'finance.manage_recipes', 'inventory.view_cost']);
+  const includeInventory = has('stock.view');
+  const includeSuppliers = has('supplier.view');
+  const includePurchasing = has('purchases.view');
   const canFinance = hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit']);
-  const canSuppliers = has('supplier.view');
+  const includeDayClose = has('finance.view');
+  const includeAnalytics = hasAny(PORTAL_BUNDLES.find((b) => b.portal === 'Analytics')?.keys ?? []);
+  const includeDeals = has('deals.view');
+  const includeSocial = has('social.view');
+  const includeStaff = has('staff.view');
+  const includeScheduling = has('attendance.view');
+  const includeAi = has('ai.view');
 
-  const [ordersRes, kitchenRes, stockRes, profitRes, expensesRes, suppliersRes] = await Promise.all([
-    has('orders.view')
+  const canCreateOrderCashier = has('orders.create');
+  const canManageAutomation = has('finance.manage_purchases');
+  const weekOffset = Number.parseInt(w ?? '0', 10) || 0;
+  const weekStartDate = weekStart();
+  weekStartDate.setDate(weekStartDate.getDate() + weekOffset * 7);
+  const weekEndDate = new Date(weekStartDate);
+  weekEndDate.setDate(weekEndDate.getDate() + 7);
+
+  const [
+    ordersRes,
+    kitchenBoardRes,
+    kitchenVariantsRes,
+    kitchenCountersRes,
+    cashierRes,
+    settingsRes,
+    cashierMenuCatRes,
+    cashierMenuItemsRes,
+    recipesRes,
+    recipesMenuRes,
+    recipesInventoryRes,
+    recipesSubRes,
+    stockRes,
+    stockLedgerRes,
+    invSuppliersRes,
+    supplierItemsRes,
+    purchasingSettingsRes,
+    suppliersRes,
+    purchSuppliersRes,
+    purchItemsRes,
+    purchOrdersRes,
+    purchInvoicesRes,
+    purchHoldsRes,
+    purchPayableRes,
+    profitRes,
+    expensesRes,
+    closingsRes,
+    dealsRes,
+    dealsMenuRes,
+    staffRes,
+    membersRes,
+    shiftsRes,
+    attendanceRes,
+  ] = await Promise.all([
+    includeOperations
       ? t.client
           .from('orders')
           .select(
@@ -188,35 +254,238 @@ export default async function PortalHome({
           .order('created_at', { ascending: false })
           .limit(50)
       : Promise.resolve({ data: null }),
-    has('kitchen.view')
-      ? t.client.from('orders').select('id', { count: 'exact', head: true }).in('status', ACTIVE)
-      : Promise.resolve({ data: null, count: null }),
-    has('stock.view')
-      ? t.client.from('inventory_items').select('name, stock_qty, min_threshold, unit').order('name')
+    includeKitchen
+      ? t.client
+          .from('orders')
+          .select(
+            'id, order_number, table_label, channel, status, customer_note, created_at, pickup_counter_portal_id, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
+          )
+          .in('status', ACTIVE)
+          .order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
+    includeKitchen
+      ? t.client
+          .from('menu_variants')
+          .select('id, name, is_available, track_availability, available_qty, menu_items(name)')
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includeKitchen
+      ? t.client.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name')
+      : Promise.resolve({ data: null }),
+    includeCashier
+      ? t.client
+          .from('orders')
+          .select(
+            'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
+          )
+          .in('status', UNPAID)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: null }),
+    includeCashier
+      ? t.client.from('business_settings').select('brand_logo_url, receipt_footer_text, receipt_template_html').eq('id', true).maybeSingle()
+      : Promise.resolve({ data: null }),
+    includeCashier && canCreateOrderCashier
+      ? t.client.from('menu_categories').select('id, name').order('sort_order')
+      : Promise.resolve({ data: null }),
+    includeCashier && canCreateOrderCashier
+      ? t.client
+          .from('menu_items')
+          .select('id, name, category_id, menu_variants(id, name, price_cents, sort_order, is_available)')
+          .eq('is_available', true)
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includeRecipes
+      ? t.client
+          .from('recipes')
+          .select(
+            'id, name, description, notes, recipe_type, status, instructions, current_version_id, created_at, ' +
+              'menu_item_id, variant_id, ' +
+              'menu_items(name, menu_variants(name, price_cents, sort_order)), menu_variants(name, price_cents), ' +
+              'recipe_versions!recipe_versions_recipe_id_fkey(id, version, status, yield_qty, yield_unit, effective_from, effective_to, ' +
+              'recipe_ingredients(id, qty_base, sort_order, inventory_item_id, sub_recipe_id, inventory_items(name, unit, cost_cents_per_base_unit), recipes!recipe_ingredients_sub_recipe_id_fkey(name)), ' +
+              'recipe_cost_log(cost_cents, recorded_at))',
+          )
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: null }),
+    includeRecipes
+      ? t.client.from('menu_items').select('id, name, price_cents, menu_variants(id, name, price_cents)').order('name')
+      : Promise.resolve({ data: null }),
+    includeRecipes
+      ? t.client
+          .from('inventory_items')
+          .select(has('inventory.view_cost') ? 'id, name, unit, cost_cents_per_base_unit' : 'id, name, unit')
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includeRecipes
+      ? t.client
+          .from('recipes')
+          .select('id, name, current_version_id, recipe_versions!recipes_current_version_fk(yield_qty, yield_unit)')
+          .in('recipe_type', ['semi_finished', 'preparation'])
+          .eq('status', 'active')
+      : Promise.resolve({ data: null }),
+    includeInventory
+      ? t.client
+          .from('inventory_items')
+          .select(
+            'id, name, unit, stock_qty, min_threshold, target_stock_qty, auto_reorder_email, supplier_name, cost_cents_per_base_unit',
+          )
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includeInventory
+      ? t.client
+          .from('stock_ledger')
+          .select('id, delta_qty, reason, created_at, inventory_items(name)')
+          .order('created_at', { ascending: false })
+          .limit(15)
+      : Promise.resolve({ data: null }),
+    includeInventory && canManageAutomation
+      ? t.client.from('suppliers').select('id, name, email').eq('is_active', true).order('name')
+      : Promise.resolve({ data: [] }),
+    includeInventory && canManageAutomation
+      ? t.client.from('supplier_items').select('id, supplier_id, inventory_item_id, is_preferred').eq('is_preferred', true)
+      : Promise.resolve({ data: [] }),
+    includeInventory && canManageAutomation
+      ? t.client.from('purchasing_settings').select('low_stock_email_enabled').maybeSingle()
+      : Promise.resolve({ data: null }),
+    includeSuppliers
+      ? t.client
+          .from('suppliers')
+          .select('id, name, contact_name, email, phone, address, payment_terms, notes, created_at, currency, credit_period_days, preferred_payment_method, is_active')
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includePurchasing
+      ? t.client.from('suppliers').select('id, name').eq('is_active', true).order('name')
+      : Promise.resolve({ data: null }),
+    includePurchasing
+      ? t.client.from('inventory_items').select('id, name, unit').order('name')
+      : Promise.resolve({ data: null }),
+    includePurchasing
+      ? t.client
+          .from('purchase_orders')
+          .select(
+            'id, po_number, status, expected_at, notes, created_at, received_at, approved_at, sent_at, supplier_id, subtotal_cents, suppliers(name), purchase_order_lines(id, description, qty, unit_cost_cents, received_qty, rejected_qty, reject_reason, inventory_item_id)',
+          )
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: null }),
+    includePurchasing && (has('invoices.create') || has('invoices.match'))
+      ? t.client
+          .from('supplier_invoices')
+          .select(
+            'id, invoice_ref, supplier_invoice_number, invoice_date, due_date, total_cents, status, purchase_order_id, supplier_id, suppliers(name)',
+          )
+          .order('invoice_date', { ascending: false })
+          .limit(30)
+      : Promise.resolve({ data: [] }),
+    includePurchasing && (has('payables.manage') || has('payables.view') || has('finance.view'))
+      ? t.client
+          .from('supplier_payment_holds')
+          .select('id, reason, amount_cents, status, created_at, invoice_id, supplier_invoices(supplier_invoice_number, suppliers(name))')
+          .eq('status', 'open')
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
+    includePurchasing && (has('payables.view') || has('finance.view'))
+      ? t.client.rpc('supplier_payable')
+      : Promise.resolve({ data: [] }),
     canFinance
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: new Date().toISOString() })
       : Promise.resolve({ data: null, error: null }),
     canFinance
       ? t.client.from('expenses').select('id, category, description, amount_cents, expense_date, supplier_id').order('expense_date', { ascending: false }).limit(200)
       : Promise.resolve({ data: null }),
-    canSuppliers
+    includeDayClose
       ? t.client
-          .from('suppliers')
-          .select('id, name, contact_name, email, phone, address, payment_terms, notes, created_at, currency, credit_period_days, preferred_payment_method, is_active')
-          .order('name')
+          .from('daily_closings')
+          .select(
+            'business_date, status, opening_cash_cents, closing_cash_cents, expected_cash_cents, difference_cents, gross_sales_cents, discounts_cents, refunds_cents, net_sales_cents, order_count, closed_at, reopened_at, note',
+          )
+          .order('business_date', { ascending: false })
+          .limit(30)
+      : Promise.resolve({ data: null }),
+    includeDeals
+      ? t.client
+          .from('deals')
+          .select(
+            'id, name, description, image_url, price_cents, is_available, track_availability, available_qty, starts_at, ends_at, sort_order, deal_components(id, menu_item_id, variant_id, qty, sort_order), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order))',
+          )
+          .order('sort_order')
+      : Promise.resolve({ data: null }),
+    includeDeals
+      ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name')
+      : Promise.resolve({ data: null }),
+    includeStaff
+      ? t.client.from('memberships').select('id, email, full_name, role, status, created_at').order('created_at', { ascending: true })
+      : Promise.resolve({ data: null }),
+    includeScheduling
+      ? t.client.from('memberships').select('id, full_name, email, role').order('full_name')
+      : Promise.resolve({ data: null }),
+    includeScheduling
+      ? t.client
+          .from('shifts')
+          .select('id, membership_id, starts_at, ends_at, role_label, notes')
+          .gte('starts_at', weekStartDate.toISOString())
+          .lt('starts_at', weekEndDate.toISOString())
+          .order('starts_at')
+      : Promise.resolve({ data: null }),
+    includeScheduling
+      ? t.client
+          .from('attendance')
+          .select('id, membership_id, clock_in, clock_out, note')
+          .order('clock_in', { ascending: false })
+          .limit(40)
       : Promise.resolve({ data: null }),
   ]);
 
   const orders = (ordersRes.data ?? []) as unknown as OrdersClientOrder[];
   const todayOrders = orders.filter((o) => new Date(o.created_at) >= todayStart);
   const revenueToday = todayOrders.filter((o) => o.status === 'paid').reduce((s, o) => s + o.total_cents, 0);
-  const lowStock = ((stockRes.data ?? []) as { name: string; stock_qty: number; min_threshold: number; unit: string }[]).filter(
-    (i) => Number(i.stock_qty) <= Number(i.min_threshold),
-  );
   const profit = ((profitRes.data as ProfitRow[] | null) ?? [])[0] ?? null;
   const expenses = (expensesRes.data ?? []) as Expense[];
   const suppliers = (suppliersRes.data ?? []) as Supplier[];
+
+  const invSuppliers = (invSuppliersRes.data ?? []) as { id: string; name: string; email: string | null }[];
+  const preferredBySupplierItem = new Map(
+    ((supplierItemsRes.data ?? []) as { id: string; supplier_id: string; inventory_item_id: string }[]).map((si) => [
+      si.inventory_item_id,
+      { supplierItemId: si.id, supplierId: si.supplier_id },
+    ]),
+  );
+  const stockLedger = ((stockLedgerRes.data ?? []) as unknown as {
+    id: string;
+    delta_qty: number;
+    reason: string;
+    created_at: string;
+    inventory_items: { name: string } | { name: string }[] | null;
+  }[]).map((l) => ({
+    id: l.id,
+    delta_qty: l.delta_qty,
+    reason: l.reason,
+    created_at: l.created_at,
+    item_name: Array.isArray(l.inventory_items) ? (l.inventory_items[0]?.name ?? '—') : (l.inventory_items?.name ?? '—'),
+  }));
+
+  const purchOrders = ((purchOrdersRes.data ?? []) as unknown as (Omit<PurchaseOrder, 'supplier_name'> & {
+    suppliers: { name: string } | { name: string }[] | null;
+  })[]).map((o) => ({
+    ...o,
+    supplier_name: Array.isArray(o.suppliers) ? (o.suppliers[0]?.name ?? null) : (o.suppliers?.name ?? null),
+  })) as PurchaseOrder[];
+
+  // Section nav: only the modules this portal actually holds a permission
+  // for appear — an unselected module never renders a link, a section, or
+  // (per the fetches above) even queries its data.
+  const sections: { id: string; label: string }[] = [
+    includeOperations && { id: 'operations', label: 'Operations' },
+    includeKitchen && { id: 'kitchen', label: 'Kitchen' },
+    includeCashier && { id: 'cashier', label: 'Cashier' },
+    includeRecipes && { id: 'recipes', label: 'Recipes & Food Cost' },
+    includeInventory && { id: 'inventory', label: 'Inventory' },
+    (includeSuppliers || includePurchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
+    (canFinance || includeDayClose) && { id: 'finance', label: 'Finance' },
+    includeAnalytics && { id: 'analytics', label: 'Analytics' },
+    (includeDeals || includeSocial) && { id: 'marketing', label: 'Marketing & Social' },
+    (includeStaff || includeScheduling) && { id: 'staff', label: 'Staff' },
+    includeAi && { id: 'ai', label: 'Assistant' },
+  ].filter((s): s is { id: string; label: string } => !!s);
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -231,70 +500,213 @@ export default async function PortalHome({
         </Card>
       ) : (
         <>
-          {(has('orders.view') || has('kitchen.view') || has('stock.view')) && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {has('orders.view') && (
+          {sections.length > 1 && (
+            <div className="sticky top-0 z-10 -mx-1 flex flex-wrap gap-1.5 bg-main/95 backdrop-blur px-1 py-2 border-b border-border">
+              {sections.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold hover:border-primary hover:text-primary"
+                >
+                  {s.label}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {includeOperations && (
+            <section id="operations" className="scroll-mt-16">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
                 <StatCard label="Orders today" value={todayOrders.length} hint={`${formatCents(revenueToday)} paid`} />
-              )}
-              {has('kitchen.view') && <StatCard label="Active kitchen tickets" value={kitchenRes.count ?? 0} />}
-              {has('stock.view') && (
-                <StatCard label="Low stock" value={lowStock.length} tone={lowStock.length > 0 ? 'warn' : 'default'} />
-              )}
-            </div>
-          )}
-
-          {has('stock.view') && lowStock.length > 0 && (
-            <Card>
-              <h2 className="font-bold text-sm mb-3">Low stock</h2>
-              <ul className="text-xs space-y-1">
-                {lowStock.slice(0, 8).map((i) => (
-                  <li key={i.name} className="flex justify-between">
-                    <span>{i.name}</span>
-                    <span className="text-warn font-mono">
-                      {i.stock_qty}{i.unit} / min {i.min_threshold}{i.unit}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-
-          {has('orders.view') && (
-            <div>
-              <h2 className="font-bold text-sm mb-3">Orders</h2>
+              </div>
+              <h2 className="font-bold text-sm mb-3">Operations</h2>
               <OrdersClient orders={orders} canCancel={has('orders.cancel')} />
-            </div>
+            </section>
           )}
 
-          {canSuppliers && (
-            <div>
-              <h2 className="font-bold text-sm mb-3">Suppliers</h2>
-              <SuppliersManager suppliers={suppliers} />
-            </div>
-          )}
-
-          {canFinance && (
-            <div>
-              <h2 className="font-bold text-sm mb-3">Finance</h2>
-              <ExpensesManager
-                expenses={expenses}
-                profit={profit}
-                periodFromIso={monthStart.toISOString()}
-                periodToIso={new Date().toISOString()}
-                periodLabel="this month"
-                canWrite={hasAny(['finance.create_expense', 'finance.update_expense'])}
-                canDelete={has('finance.delete_expense')}
-                canViewProfit={has('finance.view_profit')}
-                suppliers={suppliers as unknown as ExpenseSupplier[]}
+          {includeKitchen && (
+            <section id="kitchen" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Kitchen</h2>
+              <KitchenPortalBoard
+                initialOrders={(kitchenBoardRes.data ?? []) as unknown as KOrder[]}
+                initialVariants={(kitchenVariantsRes.data ?? []) as unknown as KVariant[]}
+                counters={(kitchenCountersRes.data ?? []) as Counter[]}
+                canAvailability={has('kitchen.manage_availability') || has('availability.update')}
+                canWaste={has('kitchen.record_waste')}
               />
-            </div>
+            </section>
           )}
 
-          {has('ai.view') && (
-            <div>
+          {includeCashier && (
+            <section id="cashier" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Cashier</h2>
+              <CheckoutClient
+                restaurantName={t.config.restaurantName}
+                initial={(cashierRes.data ?? []) as Bill[]}
+                canRefund={has('payments.refund')}
+                canVoid={has('payments.void')}
+                canDiscount={has('orders.apply_discount')}
+                canCancel={has('orders.cancel')}
+                receipt={{
+                  logoUrl: settingsRes.data?.brand_logo_url ?? null,
+                  footerText: settingsRes.data?.receipt_footer_text ?? null,
+                  templateHtml: settingsRes.data?.receipt_template_html ?? null,
+                }}
+                canCreateOrder={canCreateOrderCashier}
+                taxRateBps={800}
+                menuCategories={(cashierMenuCatRes.data as NewOrderCategory[] | null) ?? []}
+                menuItems={(cashierMenuItemsRes.data as unknown as NewOrderItem[] | null) ?? []}
+              />
+            </section>
+          )}
+
+          {includeRecipes && (
+            <section id="recipes" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Recipes &amp; Food Cost</h2>
+              <RecipesManager
+                recipes={(recipesRes.data ?? []) as unknown as Recipe[]}
+                menuItems={(recipesMenuRes.data ?? []) as unknown as MenuItemOption[]}
+                inventoryItems={(recipesInventoryRes.data ?? []) as unknown as InventoryItemOption[]}
+                subRecipes={(recipesSubRes.data ?? []) as unknown as SubRecipeOption[]}
+                canManage={has('inventory.manage_recipes') || has('finance.manage_recipes')}
+                canViewCost={has('inventory.view_cost')}
+              />
+            </section>
+          )}
+
+          {includeInventory && (
+            <section id="inventory" className="scroll-mt-16 space-y-4">
+              <h2 className="font-bold text-sm mb-3">Inventory</h2>
+              <InventoryManager
+                items={stockRes.data ?? []}
+                canViewCost={has('inventory.view_cost')}
+                canManageAutomation={canManageAutomation}
+                suppliers={invSuppliers}
+                preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
+                lowStockEmailEnabled={(purchasingSettingsRes.data as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}
+              />
+              <Card>
+                <h3 className="font-bold text-sm mb-3">Recent stock movements</h3>
+                {stockLedger.length === 0 ? (
+                  <p className="text-muted text-xs">Nothing yet.</p>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <tbody>
+                      {stockLedger.map((l) => (
+                        <tr key={l.id} className="border-b border-border/60 last:border-0">
+                          <td className="py-2">{l.item_name}</td>
+                          <td className="py-2 text-muted">{l.reason.replace('_', ' ')}</td>
+                          <td className={`py-2 text-right font-mono ${Number(l.delta_qty) < 0 ? 'text-danger' : 'text-ok'}`}>
+                            {Number(l.delta_qty) > 0 ? '+' : ''}
+                            {l.delta_qty}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </Card>
+            </section>
+          )}
+
+          {(includeSuppliers || includePurchasing) && (
+            <section id="suppliers" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Suppliers &amp; Purchasing</h2>
+              {includeSuppliers && <SuppliersManager suppliers={suppliers} />}
+              {includePurchasing && (
+                <PurchasingClient
+                  suppliers={purchSuppliersRes.data ?? []}
+                  items={purchItemsRes.data ?? []}
+                  orders={purchOrders}
+                  invoices={(purchInvoicesRes.data ?? []) as unknown as Invoice[]}
+                  holds={(purchHoldsRes.data ?? []) as unknown as Hold[]}
+                  payable={(purchPayableRes.data ?? []) as unknown as PayableRow[]}
+                  canInvoice={has('invoices.create')}
+                  canMatch={has('invoices.match')}
+                  canPay={has('payables.record_payment')}
+                  canManagePayables={has('payables.manage')}
+                  canViewPayables={has('payables.view') || has('finance.view')}
+                />
+              )}
+            </section>
+          )}
+
+          {(canFinance || includeDayClose) && (
+            <section id="finance" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Finance</h2>
+              {canFinance && (
+                <ExpensesManager
+                  expenses={expenses}
+                  profit={profit}
+                  periodFromIso={monthStart.toISOString()}
+                  periodToIso={new Date().toISOString()}
+                  periodLabel="this month"
+                  canWrite={hasAny(['finance.create_expense', 'finance.update_expense'])}
+                  canDelete={has('finance.delete_expense')}
+                  canViewProfit={has('finance.view_profit')}
+                  suppliers={suppliers as unknown as ExpenseSupplier[]}
+                />
+              )}
+              {includeDayClose && (
+                <DayCloseClient
+                  closings={(closingsRes.data ?? []) as Closing[]}
+                  canClose={has('finance.close_day')}
+                  canReopen={has('finance.reopen_day')}
+                />
+              )}
+            </section>
+          )}
+
+          {includeAnalytics && (
+            <section id="analytics" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Analytics</h2>
+              <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} />
+            </section>
+          )}
+
+          {(includeDeals || includeSocial) && (
+            <section id="marketing" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Marketing &amp; Social</h2>
+              {includeDeals && (
+                <DealsManager
+                  deals={(dealsRes.data ?? []) as Deal[]}
+                  menu={(dealsMenuRes.data ?? []) as unknown as MenuOption[]}
+                  canEdit={has('deals.update')}
+                />
+              )}
+              {includeSocial && (
+                <SocialManager
+                  slug={slug}
+                  canManage={has('social.manage')}
+                  canPropose={has('social.propose_post')}
+                  canApprove={has('social.approve_post')}
+                />
+              )}
+            </section>
+          )}
+
+          {(includeStaff || includeScheduling) && (
+            <section id="staff" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Staff</h2>
+              {includeStaff && <StaffManager staff={staffRes.data ?? []} />}
+              {includeScheduling && (
+                <SchedulingClient
+                  slug={slug}
+                  weekOffset={weekOffset}
+                  weekStartISO={weekStartDate.toISOString()}
+                  members={membersRes.data ?? []}
+                  shifts={(shiftsRes.data ?? []) as Shift[]}
+                  attendance={(attendanceRes.data ?? []) as Attendance[]}
+                />
+              )}
+            </section>
+          )}
+
+          {includeAi && (
+            <section id="ai" className="scroll-mt-16">
               <h2 className="font-bold text-sm mb-3">Assistant</h2>
               <AiChat slug={slug} />
-            </div>
+            </section>
           )}
         </>
       )}

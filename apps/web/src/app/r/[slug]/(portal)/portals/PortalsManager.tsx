@@ -109,6 +109,33 @@ export function PortalsManager({
     setNotice(null);
     if (name.trim().length < 2) return setError('Give the portal a name.');
     setBusy(true);
+
+    if (editId) {
+      // Editing an existing portal's access — the SAME /api/portals/:id
+      // PATCH used for status/rename, so it goes through the same
+      // anti-escalation check and immediately recomputes every linked
+      // staff member's effective permissions and the portal login's own
+      // Auth metadata. The generated portal reads portal.permissions
+      // fresh from the database on every request, so whatever is saved
+      // here takes effect on this portal's very next page load — no
+      // separate "rebuild" step.
+      const res = await fetch(`${API}/api/portals/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ slug, name: name.trim(), type, permissions: [...selected] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) return setError(body.message ?? body.error ?? 'Could not update the portal.');
+      setNotice(`Portal "${name.trim()}" updated.`);
+      setEditId(null);
+      setName('');
+      setType('checkout');
+      setSelected(new Set(PRESET.checkout));
+      router.refresh();
+      return;
+    }
+
     const res = await fetch(`${API}/api/portals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
@@ -123,6 +150,21 @@ export function PortalsManager({
     setName('');
     setSelected(new Set(PRESET[type] ?? []));
     router.refresh();
+  }
+
+  function startEditAccess(p: Portal) {
+    setError(null);
+    setNotice(null);
+    setEditId(p.id);
+    setName(p.name);
+    setType((TYPES as readonly string[]).includes(p.type) ? (p.type as (typeof TYPES)[number]) : 'custom');
+    setSelected(new Set(p.permissions));
+  }
+  function cancelEditAccess() {
+    setEditId(null);
+    setName('');
+    setType('checkout');
+    setSelected(new Set(PRESET.checkout));
   }
 
   async function patch(id: string, changes: Record<string, unknown>) {
@@ -218,7 +260,7 @@ export function PortalsManager({
       )}
 
       <Card>
-        <h2 className="font-bold text-sm mb-3">Create portal</h2>
+        <h2 className="font-bold text-sm mb-3">{editId ? `Edit access — ${name}` : 'Create portal'}</h2>
         <form onSubmit={createPortal} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Portal name">
@@ -277,9 +319,16 @@ export function PortalsManager({
               ))}
             </div>
           </div>
-          <Button type="submit" disabled={busy}>
-            Create portal
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy}>
+              {editId ? 'Save access' : 'Create portal'}
+            </Button>
+            {editId && (
+              <Button type="button" variant="ghost" disabled={busy} onClick={cancelEditAccess}>
+                Cancel
+              </Button>
+            )}
+          </div>
         </form>
       </Card>
 
@@ -343,6 +392,14 @@ export function PortalsManager({
                     <>
                       <Button
                         variant="ghost"
+                        disabled={busy}
+                        onClick={() => startEditAccess(p)}
+                      >
+                        Edit access
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="ml-1.5"
                         disabled={busy}
                         onClick={() =>
                           patch(p.id, { status: p.status === 'active' ? 'disabled' : 'active' })
