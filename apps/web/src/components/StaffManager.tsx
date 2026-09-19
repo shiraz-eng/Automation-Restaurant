@@ -33,20 +33,18 @@ export function StaffManager({ staff }: { staff: Member[] }) {
   const { slug } = usePortal();
   const supabase = usePortalSupabase();
 
-  const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<StaffRole>('waiter');
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
   async function changeRole(m: Member, nextRole: StaffRole) {
     if (nextRole === m.role) return;
     setSavingId(m.id);
     setError(null);
-    setOk(null);
+    setNotice(null);
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -64,22 +62,25 @@ export function StaffManager({ staff }: { staff: Member[] }) {
       setError(body.message ?? body.error ?? 'Could not change the role.');
       return;
     }
-    setOk(`${m.email} is now ${ROLE_LABELS[nextRole]}.`);
+    setNotice(`${m.email} is now ${ROLE_LABELS[nextRole]}.`);
     router.refresh();
   }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setOk(null);
-    if (!email.trim() || password.length < 8) {
-      setError('Email and a password of at least 8 characters are required.');
+    setNotice(null);
+    if (!fullName.trim()) {
+      setError('Give this person a name.');
       return;
     }
     setBusy(true);
     const {
       data: { session },
     } = await supabase.auth.getSession();
+    // No email/password to type here — the account is created with a
+    // generated login (same pattern as a kiosk portal's), shown once
+    // below so it can be handed to the person directly.
     const res = await fetch(`${API}/api/staff`, {
       method: 'POST',
       headers: {
@@ -88,10 +89,8 @@ export function StaffManager({ staff }: { staff: Member[] }) {
       },
       body: JSON.stringify({
         slug,
-        email: email.trim(),
-        full_name: fullName.trim() || undefined,
+        full_name: fullName.trim(),
         role,
-        password,
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -100,10 +99,10 @@ export function StaffManager({ staff }: { staff: Member[] }) {
       setError(body.message ?? body.error ?? 'Could not create the account.');
       return;
     }
-    setOk(`${email.trim()} added as ${ROLE_LABELS[role]}.`);
-    setEmail('');
+    setNotice(
+      `${fullName.trim()} added as ${ROLE_LABELS[role]}.\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
+    );
     setFullName('');
-    setPassword('');
     router.refresh();
   }
 
@@ -112,15 +111,13 @@ export function StaffManager({ staff }: { staff: Member[] }) {
       <Card>
         <h2 className="font-bold text-sm mb-3">Add staff</h2>
         <p className="text-muted text-xs mb-3">
-          Creates a login in this restaurant&apos;s project. They sign in at{' '}
-          <code>/r/{slug}/login</code> and land in their own portal.
+          Creates a login in this restaurant&apos;s project — email and password are generated
+          for you and shown once below. They sign in at <code>/r/{slug}/login</code> and land in
+          their own portal.
         </p>
-        <form onSubmit={add} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+        <form onSubmit={add} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
           <Field label="Name">
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
-          </Field>
-          <Field label="Email">
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
           <Field label="Role">
             <Select value={role} onChange={(e) => setRole(e.target.value as StaffRole)}>
@@ -131,19 +128,12 @@ export function StaffManager({ staff }: { staff: Member[] }) {
               ))}
             </Select>
           </Field>
-          <Field label="Temp password">
-            <Input
-              type="text"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
           <Button type="submit" disabled={busy}>
             {busy ? 'Adding…' : 'Add'}
           </Button>
         </form>
         {error && <p className="text-danger text-xs mt-2">{error}</p>}
-        {ok && <p className="text-ok text-xs mt-2">{ok}</p>}
+        {notice && <p className="text-ok text-xs mt-2 font-mono whitespace-pre-wrap">{notice}</p>}
       </Card>
 
       <Card className="p-0 overflow-hidden">

@@ -1,9 +1,9 @@
-import { randomBytes } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { env } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
+import { tempPassword } from '../lib/tempPassword';
 
 export const portalsRouter = express.Router();
 
@@ -52,18 +52,6 @@ portalsRouter.use((req: Request, res: Response, next: NextFunction) => {
 
 const PORTAL_TYPES = ['super_admin', 'checkout', 'kitchen', 'attendance', 'manager', 'custom'] as const;
 
-function tempPassword(): string {
-  const a = 'abcdefghjkmnpqrstuvwxyz';
-  const n = '23456789';
-  const pick = (s: string, k: number) => {
-    const b = randomBytes(k);
-    let out = '';
-    for (let i = 0; i < k; i++) out += s.charAt((b[i] as number) % s.length);
-    return out;
-  };
-  return `${pick(a.toUpperCase(), 1)}${pick(a, 3)}-${pick(a, 2)}${pick(n, 2)}-${pick(n, 1)}${pick(a, 3)}`;
-}
-
 function routeKey(name: string): string {
   return (
     name
@@ -88,6 +76,7 @@ const createSchema = z.object({
   name: z.string().trim().min(2).max(60),
   type: z.enum(PORTAL_TYPES).default('custom'),
   permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).default([]),
+  email: z.string().trim().toLowerCase().email().max(200).optional(),
   password: z.string().min(8).max(200).optional(),
 });
 
@@ -125,9 +114,11 @@ portalsRouter.post(
     .single();
   if (pErr || !portal) return res.status(400).json({ error: 'create_failed', message: pErr?.message });
 
-  // 2. Auth user (the generic portal login)
+  // 2. Auth user (the generic portal login) — the Owner may set a real
+  // login email (e.g. their own Gmail) instead of the synthetic default;
+  // either way it's a normal, editable Supabase Auth account.
   const password = parsed.data.password ?? tempPassword();
-  const email = `${key}@${slug}.portal`;
+  const email = parsed.data.email ?? `${key}@${slug}.portal`;
   const { data: created, error: uErr } = await admin.auth.admin.createUser({
     email,
     password,
@@ -139,7 +130,7 @@ portalsRouter.post(
     return res.status(400).json({ error: 'user_create_failed', message: uErr?.message });
   }
 
-  await admin.from('portals').update({ portal_user_id: created.user.id }).eq('id', portal.id);
+  await admin.from('portals').update({ portal_user_id: created.user.id, email }).eq('id', portal.id);
 
   res.status(201).json({
     portal,
@@ -154,6 +145,7 @@ const patchSchema = z.object({
   type: z.enum(PORTAL_TYPES).optional(),
   permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).optional(),
   status: z.enum(['active', 'disabled']).optional(),
+  email: z.string().trim().toLowerCase().email().max(200).optional(),
 });
 
 /** PATCH /api/portals/:id — rename / retype / re-permission / enable-disable. */
@@ -194,6 +186,18 @@ portalsRouter.patch(
     if (overreach.length) {
       return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${overreach.join(', ')}` });
     }
+  }
+
+  // Email change touches the real Supabase Auth account, which is the
+  // part that can fail (e.g. another user in this project already has
+  // that address) — sync it there FIRST so a failure never leaves the
+  // portals row and the actual login out of sync.
+  if (changes.email && portal.portal_user_id) {
+    const { error: emailErr } = await admin.auth.admin.updateUserById(portal.portal_user_id, {
+      email: changes.email,
+      email_confirm: true,
+    });
+    if (emailErr) return res.status(400).json({ error: 'email_update_failed', message: emailErr.message });
   }
 
   const { error: upErr } = await admin.from('portals').update(changes).eq('id', portal.id);

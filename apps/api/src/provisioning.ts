@@ -187,7 +187,12 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       these visual-identity columns to anon/authenticated, so a guest
 //       storefront/customer AI can render the restaurant's look without
 //       broader business_settings access (refund policy, receipt text).
-const SCHEMA_VERSION = 46;
+//   v47 portals.email — mirrors a kiosk portal login's real auth.users
+//       email (source of truth stays auth.users; every write path updates
+//       it there first) so Portal Management can list/edit it without an
+//       admin API round trip per row, the same way `permissions` already
+//       mirrors app_metadata.
+const SCHEMA_VERSION = 47;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

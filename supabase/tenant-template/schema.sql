@@ -4878,6 +4878,12 @@ create table public.portals (
   status       text not null default 'active' check (status in ('active', 'disabled')),
   permissions  text[] not null default '{}',
   portal_user_id uuid,                       -- auth.users id of the portal login
+  -- Mirror of that auth.users row's email (0047) — auth.users is still the
+  -- source of truth and every write path updates it first; this column
+  -- exists so Portal Management can list/edit the login email without an
+  -- admin API round trip per row, the same way `permissions` above mirrors
+  -- the login's app_metadata.
+  email        text,
   force_pw_change boolean not null default false,
   last_login_at timestamptz,
   created_at   timestamptz not null default now(),

@@ -1,7 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { env } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
+import { tempPassword } from '../lib/tempPassword';
+import { slugify } from '../lib/slug';
 
 export const staffRouter = express.Router();
 
@@ -22,10 +25,10 @@ staffRouter.use((req: Request, res: Response, next: NextFunction) => {
 
 const bodySchema = z.object({
   slug: z.string().min(1),
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email().optional(),
   full_name: z.string().trim().max(120).optional(),
   role: z.enum(['manager', 'cashier', 'chef', 'waiter', 'host', 'hr', 'accountant', 'delivery']),
-  password: z.string().min(8).max(200),
+  password: z.string().min(8).max(200).optional(),
 });
 
 /**
@@ -44,8 +47,16 @@ staffRouter.post(
         .status(422)
         .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
     }
-    const { email, full_name, role, password } = parsed.data;
-    const { admin } = req.tenant!;
+    const { full_name, role } = parsed.data;
+    const { slug, admin } = req.tenant!;
+
+    // Owner-managed accounts (this one, like a kiosk portal's) don't need
+    // the Owner to invent a login up front — a placeholder email and a
+    // generated password work the same way, shown once so it can be
+    // handed to the person directly. Either can still be overridden by
+    // passing a real value.
+    const email = parsed.data.email ?? `${slugify(full_name || role)}-${randomBytes(3).toString('hex')}@${slug}.staff`;
+    const password = parsed.data.password ?? tempPassword();
 
     // Without this, app_metadata.permissions is absent -> every
     // permission check downstream (has_perm/permits/can) reads it as an
@@ -78,7 +89,11 @@ staffRouter.post(
     });
     if (mErr) return res.status(400).json({ error: 'membership_failed', message: mErr.message });
 
-    res.status(201).json({ ok: true, email, role });
+    res.status(201).json({
+      ok: true,
+      role,
+      login: { email, password: parsed.data.password ? undefined : password },
+    });
   },
 );
 

@@ -16,6 +16,7 @@ export type Portal = {
   route_key: string;
   status: 'active' | 'disabled';
   permissions: string[];
+  email: string | null;
   last_login_at: string | null;
   created_at: string;
 };
@@ -57,6 +58,8 @@ export function PortalsManager({
   const [type, setType] = useState<(typeof TYPES)[number]>('checkout');
   const [selected, setSelected] = useState<Set<string>>(new Set(PRESET.checkout));
   const [editId, setEditId] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   const [staffEditId, setStaffEditId] = useState<string | null>(null);
   const [staffDraft, setStaffDraft] = useState<Set<string>>(new Set());
@@ -108,6 +111,9 @@ export function PortalsManager({
     setError(null);
     setNotice(null);
     if (name.trim().length < 2) return setError('Give the portal a name.');
+    if (loginPassword && loginPassword.length < 8) {
+      return setError('Password must be at least 8 characters — or leave it blank.');
+    }
     setBusy(true);
 
     if (editId) {
@@ -122,16 +128,44 @@ export function PortalsManager({
       const res = await fetch(`${API}/api/portals/${editId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ slug, name: name.trim(), type, permissions: [...selected] }),
+        body: JSON.stringify({
+          slug,
+          name: name.trim(),
+          type,
+          permissions: [...selected],
+          ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBusy(false);
+        return setError(body.message ?? body.error ?? 'Could not update the portal.');
+      }
+      // A password change is a separate call (POST /:id/password) — the
+      // PATCH above only ever touches name/type/permissions/status/email.
+      let passwordNotice = '';
+      if (loginPassword) {
+        const pwRes = await fetch(`${API}/api/portals/${editId}/password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+          body: JSON.stringify({ slug, password: loginPassword }),
+        });
+        if (!pwRes.ok) {
+          const pwBody = await pwRes.json().catch(() => ({}));
+          setBusy(false);
+          setError(pwBody.message ?? pwBody.error ?? 'Access was updated, but the password change failed.');
+          return;
+        }
+        passwordNotice = `\n  Password: ${loginPassword}\n(Shown once — copy it now.)`;
+      }
       setBusy(false);
-      if (!res.ok) return setError(body.message ?? body.error ?? 'Could not update the portal.');
-      setNotice(`Portal "${name.trim()}" updated.`);
+      setNotice(`Portal "${name.trim()}" updated.${passwordNotice}`);
       setEditId(null);
       setName('');
       setType('checkout');
       setSelected(new Set(PRESET.checkout));
+      setLoginEmail('');
+      setLoginPassword('');
       router.refresh();
       return;
     }
@@ -139,7 +173,14 @@ export function PortalsManager({
     const res = await fetch(`${API}/api/portals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ slug, name: name.trim(), type, permissions: [...selected] }),
+      body: JSON.stringify({
+        slug,
+        name: name.trim(),
+        type,
+        permissions: [...selected],
+        ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
+        ...(loginPassword ? { password: loginPassword } : {}),
+      }),
     });
     const body = await res.json().catch(() => ({}));
     setBusy(false);
@@ -149,6 +190,8 @@ export function PortalsManager({
     );
     setName('');
     setSelected(new Set(PRESET[type] ?? []));
+    setLoginEmail('');
+    setLoginPassword('');
     router.refresh();
   }
 
@@ -159,12 +202,16 @@ export function PortalsManager({
     setName(p.name);
     setType((TYPES as readonly string[]).includes(p.type) ? (p.type as (typeof TYPES)[number]) : 'custom');
     setSelected(new Set(p.permissions));
+    setLoginEmail(p.email ?? '');
+    setLoginPassword('');
   }
   function cancelEditAccess() {
     setEditId(null);
     setName('');
     setType('checkout');
     setSelected(new Set(PRESET.checkout));
+    setLoginEmail('');
+    setLoginPassword('');
   }
 
   async function patch(id: string, changes: Record<string, unknown>) {
@@ -276,6 +323,24 @@ export function PortalsManager({
               </Select>
             </Field>
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Login email">
+              <Input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder={editId ? 'Unchanged' : 'Auto-generated if left blank'}
+              />
+            </Field>
+            <Field label={editId ? 'New password' : 'Password'}>
+              <Input
+                type="text"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder={editId ? 'Leave blank to keep current' : 'Auto-generated if left blank'}
+              />
+            </Field>
+          </div>
           <div>
             <span className="text-muted text-[11px] font-semibold">Portals</span>
             <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -354,7 +419,8 @@ export function PortalsManager({
                 <td className="p-3 font-semibold">{p.name}</td>
                 <td className="p-3 capitalize">{p.type.replace('_', ' ')}</td>
                 <td className="p-3 font-mono text-muted">
-                  {p.type === 'super_admin' ? `/r/${slug}` : `/r/${slug}/portal/${p.route_key}`}
+                  <div>{p.type === 'super_admin' ? `/r/${slug}` : `/r/${slug}/portal/${p.route_key}`}</div>
+                  {p.email && <div className="text-[10px] mt-0.5">{p.email}</div>}
                 </td>
                 <td className="p-3">
                   <span className={p.status === 'active' ? 'text-ok' : 'text-danger'}>

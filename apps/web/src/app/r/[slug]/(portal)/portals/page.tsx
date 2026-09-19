@@ -25,7 +25,7 @@ export default async function PortalsPage({
   const [{ data: portals, error }, { data: perms }, { data: staff }, { data: links }] = await Promise.all([
     t.client
       .from('portals')
-      .select('id, name, type, route_key, status, permissions, last_login_at, created_at')
+      .select('id, name, type, route_key, status, permissions, email, last_login_at, created_at')
       .order('created_at'),
     t.client.from('permission_catalog').select('key, grp, label').order('grp'),
     t.client.from('memberships').select('id, email, full_name, role, status').order('email'),
