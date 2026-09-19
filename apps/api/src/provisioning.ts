@@ -192,7 +192,16 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       it there first) so Portal Management can list/edit it without an
 //       admin API round trip per row, the same way `permissions` already
 //       mirrors app_metadata.
-const SCHEMA_VERSION = 47;
+//   v48 Configurable receipt template: business_settings.receipt_config
+//       (structured, section-based receipt layout — which sections
+//       appear, in what order, which fields within each, custom text
+//       blocks, thermal width/divider style) plus the restaurant contact
+//       fields (address/phone/contact_email/website/
+//       tax_registration_number) its "Restaurant Information" section
+//       needs, none of which existed in this schema before. Null
+//       receipt_config falls back to the pre-existing receipt_footer_text/
+//       receipt_template_html behavior unchanged.
+const SCHEMA_VERSION = 48;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

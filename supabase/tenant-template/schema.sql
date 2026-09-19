@@ -2755,7 +2755,19 @@ create table public.business_settings (
   brand_text_body      text,
   brand_text_muted     text,
   brand_radius         text,
-  brand_appearance     text check (brand_appearance in ('light', 'dark', 'system'))
+  brand_appearance     text check (brand_appearance in ('light', 'dark', 'system')),
+  -- Restaurant contact fields (0048) — the "Restaurant Information"
+  -- receipt section's data source; nothing in this schema stored these
+  -- before (restaurant_name/slug live control-plane side only).
+  address              text,
+  phone                text,
+  contact_email        text,
+  website               text,
+  tax_registration_number text,
+  -- Structured, section-based receipt template (0048). Null = this
+  -- restaurant never configured one — receipt rendering falls back to
+  -- the existing receipt_footer_text/receipt_template_html behavior.
+  receipt_config       jsonb
 );
 insert into public.business_settings (id) values (true);
 

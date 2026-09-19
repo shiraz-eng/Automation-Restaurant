@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { useTheme } from '@/components/ThemeProvider';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Button, Card } from '@/components/ui';
 import { PRESETS, channelsToHex, hexToChannels, type Appearance, type ThemeTokens } from '@/lib/theme';
 
 const APPEARANCES: Appearance[] = ['light', 'dark', 'system'];
@@ -25,14 +25,10 @@ const NEUTRAL_DEFAULTS: Record<string, string> = {
 export function BrandKitManager({
   slug,
   logoUrl,
-  receiptFooterText,
-  receiptTemplateHtml,
   canEdit,
 }: {
   slug: string;
   logoUrl: string | null;
-  receiptFooterText: string | null;
-  receiptTemplateHtml: string | null;
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -42,10 +38,6 @@ export function BrandKitManager({
   const [currentLogoUrl, setCurrentLogoUrl] = useState(logoUrl);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
-
-  const [footerText, setFooterText] = useState(receiptFooterText ?? '');
-  const [templateHtml, setTemplateHtml] = useState(receiptTemplateHtml ?? '');
-  const [showTemplate, setShowTemplate] = useState(!!receiptTemplateHtml);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,8 +126,6 @@ export function BrandKitManager({
         brand_text_muted: theme.tokens['text-muted'] || null,
         brand_radius: theme.tokens.radius,
         brand_appearance: theme.appearance,
-        receipt_footer_text: footerText.trim() || null,
-        receipt_template_html: showTemplate ? templateHtml.trim() || null : null,
       })
       .eq('id', true);
     setBusy(false);
@@ -268,48 +258,6 @@ export function BrandKitManager({
             ))}
           </div>
         </div>
-      </Card>
-
-      <Card>
-        <h2 className="font-bold text-sm mb-1">Receipt</h2>
-        <p className="text-muted text-[11px] mb-4">
-          Shown on every printed/PDF receipt from Checkout, in addition to the logo above. The
-          custom HTML template is for a fully different layout, if needed.
-        </p>
-        <Field label="Footer text">
-          <Input
-            value={footerText}
-            onChange={(e) => setFooterText(e.target.value)}
-            placeholder="Thank you for dining with us!"
-            disabled={!canEdit}
-          />
-        </Field>
-        <button
-          onClick={() => setShowTemplate((s) => !s)}
-          className="text-primary text-xs font-semibold underline mt-3"
-        >
-          {showTemplate ? 'Hide custom HTML template' : 'Use a custom HTML template instead'}
-        </button>
-        {showTemplate && (
-          <div className="mt-2 space-y-1.5">
-            <p className="text-muted text-[11px]">
-              Plain HTML. Available placeholders: <code>{'{{restaurant_name}}'}</code>{' '}
-              <code>{'{{logo_html}}'}</code> <code>{'{{order_number}}'}</code> <code>{'{{table}}'}</code>{' '}
-              <code>{'{{customer}}'}</code> <code>{'{{date}}'}</code> <code>{'{{lines_html}}'}</code>{' '}
-              <code>{'{{subtotal}}'}</code> <code>{'{{discount_row}}'}</code> <code>{'{{tax}}'}</code>{' '}
-              <code>{'{{refunded_row}}'}</code> <code>{'{{total}}'}</code> <code>{'{{paid_via}}'}</code>{' '}
-              <code>{'{{footer}}'}</code>. Never executed as code — plain text substitution only.
-            </p>
-            <textarea
-              value={templateHtml}
-              onChange={(e) => setTemplateHtml(e.target.value)}
-              disabled={!canEdit}
-              rows={10}
-              className="w-full rounded border border-border bg-surface px-2.5 py-1.5 text-xs font-mono outline-none focus:border-primary"
-              placeholder="<h1>{{restaurant_name}}</h1>..."
-            />
-          </div>
-        )}
       </Card>
 
       <Card>

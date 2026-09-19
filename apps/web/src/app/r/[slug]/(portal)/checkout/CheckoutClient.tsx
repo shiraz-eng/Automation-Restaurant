@@ -6,9 +6,28 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Input } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 import { downloadReceiptPdf } from '@/lib/generateReceipt';
+import { renderReceiptBlocksHtml, RECEIPT_PRINT_STYLES } from '@/lib/receiptHtml';
+import {
+  buildReceiptBlocks,
+  DEFAULT_RECEIPT_CONFIG,
+  type ReceiptConfig as ReceiptTemplateConfig,
+  type ReceiptContext,
+} from '@/lib/receiptTemplate';
 import { NewOrderPanel } from './NewOrderPanel';
 
-export type ReceiptConfig = { logoUrl: string | null; footerText: string | null; templateHtml: string | null };
+/** Everything printInvoice()/downloadReceiptPdf() need about this
+ *  restaurant's receipt configuration — one shared shape so both outputs
+ *  read the same source (spec: "the receipt configuration should be the
+ *  common source"). receiptConfig is null until the Owner has configured
+ *  one in Brand Kit → Receipt; templateHtml (an older, still-supported
+ *  escape valve) takes priority over it when both are set. */
+export type ReceiptSettings = {
+  logoUrl: string | null;
+  footerText: string | null;
+  templateHtml: string | null;
+  receiptConfig: ReceiptTemplateConfig | null;
+  restaurant: { address: string | null; phone: string | null; email: string | null; website: string | null; taxId: string | null };
+};
 export type NewOrderCategory = { id: string; name: string };
 export type NewOrderItem = {
   id: string;
@@ -20,14 +39,20 @@ export type NewOrderItem = {
 type Line = {
   id: string;
   name_snapshot: string;
+  variant_name_snapshot: string | null;
   qty: number;
   unit_price_cents: number;
   line_total_cents: number;
+  modifiers: { id: string; name: string; price_cents: number }[];
+  customer_note: string | null;
 };
 type Pay = {
   id: string;
   amount_cents: number;
   method: string;
+  reference: string | null;
+  tendered_cents: number | null;
+  change_cents: number | null;
   status: string;
   refunded_cents: number;
   created_at: string;
@@ -38,16 +63,77 @@ export type Bill = {
   session_id: string | null;
   table_label: string | null;
   customer_name: string | null;
+  channel: string;
   status: string;
   subtotal_cents: number;
   discount_cents: number;
   tax_cents: number;
+  tax_rate_bps: number;
   total_cents: number;
   refunded_cents: number;
   created_at: string;
+  paid_at: string | null;
   order_lines: Line[];
   payments: Pay[];
 };
+
+/** bill + restaurant/receipt settings -> the authoritative ReceiptContext
+ *  both printInvoice() and the Download PDF button hand to the shared
+ *  block builder. paidViaOverride lets a just-taken payment (not yet
+ *  refetched into `bill.payments`) show up immediately. */
+function toReceiptContext(bill: Bill, restaurantName: string, receipt: ReceiptSettings, paidViaOverride?: { method: string; amountCents: number }): ReceiptContext {
+  const activePayments = bill.payments.filter((p) => p.status !== 'voided');
+  const lastPayment = activePayments[activePayments.length - 1] ?? null;
+  return {
+    restaurantName,
+    logoUrl: receipt.logoUrl,
+    address: receipt.restaurant.address,
+    phone: receipt.restaurant.phone,
+    email: receipt.restaurant.email,
+    website: receipt.restaurant.website,
+    taxId: receipt.restaurant.taxId,
+    orderNumber: bill.order_number,
+    tableLabel: bill.table_label,
+    customerName: bill.customer_name,
+    orderType: bill.channel ? bill.channel.replace('_', ' ') : null,
+    createdAt: bill.created_at,
+    paidAt: bill.paid_at,
+    orderStatus: bill.status ? bill.status.replace('_', ' ') : null,
+    lines: bill.order_lines.map((l) => ({
+      qty: l.qty,
+      name: l.name_snapshot,
+      variantName: l.variant_name_snapshot,
+      modifiers: l.modifiers,
+      notes: l.customer_note,
+      unitPriceCents: l.unit_price_cents,
+      lineTotalCents: l.line_total_cents,
+    })),
+    subtotalCents: bill.subtotal_cents,
+    discountCents: bill.discount_cents,
+    taxCents: bill.tax_cents,
+    taxRateBps: bill.tax_rate_bps,
+    totalCents: bill.total_cents,
+    refundedCents: bill.refunded_cents,
+    paymentMethod: paidViaOverride?.method ?? lastPayment?.method ?? null,
+    paymentReference: lastPayment?.reference ?? null,
+    amountPaidCents: paidViaOverride?.amountCents ?? lastPayment?.amount_cents ?? null,
+    changeCents: paidViaOverride ? null : (lastPayment?.change_cents ?? null),
+  };
+}
+
+/** When the Owner has never opened the new Receipt Customization builder,
+ *  fall back to the same information the old hard-coded layout showed
+ *  (spec: "use the existing receipt format" — not a second layout, just
+ *  the default config seeded from whatever legacy footer text exists). */
+function effectiveReceiptConfig(receipt: ReceiptSettings): ReceiptTemplateConfig {
+  if (receipt.receiptConfig) return receipt.receiptConfig;
+  return {
+    ...DEFAULT_RECEIPT_CONFIG,
+    customText: receipt.footerText
+      ? [{ id: 'legacy-footer', text: receipt.footerText, align: 'center', bold: false }]
+      : DEFAULT_RECEIPT_CONFIG.customText,
+  };
+}
 
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const METHODS = ['cash', 'card', 'mobile'] as const;
@@ -73,10 +159,11 @@ function renderCustomTemplate(html: string, tokens: Record<string, string>): str
 
 /** Opens a small print-ready receipt in a new tab and triggers the browser
  *  print dialog. No server round-trip — the same numbers already on
- *  screen, formatted for a till printer or A4 page, using the owner's
- *  custom HTML template (Settings → Policies) when one is set, else a
- *  built-in layout. Either way, the logo (if configured) is embedded as
- *  a plain <img>.
+ *  screen. Uses the owner's raw HTML template (an older escape valve,
+ *  still supported) when one is set; otherwise walks the SAME
+ *  ReceiptBlock list buildReceiptDoc() (the PDF path) and the Brand Kit
+ *  settings page's live preview walk, built from the restaurant's
+ *  receipt_config — one shared source, not a separate layout per output.
  *
  *  Accepts an already-opened window when the caller can't call
  *  window.open() itself inside a user gesture (e.g. right after an
@@ -84,70 +171,50 @@ function renderCustomTemplate(html: string, tokens: Record<string, string>): str
  *  asynchronously, so takePayment() below opens the blank window
  *  SYNCHRONOUSLY on click, before awaiting record_payment, and hands
  *  that handle in here once the payment succeeds. */
-function printInvoice(bill: Bill, restaurantName: string, receipt: ReceiptConfig, paidViaOverride?: string, existingWindow?: Window | null) {
+function printInvoice(bill: Bill, restaurantName: string, receipt: ReceiptSettings, paidViaOverride?: { method: string; amountCents: number }, existingWindow?: Window | null) {
   const w = existingWindow ?? window.open('', '_blank', 'width=380,height=640');
   if (!w) return;
-  const paidVia =
-    paidViaOverride ??
-    (bill.payments
-      .filter((p) => p.status !== 'voided')
-      .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
-      .join(', ') ||
-      'unpaid');
-  const logoHtml = receipt.logoUrl ? `<img src="${esc(receipt.logoUrl)}" alt="" style="max-width:120px;max-height:60px;display:block;margin:0 auto 8px" />` : '';
-  const linesHtml = bill.order_lines
-    .map((l) => `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`)
-    .join('');
-  const discountRow = bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : '';
-  const refundedRow = bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : '';
-  const footerHtml = receipt.footerText ? `<div class="muted" style="margin-top:8px">${esc(receipt.footerText)}</div>` : '';
 
-  const body = receipt.templateHtml
-    ? renderCustomTemplate(receipt.templateHtml, {
-        restaurant_name: esc(restaurantName),
-        logo_html: logoHtml,
-        order_number: String(bill.order_number),
-        table: bill.table_label ? esc(bill.table_label) : '',
-        customer: bill.customer_name ? esc(bill.customer_name) : '',
-        date: new Date(bill.created_at).toLocaleString(),
-        lines_html: linesHtml,
-        subtotal: formatCents(bill.subtotal_cents),
-        discount_row: discountRow,
-        tax: formatCents(bill.tax_cents),
-        refunded_row: refundedRow,
-        total: formatCents(bill.total_cents),
-        paid_via: esc(paidVia),
-        footer: footerHtml,
-      })
-    : `${logoHtml}
-<h1>${esc(restaurantName)}</h1>
-<div class="muted">Order #${bill.order_number}${bill.table_label ? ' · ' + esc(bill.table_label) : ''}${bill.customer_name ? ' · ' + esc(bill.customer_name) : ''}</div>
-<div class="muted">${new Date(bill.created_at).toLocaleString()}</div>
-<hr/>
-<table>${linesHtml}</table>
-<hr/>
-<table>
-<tr><td>Subtotal</td><td class="right">${formatCents(bill.subtotal_cents)}</td></tr>
-${discountRow}
-<tr><td>Tax</td><td class="right">${formatCents(bill.tax_cents)}</td></tr>
-${refundedRow}
-<tr class="total"><td>Total</td><td class="right">${formatCents(bill.total_cents)}</td></tr>
-</table>
-<hr/>
-<div class="muted">Paid via: ${esc(paidVia)}</div>
-${footerHtml}`;
+  let body: string;
+  if (receipt.templateHtml) {
+    const paidVia =
+      (paidViaOverride ? `${paidViaOverride.method} ${formatCents(paidViaOverride.amountCents)}` : null) ??
+      (bill.payments
+        .filter((p) => p.status !== 'voided')
+        .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
+        .join(', ') ||
+        'unpaid');
+    const logoHtml = receipt.logoUrl ? `<img src="${esc(receipt.logoUrl)}" alt="" style="max-width:120px;max-height:60px;display:block;margin:0 auto 8px" />` : '';
+    const linesHtml = bill.order_lines
+      .map((l) => `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`)
+      .join('');
+    const discountRow = bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : '';
+    const refundedRow = bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : '';
+    const footerHtml = receipt.footerText ? `<div class="muted" style="margin-top:8px">${esc(receipt.footerText)}</div>` : '';
+    body = renderCustomTemplate(receipt.templateHtml, {
+      restaurant_name: esc(restaurantName),
+      logo_html: logoHtml,
+      order_number: String(bill.order_number),
+      table: bill.table_label ? esc(bill.table_label) : '',
+      customer: bill.customer_name ? esc(bill.customer_name) : '',
+      date: new Date(bill.created_at).toLocaleString(),
+      lines_html: linesHtml,
+      subtotal: formatCents(bill.subtotal_cents),
+      discount_row: discountRow,
+      tax: formatCents(bill.tax_cents),
+      refunded_row: refundedRow,
+      total: formatCents(bill.total_cents),
+      paid_via: esc(paidVia),
+      footer: footerHtml,
+    });
+  } else {
+    const ctx = toReceiptContext(bill, restaurantName, receipt, paidViaOverride);
+    const config = effectiveReceiptConfig(receipt);
+    body = renderReceiptBlocksHtml(buildReceiptBlocks(config, ctx));
+  }
 
   w.document.write(`<!doctype html><html><head><title>Invoice #${bill.order_number}</title><meta charset="utf-8">
-<style>
-  body{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#111;padding:18px;max-width:340px}
-  h1{font-size:14px;margin:0 0 2px;text-align:center}
-  .muted{color:#666;font-size:10px;margin-bottom:2px}
-  table{width:100%;border-collapse:collapse;margin-top:8px}
-  td{padding:2px 0}
-  .right{text-align:right}
-  hr{border:none;border-top:1px dashed #999;margin:8px 0}
-  .total{font-weight:bold;font-size:13px}
-</style></head><body>
+<style>${RECEIPT_PRINT_STYLES}</style></head><body>
 ${body}
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);
@@ -173,7 +240,7 @@ export function CheckoutClient({
   canVoid: boolean;
   canDiscount: boolean;
   canCancel: boolean;
-  receipt: ReceiptConfig;
+  receipt: ReceiptSettings;
   canCreateOrder: boolean;
   taxRateBps: number;
   menuCategories: NewOrderCategory[];
@@ -195,11 +262,11 @@ export function CheckoutClient({
     const { data } = await supabase
       .from('orders')
       .select(
-        'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
+        'id, order_number, session_id, table_label, customer_name, channel, status, subtotal_cents, discount_cents, tax_cents, tax_rate_bps, total_cents, refunded_cents, created_at, paid_at, order_lines(id, name_snapshot, variant_name_snapshot, qty, unit_price_cents, line_total_cents, modifiers, customer_note), payments(id, amount_cents, method, reference, tendered_cents, change_cents, status, refunded_cents, created_at)',
       )
       .in('status', UNPAID)
       .order('created_at', { ascending: true });
-    if (data) setBills(data as Bill[]);
+    if (data) setBills(data as unknown as Bill[]);
   }, [supabase]);
 
   async function onOrderPlaced(orderId: string) {
@@ -273,7 +340,7 @@ export function CheckoutClient({
     // just taken is already the accurate receipt; no need to wait on the
     // refetch to know what to print.
     if (ok) {
-      printInvoice(paidBill, restaurantName, receipt, `${paidMethod} ${formatCents(paidAmount)}`, printWindow);
+      printInvoice(paidBill, restaurantName, receipt, { method: paidMethod, amountCents: paidAmount }, printWindow);
     } else {
       printWindow?.close();
     }
@@ -395,28 +462,7 @@ export function CheckoutClient({
                 Print invoice
               </button>
               <button
-                onClick={() =>
-                  downloadReceiptPdf({
-                    restaurantName,
-                    logoUrl: receipt.logoUrl,
-                    orderNumber: bill.order_number,
-                    tableLabel: bill.table_label,
-                    customerName: bill.customer_name,
-                    createdAt: bill.created_at,
-                    lines: bill.order_lines.map((l) => ({ qty: l.qty, name: l.name_snapshot, totalCents: l.line_total_cents })),
-                    subtotalCents: bill.subtotal_cents,
-                    discountCents: bill.discount_cents,
-                    taxCents: bill.tax_cents,
-                    refundedCents: bill.refunded_cents,
-                    totalCents: bill.total_cents,
-                    paidVia:
-                      bill.payments
-                        .filter((p) => p.status !== 'voided')
-                        .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
-                        .join(', ') || null,
-                    footerText: receipt.footerText,
-                  })
-                }
+                onClick={() => downloadReceiptPdf(effectiveReceiptConfig(receipt), toReceiptContext(bill, restaurantName, receipt))}
                 className="text-primary text-xs font-semibold underline"
               >
                 Download PDF

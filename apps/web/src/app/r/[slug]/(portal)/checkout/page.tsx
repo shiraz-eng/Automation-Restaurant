@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import type { ReceiptConfig as CheckoutClientReceiptConfig } from '@/lib/receiptTemplate';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from './CheckoutClient';
 
 export const dynamic = 'force-dynamic';
@@ -19,11 +20,15 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
     t.client
       .from('orders')
       .select(
-        'id, order_number, session_id, table_label, customer_name, status, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, created_at, order_lines(id, name_snapshot, qty, unit_price_cents, line_total_cents), payments(id, amount_cents, method, status, refunded_cents, created_at)',
+        'id, order_number, session_id, table_label, customer_name, channel, status, subtotal_cents, discount_cents, tax_cents, tax_rate_bps, total_cents, refunded_cents, created_at, paid_at, order_lines(id, name_snapshot, variant_name_snapshot, qty, unit_price_cents, line_total_cents, modifiers, customer_note), payments(id, amount_cents, method, reference, tendered_cents, change_cents, status, refunded_cents, created_at)',
       )
       .in('status', UNPAID)
       .order('created_at', { ascending: true }),
-    t.client.from('business_settings').select('brand_logo_url, receipt_footer_text, receipt_template_html').eq('id', true).maybeSingle(),
+    t.client
+      .from('business_settings')
+      .select('brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
+      .eq('id', true)
+      .maybeSingle(),
     canCreateOrder
       ? t.client.from('menu_categories').select('id, name').order('sort_order')
       : Promise.resolve({ data: null }),
@@ -56,6 +61,14 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
             logoUrl: settings?.brand_logo_url ?? null,
             footerText: settings?.receipt_footer_text ?? null,
             templateHtml: settings?.receipt_template_html ?? null,
+            receiptConfig: (settings?.receipt_config as CheckoutClientReceiptConfig | null) ?? null,
+            restaurant: {
+              address: settings?.address ?? null,
+              phone: settings?.phone ?? null,
+              email: settings?.contact_email ?? null,
+              website: settings?.website ?? null,
+              taxId: settings?.tax_registration_number ?? null,
+            },
           }}
           canCreateOrder={canCreateOrder}
           taxRateBps={TAX_RATE_BPS}
