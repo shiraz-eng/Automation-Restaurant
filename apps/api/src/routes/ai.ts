@@ -772,15 +772,16 @@ aiRouter.post(
       if (action.name === 'generate_report' && result && typeof result === 'object' && 'restaurantName' in result) {
         (result as { restaurantName: string }).restaurantName = req.tenant!.slug;
       }
-      // Brand Kit logo — same "action can't know this" gap as restaurantName
-      // above; get_brand_kit() is the one Brand Kit read path (RULE-BRAND:
-      // no second theming/branding lookup), so every PDF sourced through
-      // this route picks up the restaurant's logo the same way the
-      // Dashboard's own report button does.
+      // Brand Kit logo + color — same "action can't know this" gap as
+      // restaurantName above; get_brand_kit() is the one Brand Kit read
+      // path (RULE-BRAND: no second theming/branding lookup), so every PDF
+      // sourced through this route picks up the restaurant's logo and
+      // accent color the same way the Dashboard's own report button does.
       if (action.name === 'generate_report' && result && typeof result === 'object') {
         const { data: brandKitRows } = await admin.rpc('get_brand_kit');
         const brandKitRow = Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows;
-        (result as { logoUrl?: string | null }).logoUrl = brandKitRow?.logo_url ?? null;
+        (result as { logoUrl?: string | null; primaryColor?: string | null }).logoUrl = brandKitRow?.logo_url ?? null;
+        (result as { logoUrl?: string | null; primaryColor?: string | null }).primaryColor = brandKitRow?.primary_color ?? null;
       }
       if (action.name === 'generate_report' && result && typeof result === 'object' && 'periodLabel' in result) {
         const { from, to } = resolvePeriod(parsed.data.args);

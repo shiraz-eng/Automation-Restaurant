@@ -13,7 +13,7 @@ export function AdminSignOut() {
   return (
     <button
       onClick={signOut}
-      className="rounded border border-border px-3 py-1.5 text-xs font-semibold hover:bg-main"
+      className="rounded-lg border border-white/15 text-ink-fg px-3 py-1.5 text-xs font-semibold hover:bg-white/5 shrink-0"
     >
       Sign out
     </button>

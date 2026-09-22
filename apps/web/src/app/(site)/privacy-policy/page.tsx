@@ -1,6 +1,6 @@
 import { LegalDoc, Fill, type LegalSection } from '@/components/LegalDoc';
 
-export const metadata = { title: 'Privacy Policy — Automation Restaurant' };
+export const metadata = { title: 'Privacy Policy' };
 
 const P = ({ children }: { children: React.ReactNode }) => <p>{children}</p>;
 

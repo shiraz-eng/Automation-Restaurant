@@ -6,7 +6,13 @@ import { Button, Card, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 
 type Category = { id: string; name: string };
-type Variant = { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean };
+// computed_available comes from the recipe-driven availability engine
+// (tenant-migrations/0052/0054) — absent/true = orderable. place_order()
+// itself still does the real, authoritative stock check at order time
+// (and rejects with insufficient_stock if it's actually short); this just
+// steers the cashier away from something a priority reallocation or a
+// stock change has already made unlikely to succeed.
+type Variant = { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean; computed_available?: boolean };
 type RawItem = { id: string; name: string; category_id: string | null; menu_variants: Variant[] };
 type Item = { id: string; name: string; price_cents: number; category_id: string | null };
 type CartLine = { item: Item; qty: number };
@@ -18,7 +24,7 @@ function toProducts(items: RawItem[]): Item[] {
   const out: Item[] = [];
   for (const it of items) {
     for (const v of (it.menu_variants ?? [])
-      .filter((x) => x.is_available)
+      .filter((x) => x.is_available && x.computed_available !== false)
       .sort((a, b) => a.sort_order - b.sort_order)) {
       out.push({
         id: v.id,

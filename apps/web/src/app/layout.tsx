@@ -2,9 +2,40 @@ import type { Metadata } from 'next';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import './globals.css';
 
+const SITE_URL = 'https://automationrestaurant.app';
+
 export const metadata: Metadata = {
-  title: 'Automation Restaurant',
-  description: 'Multi-tenant restaurant management.',
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: 'Automation Restaurant — The Operating System for Your Restaurant',
+    template: '%s — Automation Restaurant',
+  },
+  description:
+    'Automation Restaurant connects orders, kitchen, inventory, recipes, suppliers, finance, staff, marketing, analytics and AI into one restaurant operating system — not just a POS.',
+  keywords: [
+    'restaurant management software',
+    'restaurant operating system',
+    'POS system',
+    'kitchen display system',
+    'restaurant inventory management',
+    'restaurant analytics',
+  ],
+  openGraph: {
+    type: 'website',
+    url: SITE_URL,
+    siteName: 'Automation Restaurant',
+    title: 'Automation Restaurant — The Operating System for Your Restaurant',
+    description:
+      'One connected platform for orders, kitchen, inventory, suppliers, finance, staff, marketing, analytics and AI.',
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'Automation Restaurant' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Automation Restaurant — The Operating System for Your Restaurant',
+    description:
+      'One connected platform for orders, kitchen, inventory, suppliers, finance, staff, marketing, analytics and AI.',
+    images: ['/og-image.png'],
+  },
 };
 
 // Applies the stored theme before first paint to avoid a flash of the default.

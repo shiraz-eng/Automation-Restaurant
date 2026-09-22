@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { useTheme } from '@/components/ThemeProvider';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, Field, Input } from '@/components/ui';
 import { PRESETS, channelsToHex, hexToChannels, type Appearance, type ThemeTokens } from '@/lib/theme';
 
 const APPEARANCES: Appearance[] = ['light', 'dark', 'system'];
@@ -25,19 +25,31 @@ const NEUTRAL_DEFAULTS: Record<string, string> = {
 export function BrandKitManager({
   slug,
   logoUrl,
-  canEdit,
+  metaTitle,
+  restaurantName,
+  canEdit: canEditPerm,
+  entitled,
 }: {
   slug: string;
   logoUrl: string | null;
+  metaTitle: string | null;
+  restaurantName: string;
   canEdit: boolean;
+  /** Whether this restaurant's current plan includes menu.branded — a
+   *  frontend convenience only; the real backstop is the DB trigger on
+   *  business_settings (0055_plan_entitlements.sql), which rejects a
+   *  brand_* write even if this were bypassed. */
+  entitled: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const { theme, setPreset, setPrimary, setRadius, setAppearance, setToken } = useTheme();
+  const canEdit = canEditPerm && entitled;
 
   const [currentLogoUrl, setCurrentLogoUrl] = useState(logoUrl);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [title, setTitle] = useState(metaTitle ?? '');
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +138,7 @@ export function BrandKitManager({
         brand_text_muted: theme.tokens['text-muted'] || null,
         brand_radius: theme.tokens.radius,
         brand_appearance: theme.appearance,
+        meta_title: title.trim() || null,
       })
       .eq('id', true);
     setBusy(false);
@@ -139,6 +152,16 @@ export function BrandKitManager({
 
   return (
     <div className="space-y-6">
+      {!entitled && (
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-xs">
+          <span className="font-bold">Custom branding isn&rsquo;t included in your current plan.</span>{' '}
+          Upgrade to unlock a custom logo and colors —{' '}
+          <a href="/pricing" target="_blank" rel="noreferrer" className="text-primary font-semibold hover:underline">
+            view plans
+          </a>
+          .
+        </div>
+      )}
       <Card>
         <h2 className="font-bold text-sm mb-1">Logo</h2>
         <p className="text-muted text-[11px] mb-4">
@@ -178,6 +201,23 @@ export function BrandKitManager({
             </div>
           )}
         </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-bold text-sm mb-1">Portal identity</h2>
+        <p className="text-muted text-[11px] mb-3">
+          The browser tab title for every page in this restaurant&rsquo;s portal — sub-pages show
+          as &ldquo;Page — {title.trim() || restaurantName}&rdquo;. The logo above is also used as the browser tab
+          icon (favicon).
+        </p>
+        <Field label="Meta title">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={restaurantName}
+            disabled={!canEdit}
+          />
+        </Field>
       </Card>
 
       <Card>

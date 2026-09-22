@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { formatCents } from './format';
+import { formatCents, formatDateTime } from './format';
 import { loadImage } from './generateReceipt';
 
 export type ReportKpis = {
@@ -95,6 +95,22 @@ export type ReportInventory = {
   stock_count_variance_cents: number;
   reconciliation_issue?: string;
 };
+export type ReportInventoryItem = {
+  name: string;
+  unit: string;
+  stock_qty: number;
+  min_threshold: number;
+  target_stock_qty: number | null;
+  cost_cents_per_base_unit: number;
+  value_cents: number;
+};
+export type ReportStockMovement = {
+  item_name: string;
+  delta_qty: number;
+  reason: string;
+  note: string | null;
+  created_at: string;
+};
 // FACT/INSIGHT/RECOMMENDATION-style entries (spec §14/§27) — positives are
 // stated facts on their own; areas-to-review pair an evidence FACT with a
 // RECOMMENDATION, never presented as proven cause.
@@ -147,14 +163,25 @@ export type ReportData = {
   deals?: ReportDeal[];
   promotions?: ReportPromotion[];
   inventoryReconciliation?: ReportInventory;
+  inventoryItems?: ReportInventoryItem[];
+  stockMovements?: ReportStockMovement[];
   aiInsights?: ReportAiInsights;
   aiSummary: string | null;
+  // Brand Kit's accent color ("R G B" channel string, same format
+  // business_settings.brand_primary/theme.ts use), so the PDF's accent
+  // matches the restaurant's own portal/receipt theme instead of a fixed
+  // platform orange — reuses the one Brand Kit source, not a second color.
+  primaryColor?: string | null;
 };
 
 const MARGIN = 15;
 const PAGE_W = 210;
 const CONTENT_W = PAGE_W - MARGIN * 2;
-const PRIMARY: [number, number, number] = [234, 88, 12];
+// Platform default — used whenever a restaurant hasn't set a Brand Kit
+// accent color. buildReportDoc shadows this with a local `PRIMARY` parsed
+// from data.primaryColor, so every existing `PRIMARY` reference in this
+// file's functions below picks up the restaurant's own color for free.
+const DEFAULT_PRIMARY: [number, number, number] = [234, 88, 12];
 const MUTED: [number, number, number] = [100, 116, 139];
 const BODY: [number, number, number] = [15, 23, 42];
 const BORDER: [number, number, number] = [226, 232, 240];
@@ -165,13 +192,24 @@ function pct(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 1000) / 10}%` : '—';
 }
 
+/** "124 58 237" -> [124, 58, 237] — same "R G B" channel format theme.ts's
+ *  own tokens use. Returns null (falls back to DEFAULT_PRIMARY) for an
+ *  unset or malformed value rather than drawing a broken/black accent. */
+function parseChannels(channels: string | null | undefined): [number, number, number] | null {
+  if (!channels) return null;
+  const parts = channels.trim().split(/\s+/).map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
+  return parts as [number, number, number];
+}
+
 // Per-section PDF exports (Suppliers/Purchasing/Inventory/Orders/Expenses
 // each getting their own focused report): every section key below maps to
-// one of this function's existing, already-guarded blocks. Passing
-// `sections` narrows the PDF to just those — Executive Summary, Profit &
-// Loss, and AI Summary always render regardless (the anchor/context every
-// report needs), mirroring exactly how the Excel export always keeps its
-// three anchor sheets no matter which ones are picked.
+// one of this function's existing, already-guarded blocks. Passing a
+// `domain` narrows the PDF to ONLY that section's own records — a domain
+// report is meant to stand alone (e.g. handed to a supplier or filed with
+// inventory paperwork), so it deliberately omits the whole-restaurant
+// Executive Summary / Profit & Loss / AI Summary that only make sense on
+// the complete report.
 export type ReportSection =
   | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
   | 'purchasing' | 'supplier_payments' | 'deals' | 'promotions' | 'inventory'
@@ -182,6 +220,13 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
   inventory: ['inventory'],
   orders: ['products', 'deals', 'promotions'],
   expenses: ['expenses'],
+};
+const DOMAIN_REPORT_TITLES: Record<string, string> = {
+  suppliers: 'Supplier Payments Report',
+  purchasing: 'Purchasing Report',
+  inventory: 'Inventory Report',
+  orders: 'Orders Report',
+  expenses: 'Expenses Report',
 };
 
 /**
@@ -195,6 +240,11 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
  */
 export async function buildReportDoc(data: ReportData, opts?: { sections?: ReportSection[]; domain?: string }): Promise<{ doc: jsPDF; filename: string }> {
   const showSection = (key: ReportSection) => !opts?.sections || opts.sections.includes(key);
+  const isDomainReport = Boolean(opts?.domain && opts.domain !== 'complete');
+  // Shadows the module-level DEFAULT_PRIMARY for the rest of this function
+  // — every `PRIMARY` reference below (autoTable header fills, chart bars,
+  // section-title accents) picks up the restaurant's own Brand Kit color.
+  const PRIMARY: [number, number, number] = parseChannels(data.primaryColor) ?? DEFAULT_PRIMARY;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   let y = MARGIN;
 
@@ -214,7 +264,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
   y += 8;
   doc.setFontSize(13);
   doc.setTextColor(...PRIMARY);
-  doc.text('Restaurant Performance Report', MARGIN, y);
+  doc.text(isDomainReport ? (DOMAIN_REPORT_TITLES[opts!.domain!] ?? 'Restaurant Performance Report') : 'Restaurant Performance Report', MARGIN, y);
   y += 6;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
@@ -226,43 +276,48 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   y += 8;
 
-  // ── Executive summary ───────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11.5);
-  doc.setTextColor(...BODY);
-  doc.text('Executive Summary', MARGIN, y);
-  y += 3;
+  // ── Executive summary — whole-restaurant KPIs, so it only belongs on
+  // the complete report, not a domain-scoped one (spec: a domain report
+  // should show only that section's own records). ─────────────────────
+  if (!isDomainReport) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Executive Summary', MARGIN, y);
+    y += 3;
 
-  const summaryRows: [string, string][] = [
-    ['Net Sales', formatCents(data.kpis.net_sales_cents)],
-    ['Orders', String(data.kpis.orders_count)],
-    ['Average Order Value', formatCents(data.kpis.aov_cents)],
-  ];
-  if (data.kpis.gross_profit_cents != null) summaryRows.push(['Gross Profit', formatCents(data.kpis.gross_profit_cents)]);
-  if (data.kpis.food_cost_pct != null) summaryRows.push(['Food Cost %', `${data.kpis.food_cost_pct}%`]);
-  if (data.profitDetail) {
-    summaryRows.push(['Net Profit', formatCents(data.profitDetail.net_profit_cents)]);
-    summaryRows.push(['Net Profit Margin', data.profitDetail.net_profit_margin_pct != null ? `${data.profitDetail.net_profit_margin_pct}%` : 'N/A']);
+    const summaryRows: [string, string][] = [
+      ['Net Sales', formatCents(data.kpis.net_sales_cents)],
+      ['Orders', String(data.kpis.orders_count)],
+      ['Average Order Value', formatCents(data.kpis.aov_cents)],
+    ];
+    if (data.kpis.gross_profit_cents != null) summaryRows.push(['Gross Profit', formatCents(data.kpis.gross_profit_cents)]);
+    if (data.kpis.food_cost_pct != null) summaryRows.push(['Food Cost %', `${data.kpis.food_cost_pct}%`]);
+    if (data.profitDetail) {
+      summaryRows.push(['Net Profit', formatCents(data.profitDetail.net_profit_cents)]);
+      summaryRows.push(['Net Profit Margin', data.profitDetail.net_profit_margin_pct != null ? `${data.profitDetail.net_profit_margin_pct}%` : 'N/A']);
+    }
+    if (data.kpis.avg_rating != null) summaryRows.push(['Customer Rating', `${data.kpis.avg_rating.toFixed(1)} / 5`]);
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 1.8 },
+      columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
+      body: summaryRows,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 8;
   }
-  if (data.kpis.avg_rating != null) summaryRows.push(['Customer Rating', `${data.kpis.avg_rating.toFixed(1)} / 5`]);
-
-  autoTable(doc, {
-    startY: y,
-    margin: { left: MARGIN, right: MARGIN },
-    theme: 'plain',
-    styles: { fontSize: 10, cellPadding: 1.8 },
-    columnStyles: { 0: { textColor: MUTED }, 1: { fontStyle: 'bold', textColor: BODY, halign: 'right' } },
-    body: summaryRows,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable.finalY + 8;
 
   // ── Profit & Loss waterfall + verification (spec §3, §7, §37) ────────
   // Every value below comes straight from period_profitability() — the
   // SAME authoritative RPC the dashboard, /finance, and the AI assistant
   // already call. This section never recomputes anything; it only lays
-  // the bridge out so it can be checked line by line.
-  if (data.profitDetail) {
+  // the bridge out so it can be checked line by line. Whole-restaurant
+  // P&L, same reasoning as Executive Summary above — complete report only.
+  if (data.profitDetail && !isDomainReport) {
     const pd = data.profitDetail;
     y = ensureSpace(doc, y, 60);
     doc.setFont('helvetica', 'bold');
@@ -615,6 +670,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
         doc,
         y,
         pu.by_supplier.slice(0, 8).map((s) => ({ label: s.supplier, value: s.cents })),
+        PRIMARY,
       );
     } else {
       y += 6;
@@ -676,6 +732,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
           doc,
           y,
           withOutstanding.map((s) => ({ label: s.supplier_name, value: s.outstanding_cents })),
+          PRIMARY,
         );
       } else {
         y += 4;
@@ -791,6 +848,69 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       y += lines.length * 4 + 6;
     } else {
       y += 8;
+    }
+
+    // The actual ingredient records — same columns as the on-screen
+    // Inventory table, so this section isn't just the movement totals
+    // above with nothing underneath them.
+    if (data.inventoryItems && data.inventoryItems.length > 0) {
+      y = ensureSpace(doc, y, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...BODY);
+      doc.text('Ingredient records', MARGIN, y);
+      y += 2;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Ingredient', 'On hand', 'Min', 'Target', 'Cost/unit', 'Value']],
+        body: data.inventoryItems
+          .slice()
+          .sort((a, b) => b.value_cents - a.value_cents)
+          .map((it) => [
+            it.name,
+            `${it.stock_qty} ${it.unit}`,
+            String(it.min_threshold),
+            it.target_stock_qty != null ? String(it.target_stock_qty) : '—',
+            `${formatCents(it.cost_cents_per_base_unit)}/${it.unit}`,
+            formatCents(it.value_cents),
+          ]),
+        styles: { fontSize: 8, cellPadding: 1.4 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+
+    // Every stock_ledger row dated in this period — restocks, waste,
+    // adjustments, stock counts, order consumption — so the movement
+    // totals above have the actual entries backing them, same as Expenses'
+    // "Individual records" beneath its category totals.
+    if (data.stockMovements && data.stockMovements.length > 0) {
+      y = ensureSpace(doc, y, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...BODY);
+      doc.text('Stock movements', MARGIN, y);
+      y += 2;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Date', 'Ingredient', 'Reason', 'Qty', 'Note']],
+        body: data.stockMovements.map((m) => [
+          formatDateTime(m.created_at),
+          m.item_name,
+          m.reason.replace(/_/g, ' '),
+          { content: `${m.delta_qty > 0 ? '+' : ''}${m.delta_qty}`, styles: { textColor: m.delta_qty < 0 ? [220, 38, 38] : OK } } as unknown as string,
+          m.note ?? '—',
+        ]),
+        styles: { fontSize: 7.5, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
     }
   }
 
@@ -926,22 +1046,26 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
     y += 4;
   }
 
-  // ── AI summary ────────────────────────────────────────────────────────
-  y = ensureSpace(doc, y, 25);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11.5);
-  doc.setTextColor(...BODY);
-  doc.text('AI Summary', MARGIN, y);
-  y += 6;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9.5);
-  if (data.aiSummary) {
+  // ── AI summary — a whole-restaurant free-form answer, not scoped to any
+  // one domain, so it's complete-report only, same as Executive Summary
+  // and Profit & Loss above. ──────────────────────────────────────────
+  if (!isDomainReport) {
+    y = ensureSpace(doc, y, 25);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
     doc.setTextColor(...BODY);
-    const lines = doc.splitTextToSize(data.aiSummary, CONTENT_W);
-    doc.text(lines, MARGIN, y);
-  } else {
-    doc.setTextColor(...MUTED);
-    doc.text('No AI summary was requested for this report — ask the dashboard AI a question first, then generate again to include it.', MARGIN, y);
+    doc.text('AI Summary', MARGIN, y);
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    if (data.aiSummary) {
+      doc.setTextColor(...BODY);
+      const lines = doc.splitTextToSize(data.aiSummary, CONTENT_W);
+      doc.text(lines, MARGIN, y);
+    } else {
+      doc.setTextColor(...MUTED);
+      doc.text('No AI summary was requested for this report — ask the dashboard AI a question first, then generate again to include it.', MARGIN, y);
+    }
   }
 
   // ── Footer on every page ────────────────────────────────────────────
@@ -1008,7 +1132,12 @@ export async function saveAndStoreReportPdf(
  *  the same "at a glance" visual the Sales Trend section already has for
  *  daily figures. Horizontal (not vertical, like Sales Trend) because a
  *  supplier name doesn't fit under a narrow vertical bar. */
-function drawHorizontalBarChart(doc: jsPDF, startY: number, items: { label: string; value: number }[]): number {
+function drawHorizontalBarChart(
+  doc: jsPDF,
+  startY: number,
+  items: { label: string; value: number }[],
+  color: [number, number, number] = DEFAULT_PRIMARY,
+): number {
   const barH = 5.5;
   const gap = 2.5;
   const labelW = 42;
@@ -1022,7 +1151,7 @@ function drawHorizontalBarChart(doc: jsPDF, startY: number, items: { label: stri
     const label = item.label.length > 20 ? `${item.label.slice(0, 19)}…` : item.label;
     doc.text(label, MARGIN, y + barH - 1.3);
     const barW = Math.max((item.value / max) * maxBarW, 0.5);
-    doc.setFillColor(...PRIMARY);
+    doc.setFillColor(...color);
     doc.rect(MARGIN + labelW, y, barW, barH, 'F');
     doc.setFontSize(7.5);
     doc.setTextColor(...MUTED);

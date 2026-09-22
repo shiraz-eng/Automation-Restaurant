@@ -12,6 +12,8 @@ export type RosterRow = {
   clock_in: string | null;
   clock_out: string | null;
   late_minutes: number;
+  shift_start_time: string | null;
+  expected_start: string | null;
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -144,6 +146,7 @@ export function AttendancePortalBoard({
                       {r.status.replace('_', ' ')}
                     </span>
                     {r.late_minutes > 0 ? ` · ${r.late_minutes}m late` : ''}
+                    {r.expected_start ? ` · expected ${hhmm(r.expected_start)}` : ''}
                   </div>
                 </div>
                 <div className="text-[11px] text-muted text-right shrink-0">

@@ -57,12 +57,41 @@ async function aggregateLines(
   return acc;
 }
 
+// The recipe-driven availability engine (tenant-migrations/0052) — the ONE
+// authoritative "can we actually make this right now" signal. Read via the
+// same guest-readable product_availability table the storefront itself
+// uses (guest_read policy, no reason/bottleneck exposed here — spec §26/
+// §27: customer-facing stays a plain boolean). Absence of a row for an
+// item means the engine doesn't track it, so the manual toggle is final.
+async function computedAvailableItems(tenant: SupabaseClient): Promise<Map<string, boolean>> {
+  const { data } = await tenant.from('product_availability').select('menu_item_id, variant_id, status');
+  const rows = (data ?? []) as { menu_item_id: string; variant_id: string | null; status: string }[];
+  const out = new Map<string, boolean>(); // key: menu_item_id or `${menu_item_id}:${variant_id}`
+  const byItem = new Map<string, typeof rows>();
+  for (const r of rows) {
+    out.set(`${r.menu_item_id}:${r.variant_id ?? ''}`, r.status !== 'unavailable');
+    const cur = byItem.get(r.menu_item_id) ?? [];
+    cur.push(r);
+    byItem.set(r.menu_item_id, cur);
+  }
+  for (const [itemId, itemRows] of byItem) out.set(itemId, !itemRows.every((r) => r.status === 'unavailable'));
+  return out;
+}
+function computedAvailable(map: Map<string, boolean>, itemId: string, variantId?: string | null): boolean {
+  const key = variantId != null ? `${itemId}:${variantId}` : undefined;
+  if (key && map.has(key)) return map.get(key)!;
+  return map.get(itemId) ?? true; // untracked => fall back to manual signal only
+}
+
 async function availableVariantMeta(tenant: SupabaseClient, variantIds: string[]) {
   if (variantIds.length === 0) return new Map<string, { name: string; item_id: string; category_id: string | null; available: boolean }>();
-  const { data } = await tenant
-    .from('menu_variants')
-    .select('id, name, is_available, track_availability, available_qty, menu_items(id, name, category_id, is_available)')
-    .in('id', variantIds);
+  const [{ data }, computed] = await Promise.all([
+    tenant
+      .from('menu_variants')
+      .select('id, name, is_available, track_availability, available_qty, menu_items(id, name, category_id, is_available)')
+      .in('id', variantIds),
+    computedAvailableItems(tenant),
+  ]);
   const one = <T,>(x: T | T[] | null | undefined): T | null => (Array.isArray(x) ? (x[0] ?? null) : (x ?? null));
   const out = new Map<string, { name: string; item_id: string; category_id: string | null; available: boolean }>();
   for (const v of (data ?? []) as {
@@ -70,7 +99,8 @@ async function availableVariantMeta(tenant: SupabaseClient, variantIds: string[]
     menu_items: { id: string; name: string; category_id: string | null; is_available: boolean } | { id: string; name: string; category_id: string | null; is_available: boolean }[] | null;
   }[]) {
     const item = one(v.menu_items);
-    const available = !!item?.is_available && v.is_available && (!v.track_availability || v.available_qty > 0);
+    const available =
+      !!item?.is_available && v.is_available && (!v.track_availability || v.available_qty > 0) && computedAvailable(computed, item?.id ?? '', v.id);
     out.set(v.id, {
       name: item ? (v.name === 'Regular' ? item.name : `${item.name} · ${v.name}`) : v.name,
       item_id: item?.id ?? '',
@@ -196,13 +226,13 @@ const getBestValueItems: CustomerAiTool = {
       .eq('is_available', true)
       .eq('menu_items.is_available', true);
     if (typeof args.category_id === 'string' && args.category_id) q = q.eq('menu_items.category_id', args.category_id);
-    const { data } = await q;
+    const [{ data }, computed] = await Promise.all([q, computedAvailableItems(tenant)]);
     const one = <T,>(x: T | T[] | null): T | null => (Array.isArray(x) ? (x[0] ?? null) : x);
     const rows = ((data ?? []) as {
       id: string; name: string; price_cents: number; track_availability: boolean; available_qty: number;
       menu_items: { id: string; name: string; category_id: string | null } | { id: string; name: string; category_id: string | null }[];
     }[])
-      .filter((v) => !v.track_availability || v.available_qty > 0)
+      .filter((v) => (!v.track_availability || v.available_qty > 0) && computedAvailable(computed, one(v.menu_items)?.id ?? '', v.id))
       .map((v) => {
         const item = one(v.menu_items);
         return {
@@ -376,10 +406,13 @@ const resolveMenuSelection: CustomerAiTool = {
   async run(tenant, args) {
     const itemName = String(args.item_name ?? '').trim().toLowerCase();
     if (!itemName) return { matches: [] };
-    const { data: items } = await tenant
-      .from('menu_items')
-      .select('id, name, price_cents, is_available, menu_variants(id, name, price_cents, is_available, track_availability, available_qty), modifier_groups(id, name, modifier_options(id, name, price_cents, is_available))')
-      .eq('is_available', true);
+    const [{ data: items }, computed] = await Promise.all([
+      tenant
+        .from('menu_items')
+        .select('id, name, price_cents, is_available, menu_variants(id, name, price_cents, is_available, track_availability, available_qty), modifier_groups(id, name, modifier_options(id, name, price_cents, is_available))')
+        .eq('is_available', true),
+      computedAvailableItems(tenant),
+    ]);
     const candidates = ((items ?? []) as {
       id: string; name: string; price_cents: number; is_available: boolean;
       menu_variants: { id: string; name: string; price_cents: number; is_available: boolean; track_availability: boolean; available_qty: number }[];
@@ -392,7 +425,9 @@ const resolveMenuSelection: CustomerAiTool = {
     const modNames = Array.isArray(args.modifier_names) ? args.modifier_names.map((m) => String(m).trim().toLowerCase()) : [];
 
     const results = candidates.map((it) => {
-      const variants = it.menu_variants.filter((v) => v.is_available && (!v.track_availability || v.available_qty > 0));
+      const variants = it.menu_variants.filter(
+        (v) => v.is_available && (!v.track_availability || v.available_qty > 0) && computedAvailable(computed, it.id, v.id),
+      );
       const variant = (variantName ? variants.find((v) => v.name.toLowerCase().includes(variantName)) : null) ?? variants[0] ?? null;
       const allOptions = it.modifier_groups.flatMap((g) => g.modifier_options.map((o) => ({ ...o, group: g.name })));
       const resolvedMods = modNames
@@ -443,24 +478,26 @@ const buildBudgetOrder: CustomerAiTool = {
     if (budget <= 0) return { proposal: null, note: 'Need a positive budget to build a proposal.' };
 
     const since = new Date(Date.now() - 14 * 86400000).toISOString();
-    const [agg, dealsRes] = await Promise.all([
+    const [agg, dealsRes, variantsRes, computed] = await Promise.all([
       aggregateLines(tenant, since),
       tenant
         .from('deals')
         .select('id, name, price_cents, track_availability, available_qty, deal_components(qty, menu_item_id, variant_id)')
         .eq('is_available', true),
+      tenant
+        .from('menu_variants')
+        .select('id, name, price_cents, is_available, track_availability, available_qty, menu_items!inner(id, name, category_id, is_available)')
+        .eq('is_available', true)
+        .eq('menu_items.is_available', true),
+      computedAvailableItems(tenant),
     ]);
-    const { data: variantRows } = await tenant
-      .from('menu_variants')
-      .select('id, name, price_cents, is_available, track_availability, available_qty, menu_items!inner(id, name, category_id, is_available)')
-      .eq('is_available', true)
-      .eq('menu_items.is_available', true);
+    const variantRows = variantsRes.data;
     const one = <T,>(x: T | T[] | null): T | null => (Array.isArray(x) ? (x[0] ?? null) : x);
     const variants = ((variantRows ?? []) as {
       id: string; name: string; price_cents: number; track_availability: boolean; available_qty: number;
       menu_items: { id: string; name: string; category_id: string | null } | { id: string; name: string; category_id: string | null }[];
     }[])
-      .filter((v) => !v.track_availability || v.available_qty > 0)
+      .filter((v) => (!v.track_availability || v.available_qty > 0) && computedAvailable(computed, one(v.menu_items)?.id ?? '', v.id))
       .map((v) => {
         const item = one(v.menu_items);
         return {
@@ -562,6 +599,7 @@ export const CUSTOMER_SYSTEM_PROMPT = (restaurantName: string) => `You are the o
 Ground rules (never break these):
 - You NEVER add anything to the cart, change a price, apply a deal, or place an order yourself. You only recommend, explain, and propose. The customer always makes the final tap/click themselves in the UI.
 - Every price, total, saving, ranking, or availability claim you make MUST come from a tool result you just received. Never estimate, round creatively, or restate a different number than the tool returned.
+- Availability (in resolve_menu_selection and every recommendation tool) already reflects the kitchen's real, live producible stock, not just whether an item is listed on the menu. If asked WHY something is unavailable, just say it's "currently unavailable" or "temporarily out of stock" — you don't have and should never invent a specific ingredient-level reason; that detail is for staff, not guests.
 - "Best seller" (real sales volume), "trending" (a recent pace increase), "best value" (lowest price), and a deal's "savings" are different things — use the exact word the matching tool result uses, never swap them.
 - There is no per-item star rating in this system — never claim an item is "highly rated" or invent a rating.
 - There is no customer account/order-history lookup in this system — if asked to "order my usual" or reference a past visit, say you don't have that and offer to help build a fresh order instead.

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
@@ -7,6 +8,7 @@ import { formatDateTime } from '@/lib/format';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Inventory' };
 
 export default async function InventoryPage({
   params,

@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { PLANS, PLAN_TIERS, type PlanTier } from '@automation-restaurant/shared';
+import type { PlanRow } from '@automation-restaurant/shared';
 
-export function PricingCards() {
+export function PricingCards({ plans }: { plans: PlanRow[] }) {
   const [annual, setAnnual] = useState(true);
 
   return (
@@ -12,32 +12,33 @@ export function PricingCards() {
       <div className="flex items-center justify-center gap-3 mb-8 text-sm">
         <button
           onClick={() => setAnnual(false)}
-          className={`px-3 py-1.5 rounded-lg font-semibold ${!annual ? 'bg-primary text-primary-fg' : 'text-muted'}`}
+          className={`px-3 py-1.5 rounded-lg font-semibold ${!annual ? 'bg-black text-white' : 'text-muted'}`}
         >
           Monthly
         </button>
         <button
           onClick={() => setAnnual(true)}
-          className={`px-3 py-1.5 rounded-lg font-semibold ${annual ? 'bg-primary text-primary-fg' : 'text-muted'}`}
+          className={`px-3 py-1.5 rounded-lg font-semibold ${annual ? 'bg-black text-white' : 'text-muted'}`}
         >
           Annual <span className="text-xs opacity-80">(save ~20%)</span>
         </button>
       </div>
 
       <div className="grid gap-5 md:grid-cols-3">
-        {PLAN_TIERS.map((tier) => {
-          const p = PLANS[tier as PlanTier];
-          const price = annual ? p.priceAnnual : p.priceMonthly;
+        {plans.map((p) => {
+          const tier = p.tier;
+          const priceCents = annual ? p.priceAnnualCents : p.priceMonthlyCents;
+          const price = priceCents == null ? null : priceCents / 100;
           const featured = tier === 'growth';
           return (
             <div
               key={tier}
               className={`rounded-2xl border p-6 flex flex-col ${
-                featured ? 'border-primary shadow-lg' : 'border-border'
+                featured ? 'border-black shadow-lg' : 'border-border'
               } bg-surface`}
             >
               {featured && (
-                <span className="self-start rounded-full bg-primary/10 text-primary text-[11px] font-bold px-2.5 py-0.5 mb-3">
+                <span className="self-start rounded-full bg-black/5 text-black text-[11px] font-bold px-2.5 py-0.5 mb-3">
                   Most popular
                 </span>
               )}
@@ -89,9 +90,9 @@ export function PricingCards() {
               ) : (
                 <Link
                   href={`/get-started?plan=${tier}&cycle=${annual ? 'annual' : 'monthly'}`}
-                  className={`rounded-lg text-center font-semibold py-2.5 text-sm ${
+                  className={`rounded-lg text-center font-semibold py-2.5 text-sm transition-transform hover:-translate-y-0.5 ${
                     featured
-                      ? 'bg-primary text-primary-fg'
+                      ? 'bg-black text-white'
                       : 'border border-border'
                   }`}
                 >

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
@@ -5,6 +6,7 @@ import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { SuppliersManager, type Supplier } from './SuppliersManager';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Suppliers' };
 
 export default async function SuppliersPage({
   params,

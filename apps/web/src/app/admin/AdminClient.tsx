@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createControlPlaneBrowserClient } from '@/lib/supabase/control-plane-client';
-import { Card } from '@/components/ui';
+import { AdminCard } from './_components/ui';
 
 export type TenantRow = {
   id: string;
@@ -24,10 +24,10 @@ export type TenantRow = {
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const STATUS_TONE: Record<string, string> = {
-  active: 'text-ok',
-  provisioning: 'text-warn',
-  failed: 'text-danger',
-  suspended: 'text-danger',
+  active: 'text-emerald-400',
+  provisioning: 'text-gold',
+  failed: 'text-red-400',
+  suspended: 'text-red-400',
 };
 
 export function AdminClient({ rows }: { rows: TenantRow[] }) {
@@ -75,14 +75,14 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
   }
 
   if (rows.length === 0) {
-    return <Card>No restaurants provisioned yet.</Card>;
+    return <AdminCard>No restaurants provisioned yet.</AdminCard>;
   }
 
   return (
-    <Card className="p-0 overflow-hidden">
-      {error && <div className="bg-danger/10 text-danger text-xs p-3">{error}</div>}
+    <AdminCard className="p-0 overflow-hidden">
+      {error && <div className="bg-red-500/10 text-red-400 text-xs p-3">{error}</div>}
       <table className="w-full text-left text-xs">
-        <thead className="text-muted border-b border-border">
+        <thead className="text-ink-muted border-b border-white/10">
           <tr>
             <th className="p-3 font-semibold">Restaurant</th>
             <th className="p-3 font-semibold">Owner</th>
@@ -95,28 +95,28 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-border/60 last:border-0 align-top">
+            <tr key={r.id} className="border-b border-white/10 last:border-0 align-top">
               <td className="p-3">
                 <div className="font-semibold">{r.restaurant_name}</div>
-                <div className="text-muted font-mono">/r/{r.slug}</div>
+                <div className="text-ink-muted font-mono">/r/{r.slug}</div>
               </td>
-              <td className="p-3 text-muted">{r.owner_email ?? '—'}</td>
+              <td className="p-3 text-ink-muted">{r.owner_email ?? '—'}</td>
               <td className="p-3 capitalize">
                 {r.subscriptions?.tier ?? '—'}
                 {r.subscriptions ? (
-                  <span className="text-muted"> · {r.subscriptions.status}</span>
+                  <span className="text-ink-muted"> · {r.subscriptions.status}</span>
                 ) : null}
               </td>
-              <td className="p-3 font-mono text-muted">
+              <td className="p-3 font-mono text-ink-muted">
                 {r.tenant_projects?.project_ref ?? '—'}
               </td>
               <td className={`p-3 font-semibold ${STATUS_TONE[r.status] ?? ''}`}>
                 {r.status}
                 {r.provisioning_attempts ? (
-                  <span className="text-muted font-normal"> · {r.provisioning_attempts} tries</span>
+                  <span className="text-ink-muted font-normal"> · {r.provisioning_attempts} tries</span>
                 ) : null}
                 {r.provisioning_error && (
-                  <div className="text-danger font-normal max-w-[220px] truncate" title={r.provisioning_error}>
+                  <div className="text-red-400 font-normal max-w-[220px] truncate" title={r.provisioning_error}>
                     {r.provisioning_error}
                   </div>
                 )}
@@ -125,17 +125,17 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
                 <span
                   className={
                     r.welcome_email_status === 'sent'
-                      ? 'text-ok'
+                      ? 'text-emerald-400'
                       : r.welcome_email_status === 'failed'
-                        ? 'text-danger'
-                        : 'text-muted'
+                        ? 'text-red-400'
+                        : 'text-ink-muted'
                   }
                 >
                   {r.welcome_email_status ?? '—'}
                 </span>
                 {r.welcome_email_error && (
                   <div
-                    className="text-danger max-w-[180px] truncate"
+                    className="text-red-400 max-w-[180px] truncate"
                     title={r.welcome_email_error}
                   >
                     {r.welcome_email_error}
@@ -149,7 +149,7 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
                       callAdmin(r.id, `/api/admin/tenants/${r.slug}/retry-provision`, 'Retry')
                     }
                     disabled={busyId === r.id}
-                    className="rounded bg-primary text-primary-fg px-3 py-1.5 font-semibold"
+                    className="rounded bg-gold text-ink px-3 py-1.5 font-semibold hover:bg-gold/90 transition-colors"
                   >
                     Retry provisioning
                   </button>
@@ -161,14 +161,14 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
                         callAdmin(r.id, `/api/admin/tenants/${r.slug}/resend-welcome`, 'Resend')
                       }
                       disabled={busyId === r.id}
-                      className="rounded border border-border px-3 py-1.5 font-semibold hover:bg-main"
+                      className="rounded border border-white/15 px-3 py-1.5 font-semibold hover:bg-white/5 transition-colors"
                     >
                       Resend email
                     </button>
                     <button
                       onClick={() => setStatus(r.id, 'suspended')}
                       disabled={busyId === r.id}
-                      className="ml-1.5 rounded border border-danger/40 text-danger px-3 py-1.5 font-semibold hover:bg-danger/10"
+                      className="ml-1.5 rounded border border-red-500/40 text-red-400 px-3 py-1.5 font-semibold hover:bg-red-500/10 transition-colors"
                     >
                       Suspend
                     </button>
@@ -178,19 +178,19 @@ export function AdminClient({ rows }: { rows: TenantRow[] }) {
                   <button
                     onClick={() => setStatus(r.id, 'active')}
                     disabled={busyId === r.id}
-                    className="rounded bg-primary text-primary-fg px-3 py-1.5 font-semibold"
+                    className="rounded bg-gold text-ink px-3 py-1.5 font-semibold hover:bg-gold/90 transition-colors"
                   >
                     Reactivate
                   </button>
                 )}
                 {!['failed', 'active', 'suspended'].includes(r.status) && (
-                  <span className="text-muted">—</span>
+                  <span className="text-ink-muted">—</span>
                 )}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </Card>
+    </AdminCard>
   );
 }

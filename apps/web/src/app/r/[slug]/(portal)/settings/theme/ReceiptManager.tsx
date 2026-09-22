@@ -63,6 +63,7 @@ export function ReceiptManager({
   initialConfig,
   restaurantName,
   logoUrl,
+  primaryColor,
   restaurant,
   previewOrder,
   legacyTemplateHtml,
@@ -72,6 +73,7 @@ export function ReceiptManager({
   initialConfig: ReceiptConfig | null;
   restaurantName: string;
   logoUrl: string | null;
+  primaryColor: string | null;
   restaurant: { address: string | null; phone: string | null; email: string | null; website: string | null; taxId: string | null };
   previewOrder: ReceiptContext | null;
   legacyTemplateHtml: string | null;
@@ -145,6 +147,7 @@ export function ReceiptManager({
       previewOrder ?? {
         restaurantName,
         logoUrl,
+        primaryColor,
         address: contact.address,
         phone: contact.phone,
         email: contact.email,
@@ -174,7 +177,7 @@ export function ReceiptManager({
         changeCents: 1231,
       },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [previewOrder, restaurantName, logoUrl, contact],
+    [previewOrder, restaurantName, logoUrl, primaryColor, contact],
   );
   // Override the sample's own restaurant/contact fields with whatever is
   // currently being edited (so ticking "show phone" reflects immediately,
@@ -183,6 +186,7 @@ export function ReceiptManager({
     ...previewCtx,
     restaurantName,
     logoUrl,
+    primaryColor,
     address: contact.address,
     phone: contact.phone,
     email: contact.email,

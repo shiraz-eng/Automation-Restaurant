@@ -3,6 +3,7 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
 import { canSeeFinance, roleHome } from '@/lib/portals';
+import { fetchPortalTheme } from '@/lib/theme';
 
 export default async function FinanceLayout({
   children,
@@ -21,11 +22,17 @@ export default async function FinanceLayout({
   const role = (user.app_metadata as { role?: string }).role ?? 'owner';
   if (!canSeeFinance(role)) redirect(roleHome(role, slug));
 
+  const { logoUrl } = await fetchPortalTheme(t.client);
+
   return (
     <PortalProvider value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}>
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between px-5 h-14 border-b border-border bg-surface shrink-0">
           <div className="flex items-baseline gap-3">
+            {logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-8 max-w-[6rem] object-contain" />
+            )}
             <span className="font-black">{t.config.restaurantName}</span>
             <span className="text-xs font-bold uppercase tracking-wider text-primary">Finance</span>
           </div>

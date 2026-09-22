@@ -6,6 +6,9 @@ import { publicRouter } from './routes/public';
 import { customerAiRouter } from './routes/customerAi';
 import { staffRouter } from './routes/staff';
 import { adminRouter } from './routes/admin';
+import { adminUsersRouter } from './routes/adminUsers';
+import { billingRouter } from './routes/billing';
+import { saasAiRouter } from './routes/saasAi';
 import { portalsRouter } from './routes/portals';
 import { aiRouter } from './routes/ai';
 import { menuImportRouter } from './routes/menuImport';
@@ -21,6 +24,7 @@ import { socialRouter } from './routes/social';
 import { retryFailedProvisions } from './provisioning';
 import { runLowStockSweepAllTenants } from './lib/lowStockAutomation';
 import { runRecipeCostSweepAllTenants } from './lib/recipeAutomation';
+import { runAttendanceAutoAbsentSweepAllTenants } from './lib/attendanceAutomation';
 
 const app = express();
 
@@ -34,6 +38,9 @@ app.use('/api/public', publicRouter);
 app.use('/api/public', customerAiRouter);
 app.use('/api/staff', staffRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/team', adminUsersRouter);
+app.use('/api/billing', billingRouter);
+app.use('/api/saas-ai', saasAiRouter);
 app.use('/api/portals', portalsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/ai', menuImportRouter);
@@ -77,3 +84,14 @@ const RECIPE_COST_SWEEP_INTERVAL_MS = 15 * 60_000;
 setInterval(() => {
   runRecipeCostSweepAllTenants().catch((err) => console.error('[recipe-cost] sweep error:', err));
 }, RECIPE_COST_SWEEP_INTERVAL_MS).unref();
+
+// Automatic absence marking (tenant-migrations/0053) — for any past
+// business day a staff member was expected in (an explicit shift, or
+// their own default shift_start_time on a normal working day) and never
+// clocked in or got an explicit status, marks them 'absent' (source=
+// 'auto'). Runs less often than the others since it only ever affects
+// already-closed business days, never the current one.
+const ATTENDANCE_AUTO_ABSENT_SWEEP_INTERVAL_MS = 60 * 60_000;
+setInterval(() => {
+  runAttendanceAutoAbsentSweepAllTenants().catch((err) => console.error('[attendance] sweep error:', err));
+}, ATTENDANCE_AUTO_ABSENT_SWEEP_INTERVAL_MS).unref();

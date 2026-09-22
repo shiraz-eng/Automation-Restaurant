@@ -40,6 +40,13 @@ export function OrdersClient({ orders, canCancel }: { orders: Order[]; canCancel
   async function setStatus(id: string, status: string) {
     setSavingId(id);
     setError(null);
+    // order_lines.kds_status is kept in sync with this write by a database
+    // trigger (0051_order_status_line_sync.sql) — added because this page's
+    // direct status write (orders.update permission) and the Kitchen
+    // board's kitchen_* RPCs (kitchen.update_status permission) are two
+    // different, independently-permissioned paths to the same field, and
+    // only fixing the frontend here would silently break status changes
+    // for any custom portal granted one permission but not the other.
     const { error } = await supabase.from('orders').update({ status }).eq('id', id);
     setSavingId(null);
     if (error) {

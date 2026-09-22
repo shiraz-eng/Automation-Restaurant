@@ -3,6 +3,7 @@
  * "R G B" channel strings to match the rgb(var(--x) / <alpha>) setup in
  * globals.css. Components never read colors any other way (RULE-UI-03).
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type Appearance = 'light' | 'dark' | 'system';
 
@@ -96,6 +97,7 @@ export type BrandKit = {
   text_muted: string | null;
   radius: string | null;
   appearance: Appearance | null;
+  meta_title: string | null;
 };
 
 export function themeFromBrandKit(kit: BrandKit | null | undefined): ThemeState {
@@ -114,6 +116,21 @@ export function themeFromBrandKit(kit: BrandKit | null | undefined): ThemeState 
       ...(kit.text_muted ? { 'text-muted': kit.text_muted } : {}),
     },
   };
+}
+
+/**
+ * Fetches this restaurant's Brand Kit through the one shared RPC and turns
+ * it into ThemeProvider's initial theme + the logo URL. Called once, from
+ * the tenant root layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps
+ * every route under a restaurant — the staff/owner portal, generated kiosk
+ * portals, the dedicated role portals (kitchen/floor/finance/deliveries/
+ * register/team), and the login/password-setup pages — so there is exactly
+ * one Brand Kit->theme fetch per request tree, not one per layout.
+ */
+export async function fetchPortalTheme(client: SupabaseClient): Promise<{ initialTheme: ThemeState; logoUrl: string | null }> {
+  const { data: brandKitRows } = await client.rpc('get_brand_kit');
+  const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
+  return { initialTheme: themeFromBrandKit(brandKit ?? null), logoUrl: brandKit?.logo_url ?? null };
 }
 
 export function loadThemeFrom(storageKey: string, fallback: ThemeState): ThemeState {

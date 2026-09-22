@@ -1,11 +1,7 @@
 import Stripe from 'stripe';
 import { env } from './env';
-import {
-  isBillingInterval,
-  isPlanTier,
-  type BillingInterval,
-  type PlanTier,
-} from '@automation-restaurant/shared';
+import type { BillingInterval, PlanTier } from '@automation-restaurant/shared';
+import { getActivePlans } from './lib/plans';
 
 // apiVersion intentionally omitted — the account's default pinned version is used,
 // which keeps this from breaking when the stripe types package bumps.
@@ -13,43 +9,41 @@ export const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
 export interface PriceMapping {
   tier: PlanTier;
-  interval?: BillingInterval;
+  interval: BillingInterval;
 }
 
-const priceMap = new Map<string, PriceMapping>();
-for (const raw of env.STRIPE_PRICE_MAP.split(',')) {
-  const entry = raw.trim();
-  if (!entry) continue;
-  const [priceId, tier, interval] = entry.split(':').map((s) => s.trim());
-  if (!priceId || !isPlanTier(tier)) {
-    console.warn(`[stripe] ignoring malformed STRIPE_PRICE_MAP entry: "${entry}"`);
-    continue;
-  }
-  priceMap.set(priceId, {
-    tier,
-    interval: isBillingInterval(interval) ? interval : undefined,
-  });
-}
-
-/** Resolve a Stripe Price ID to a plan tier/interval, or undefined if unmapped. */
-export function tierFromPriceId(priceId: string | null | undefined): PriceMapping | undefined {
-  return priceId ? priceMap.get(priceId) : undefined;
-}
-
-/** Reverse lookup: the Price ID for a tier + interval, or undefined. */
-export function priceIdFor(
-  tier: PlanTier,
-  interval: BillingInterval,
-): string | undefined {
-  for (const [priceId, m] of priceMap) {
-    if (m.tier === tier && (m.interval ?? interval) === interval) return priceId;
+/** Resolve a Stripe Price ID to a plan tier/interval, or undefined if unmapped.
+ *  Reads public.plans (via getActivePlans' cache) instead of a separate
+ *  STRIPE_PRICE_MAP env var — one source for "what a price ID means"
+ *  instead of two that could drift. */
+export async function tierFromPriceId(
+  priceId: string | null | undefined,
+): Promise<PriceMapping | undefined> {
+  if (!priceId) return undefined;
+  const plans = await getActivePlans();
+  for (const p of plans) {
+    if (p.stripePriceIdMonthly === priceId) return { tier: p.tier, interval: 'monthly' };
+    if (p.stripePriceIdAnnual === priceId) return { tier: p.tier, interval: 'annual' };
   }
   return undefined;
 }
 
-/** True only when a real secret key AND at least one price mapping are present. */
-export const billingConfigured =
-  /^sk_(test|live)_/.test(env.STRIPE_SECRET_KEY) && priceMap.size > 0;
+/** Reverse lookup: the Price ID for a tier + interval, or undefined. */
+export async function priceIdFor(
+  tier: PlanTier,
+  interval: BillingInterval,
+): Promise<string | undefined> {
+  const plans = await getActivePlans();
+  const plan = plans.find((p) => p.tier === tier);
+  if (!plan) return undefined;
+  return interval === 'annual' ? (plan.stripePriceIdAnnual ?? undefined) : (plan.stripePriceIdMonthly ?? undefined);
+}
+
+/** True only when a real secret key is configured. Individual plans may
+ *  still lack a Stripe price (e.g. Enterprise, or a newly-added plan before
+ *  its price is set) — priceIdFor returning undefined for THAT plan is the
+ *  per-plan signal, this flag is just "is Stripe usable at all". */
+export const billingConfigured = /^sk_(test|live)_/.test(env.STRIPE_SECRET_KEY);
 
 interface CheckoutInput {
   priceId: string;

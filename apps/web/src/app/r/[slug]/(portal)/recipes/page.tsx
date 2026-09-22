@@ -1,9 +1,11 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
-import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption } from './RecipesManager';
+import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from './RecipesManager';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Recipes & Food Cost' };
 
 export default async function RecipesPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -14,7 +16,7 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
   const canManage = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');
   const canViewCost = can(perms, role, 'inventory.view_cost');
 
-  const [{ data: recipesRaw, error }, { data: menuItems }, { data: inventoryItems }, { data: subRecipes }] = await Promise.all([
+  const [{ data: recipesRaw, error }, { data: menuItems }, { data: inventoryItems }, { data: subRecipes }, { data: categories }] = await Promise.all([
     t.client
       .from('recipes')
       .select(
@@ -40,6 +42,7 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
       .select('id, name, current_version_id, recipe_versions!recipes_current_version_fk(yield_qty, yield_unit)')
       .in('recipe_type', ['semi_finished', 'preparation'])
       .eq('status', 'active'),
+    t.client.from('menu_categories').select('id, name').order('sort_order'),
   ]);
 
   return (
@@ -62,6 +65,7 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
           menuItems={(menuItems ?? []) as unknown as MenuItemOption[]}
           inventoryItems={(inventoryItems ?? []) as unknown as InventoryItemOption[]}
           subRecipes={(subRecipes ?? []) as unknown as SubRecipeOption[]}
+          categories={(categories ?? []) as CategoryOption[]}
           canManage={canManage}
           canViewCost={canViewCost}
         />

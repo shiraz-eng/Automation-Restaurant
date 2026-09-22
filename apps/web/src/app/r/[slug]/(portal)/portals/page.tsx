@@ -22,23 +22,27 @@ export default async function PortalsPage({
 
   await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
 
-  const [{ data: portals, error }, { data: perms }, { data: staff }, { data: links }] = await Promise.all([
+  const [{ data: portals, error }, { data: perms }, { data: staff }, { data: links }, { data: brandKitRows }] = await Promise.all([
     t.client
       .from('portals')
-      .select('id, name, type, route_key, status, permissions, email, last_login_at, created_at')
+      .select('id, name, type, route_key, status, permissions, email, last_login_at, last_logout_at, created_at')
       .order('created_at'),
     t.client.from('permission_catalog').select('key, grp, label').order('grp'),
     t.client.from('memberships').select('id, email, full_name, role, status').order('email'),
     t.client.from('portal_staff').select('portal_id, membership_id'),
+    t.client.rpc('get_brand_kit'),
   ]);
+  const brandKit = Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows;
+  const logoUrl: string | null = (brandKit as { logo_url?: string | null } | null)?.logo_url ?? null;
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-xl font-black">Portal Management</h1>
+        <h1 className="text-xl font-black">Portals</h1>
         <p className="text-muted text-xs mt-1">
-          Create purpose-built portals — each gets its own login, its own permissions, and its
-          own URL. The Super Admin portal has full control and can&rsquo;t be changed.
+          Create purpose-built workspaces — each gets its own login, its own individually
+          selected permissions, and its own URL. The Super Admin portal has full control and
+          can&rsquo;t be changed.
         </p>
       </div>
       {error ? (
@@ -48,6 +52,8 @@ export default async function PortalsPage({
       ) : (
         <PortalsManager
           slug={slug}
+          restaurantName={t.config.restaurantName}
+          logoUrl={logoUrl}
           portals={(portals ?? []) as Portal[]}
           perms={(perms ?? []) as PermRow[]}
           staff={(staff ?? []) as StaffMember[]}

@@ -3,8 +3,32 @@ import { z } from 'zod';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase';
 import { env } from '../env';
+import { getActivePlans } from '../lib/plans';
+import { billingConfigured } from '../stripe';
+import { getAllSiteSections } from '../lib/siteContent';
 
 export const publicRouter = express.Router();
+
+/** GET /api/public/plans — active plans for the marketing pricing page,
+ *  get-started plan picker, and the tenant Billing page. Unauthenticated;
+ *  public.plans is the one source both apps read for plan/pricing data. */
+publicRouter.get('/plans', async (_req: Request, res: Response) => {
+  const plans = await getActivePlans();
+  res.json({ plans, billing_configured: billingConfigured });
+});
+
+/** GET /api/public/site-content — the marketing site's editable content
+ *  blocks (public.site_sections). Unauthenticated, ALL rows (active and
+ *  inactive) — the caller needs to see an inactive row to hide that
+ *  section rather than rendering its default, see lib/cms/content.ts. */
+publicRouter.get('/site-content', async (_req: Request, res: Response) => {
+  try {
+    const sections = await getAllSiteSections();
+    res.json({ sections });
+  } catch (err) {
+    res.status(500).json({ error: 'query_failed', message: String((err as Error).message ?? err) });
+  }
+});
 
 const TAX_RATE_BPS = 800;
 
@@ -57,7 +81,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   const tenant = slug ? await tenantClientForSlug(slug) : null;
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }] = await Promise.all([
+  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }] = await Promise.all([
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
@@ -74,29 +98,62 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
       .eq('is_available', true)
       .order('sort_order'),
     tenant.rpc('get_brand_kit'),
+    // Recipe-driven availability engine (tenant-migrations/0052) — the ONE
+    // authoritative "can we actually make this right now" signal, computed
+    // server-side from live inventory. Never recalculated here: this route
+    // only reads product_availability and reduces it to the plain boolean
+    // a customer sees (spec §26) — no bottleneck/reason ever leaves this
+    // route, and manual is_available/track_availability toggles above stay
+    // the only thing that removes an item/variant from the payload
+    // entirely; the engine only adds an "Unavailable" flag on top.
+    tenant.from('product_availability').select('menu_item_id, variant_id, status'),
   ]);
   const brandKit = Array.isArray(brandKitRows) ? (brandKitRows[0] ?? null) : (brandKitRows ?? null);
 
-  // Drop unavailable/out-of-stock variants; keep only items that still have one.
-  // Same for modifier options — a disabled option never reaches the storefront.
+  type AvailRow = { menu_item_id: string; variant_id: string | null; status: string };
+  const availRows = (availabilityRows ?? []) as AvailRow[];
+  const rowsForItem = (itemId: string) => availRows.filter((r) => r.menu_item_id === itemId);
+  // Untracked (no recipe/required-modifier signal at all) => true, same
+  // "absence of a row means fall back to the manual system" rule the
+  // engine itself documents. Tracked and every row unavailable => false.
+  const computedAvailable = (rows: AvailRow[]) => rows.length === 0 || !rows.every((r) => r.status === 'unavailable');
+
+  // Drop items/variants hidden or sold out via the pre-existing MANUAL
+  // toggles only — that stays an explicit Owner action to remove something
+  // from the storefront entirely. Everything that survives that filter
+  // gets a computed_available flag layered on top from the engine so it
+  // stays visible with a plain "Unavailable" label instead of vanishing
+  // (spec §26) — this is also what fixes a required modifier group whose
+  // options are all exhausted: the item now shows Unavailable up front
+  // instead of only failing at checkout.
   const cleaned = (items ?? [])
-    .map((it: Record<string, unknown>) => ({
-      ...it,
-      menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
-        .filter((v) => v.is_available && (!v.track_availability || (v.available_qty as number) > 0))
-        .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
-      modifier_groups: ((it.modifier_groups as Array<Record<string, unknown>>) ?? [])
-        .map(
-          (g): Record<string, unknown> => ({
-            ...g,
-            modifier_options: ((g.modifier_options as Array<Record<string, unknown>>) ?? [])
-              .filter((o) => o.is_available)
-              .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
-          }),
-        )
-        .filter((g) => (g.modifier_options as unknown[]).length > 0)
-        .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
-    }))
+    .map((it: Record<string, unknown>) => {
+      const itemRows = rowsForItem(it.id as string);
+      return {
+        ...it,
+        computed_available: computedAvailable(itemRows),
+        menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
+          .filter((v) => v.is_available && (!v.track_availability || (v.available_qty as number) > 0))
+          .map(
+            (v): Record<string, unknown> => ({
+              ...v,
+              computed_available: computedAvailable(itemRows.filter((r) => r.variant_id === v.id)),
+            }),
+          )
+          .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+        modifier_groups: ((it.modifier_groups as Array<Record<string, unknown>>) ?? [])
+          .map(
+            (g): Record<string, unknown> => ({
+              ...g,
+              modifier_options: ((g.modifier_options as Array<Record<string, unknown>>) ?? [])
+                .filter((o) => o.is_available)
+                .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+            }),
+          )
+          .filter((g) => (g.modifier_options as unknown[]).length > 0)
+          .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+      };
+    })
     .filter((it) => (it.menu_variants as unknown[]).length > 0);
 
   // Supabase embeds a to-one relation as an object (or an array of one on

@@ -10,12 +10,14 @@ export function SetPortalPasswordForm({
   url,
   anonKey,
   name,
+  logoUrl,
 }: {
   slug: string;
   portalKey: string;
   url: string;
   anonKey: string;
   name: string;
+  logoUrl?: string | null;
 }) {
   const router = useRouter();
   const [pw, setPw] = useState('');
@@ -44,6 +46,10 @@ export function SetPortalPasswordForm({
   return (
     <div className="min-h-screen grid place-items-center px-4">
       <div className="w-full max-w-sm">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt={`${name} logo`} className="h-12 max-w-[12rem] object-contain mb-3" />
+        )}
         <div className="font-black text-xl mb-1">{name}</div>
         <p className="text-muted mb-8">Choose a password for this portal before continuing.</p>
         <form onSubmit={submit} className="space-y-4">

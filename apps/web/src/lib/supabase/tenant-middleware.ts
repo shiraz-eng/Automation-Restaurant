@@ -54,13 +54,19 @@ export async function updateTenantSession(request: NextRequest) {
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
     const isLogin = pathname === '/admin/login';
     const { response, user } = await refresh(request, CP_URL, CP_ANON);
-    const role = (user?.app_metadata as { role?: string } | undefined)?.role;
-    if ((!user || role !== 'super_admin') && !isLogin) {
+    const meta = user?.app_metadata as { role?: string; permissions?: string[] } | undefined;
+    const role = meta?.role;
+    // A granular platform admin (any role with a non-empty permissions
+    // array) is let through the edge — the real per-page gate is
+    // gateAdminPage(), which checks the SPECIFIC permission that page
+    // needs, not just "is this a platform admin at all".
+    const isPlatformAdmin = role === 'super_admin' || (Array.isArray(meta?.permissions) && meta!.permissions!.length > 0);
+    if ((!user || !isPlatformAdmin) && !isLogin) {
       const u = request.nextUrl.clone();
       u.pathname = '/admin/login';
       return NextResponse.redirect(u);
     }
-    if (user && role === 'super_admin' && isLogin) {
+    if (user && isPlatformAdmin && isLogin) {
       const u = request.nextUrl.clone();
       u.pathname = '/admin';
       return NextResponse.redirect(u);

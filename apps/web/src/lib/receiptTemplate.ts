@@ -123,6 +123,11 @@ export type ReceiptItemLine = {
 export type ReceiptContext = {
   restaurantName: string;
   logoUrl: string | null;
+  /** Brand Kit's accent color ("R G B" channel string) — the PDF download
+   *  uses it to highlight the total, matching the restaurant's own theme
+   *  instead of plain black. Printed thermal receipts stay monochrome
+   *  (real hardware constraint) — this only affects the PDF path. */
+  primaryColor: string | null;
   address: string | null;
   phone: string | null;
   email: string | null;

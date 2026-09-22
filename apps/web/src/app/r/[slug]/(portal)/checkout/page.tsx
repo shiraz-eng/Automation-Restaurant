@@ -16,7 +16,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
   const { role, perms } = await gatePortalPage(t.client, slug, 'payments.view');
   const canCreateOrder = can(perms, role, 'orders.create');
 
-  const [{ data, error }, { data: settings }, { data: menuCategories }, { data: menuItems }] = await Promise.all([
+  const [{ data, error }, { data: settings }, { data: menuCategories }, { data: menuItems }, { data: availabilityRows }] = await Promise.all([
     t.client
       .from('orders')
       .select(
@@ -26,7 +26,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
       .order('created_at', { ascending: true }),
     t.client
       .from('business_settings')
-      .select('brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
+      .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
       .eq('id', true)
       .maybeSingle(),
     canCreateOrder
@@ -39,7 +39,30 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           .eq('is_available', true)
           .order('name')
       : Promise.resolve({ data: null }),
+    canCreateOrder
+      ? t.client.from('product_availability').select('menu_item_id, variant_id, status')
+      : Promise.resolve({ data: null }),
   ]);
+
+  // Layer the recipe-driven engine's computed availability on top of the
+  // manual is_available toggle already filtered above — same "absence of
+  // a row means untracked, fall back to the manual signal" rule Menu
+  // Management/Customer Menu already use, so New Order stops offering
+  // something the engine (and, once configured, priority allocation)
+  // already knows is out of stock.
+  const availByItem = new Map<string, { variant_id: string | null; status: string }[]>();
+  for (const r of (availabilityRows ?? []) as { menu_item_id: string; variant_id: string | null; status: string }[]) {
+    const arr = availByItem.get(r.menu_item_id) ?? [];
+    arr.push(r);
+    availByItem.set(r.menu_item_id, arr);
+  }
+  const menuItemsWithAvailability = (menuItems ?? []).map((it: Record<string, unknown>) => ({
+    ...it,
+    menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? []).map((v) => ({
+      ...v,
+      computed_available: (availByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id)?.status !== 'unavailable',
+    })),
+  }));
 
   return (
     <div className="space-y-4">
@@ -59,6 +82,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           canCancel={can(perms, role, 'orders.cancel')}
           receipt={{
             logoUrl: settings?.brand_logo_url ?? null,
+            primaryColor: settings?.brand_primary ?? null,
             footerText: settings?.receipt_footer_text ?? null,
             templateHtml: settings?.receipt_template_html ?? null,
             receiptConfig: (settings?.receipt_config as CheckoutClientReceiptConfig | null) ?? null,
@@ -73,7 +97,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           canCreateOrder={canCreateOrder}
           taxRateBps={TAX_RATE_BPS}
           menuCategories={(menuCategories as NewOrderCategory[] | null) ?? []}
-          menuItems={(menuItems as unknown as NewOrderItem[] | null) ?? []}
+          menuItems={menuItemsWithAvailability as unknown as NewOrderItem[]}
         />
       )}
     </div>

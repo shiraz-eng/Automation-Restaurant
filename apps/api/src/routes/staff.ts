@@ -14,7 +14,7 @@ staffRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'POST, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
@@ -23,12 +23,14 @@ staffRouter.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 const bodySchema = z.object({
   slug: z.string().min(1),
   email: z.string().trim().toLowerCase().email().optional(),
   full_name: z.string().trim().max(120).optional(),
   role: z.enum(['manager', 'cashier', 'chef', 'waiter', 'host', 'hr', 'accountant', 'delivery']),
   password: z.string().min(8).max(200).optional(),
+  shift_start_time: z.string().regex(TIME_RE).optional(),
 });
 
 /**
@@ -47,7 +49,7 @@ staffRouter.post(
         .status(422)
         .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
     }
-    const { full_name, role } = parsed.data;
+    const { full_name, role, shift_start_time } = parsed.data;
     const { slug, admin } = req.tenant!;
 
     // Owner-managed accounts (this one, like a kiosk portal's) don't need
@@ -86,6 +88,7 @@ staffRouter.post(
       full_name: full_name ?? null,
       role,
       status: 'active',
+      shift_start_time: shift_start_time ?? null,
     });
     if (mErr) return res.status(400).json({ error: 'membership_failed', message: mErr.message });
 
@@ -168,5 +171,37 @@ staffRouter.post(
     }
 
     res.json({ ok: true, role, permissions: perms });
+  },
+);
+
+const patchSchema = z.object({
+  slug: z.string().min(1),
+  shift_start_time: z.string().regex(TIME_RE).nullable(),
+});
+
+/**
+ * PATCH /api/staff/:id — set/clear a member's default shift start time
+ * (memberships.shift_start_time), used by app.recompute_attendance() as
+ * the late-detection fallback when no explicit shift is scheduled for a
+ * given day (tenant-migrations/0053).
+ */
+staffRouter.patch(
+  '/:id',
+  express.json(),
+  requirePortalPerm('staff.update'),
+  async (req: Request, res: Response) => {
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(422)
+        .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
+    }
+    const { admin } = req.tenant!;
+    const { error } = await admin
+      .from('memberships')
+      .update({ shift_start_time: parsed.data.shift_start_time })
+      .eq('id', req.params.id);
+    if (error) return res.status(400).json({ error: 'update_failed', message: error.message });
+    res.json({ ok: true });
   },
 );

@@ -16,6 +16,16 @@ import { buildReceiptBlocks } from './receiptTemplate';
 
 const LOGO_MM: Record<'sm' | 'md' | 'lg', number> = { sm: 10, md: 14, lg: 18 };
 
+/** "124 58 237" -> [124, 58, 237]. Falls back to near-black (matches this
+ *  file's existing default body color) for an unset/malformed value. */
+function parseChannels(channels: string | null | undefined): [number, number, number] {
+  if (channels) {
+    const parts = channels.trim().split(/\s+/).map(Number);
+    if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) return parts as [number, number, number];
+  }
+  return [17, 17, 17];
+}
+
 export async function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -46,6 +56,7 @@ export async function buildReceiptDoc(config: ReceiptConfig, ctx: ReceiptContext
   const MARGIN = config.width === '58mm' ? 3 : 5;
   const CONTENT_W = WIDTH - MARGIN * 2;
   const X = { left: MARGIN, center: WIDTH / 2, right: WIDTH - MARGIN } as const;
+  const accent = parseChannels(ctx.primaryColor);
 
   const doc = new jsPDF({ unit: 'mm', format: [WIDTH, Math.max(estimateHeight(blocks), 90)] });
   let y = MARGIN;
@@ -86,9 +97,11 @@ export async function buildReceiptDoc(config: ReceiptConfig, ctx: ReceiptContext
         break;
       }
       case 'row': {
+        const isTotal = b.label === 'TOTAL' && b.bold;
         doc.setFont('helvetica', b.bold ? 'bold' : 'normal');
         doc.setFontSize(b.bold ? 10 : 8.5);
-        doc.setTextColor(17, 17, 17);
+        if (isTotal) doc.setTextColor(...accent);
+        else doc.setTextColor(17, 17, 17);
         doc.text(b.label, MARGIN, y);
         doc.text(b.value, WIDTH - MARGIN, y, { align: 'right' });
         y += 4.4;

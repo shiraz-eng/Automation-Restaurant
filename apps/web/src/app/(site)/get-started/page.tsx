@@ -1,7 +1,7 @@
-import { PLANS, isPlanTier, type PlanTier } from '@automation-restaurant/shared';
+import { getActivePlans } from '@/lib/plans';
 import { GetStartedForm } from './GetStartedForm';
 
-export const metadata = { title: 'Get started — Automation Restaurant' };
+export const metadata = { title: 'Get Started' };
 export const dynamic = 'force-dynamic';
 
 export default async function GetStartedPage({
@@ -10,10 +10,11 @@ export default async function GetStartedPage({
   searchParams: Promise<{ plan?: string; cycle?: string }>;
 }) {
   const sp = await searchParams;
-  const plan: PlanTier = isPlanTier(sp.plan) ? sp.plan : 'growth';
+  const plans = await getActivePlans();
+  const info = plans.find((p) => p.tier === sp.plan) ?? plans.find((p) => p.tier === 'growth') ?? plans[0];
   const cycle: 'monthly' | 'annual' = sp.cycle === 'annual' ? 'annual' : 'monthly';
-  const info = PLANS[plan];
-  const price = cycle === 'annual' ? info.priceAnnual : info.priceMonthly;
+  const priceCents = info ? (cycle === 'annual' ? info.priceAnnualCents : info.priceMonthlyCents) : null;
+  const price = priceCents == null ? null : priceCents / 100;
 
   return (
     <div className="mx-auto max-w-5xl px-5 py-16 grid gap-10 lg:grid-cols-[1fr_320px]">
@@ -23,12 +24,12 @@ export default async function GetStartedPage({
           Tell us about your restaurant. After payment, your workspace provisions automatically
           and your portal link is emailed to you.
         </p>
-        <GetStartedForm plan={plan} cycle={cycle} />
+        <GetStartedForm plan={info?.tier ?? 'growth'} cycle={cycle} />
       </div>
 
       <aside className="lg:sticky lg:top-24 h-fit rounded-xl border border-border bg-surface p-5 text-sm">
-        <div className="font-bold">{info.name} plan</div>
-        <div className="text-muted text-xs">{info.blurb}</div>
+        <div className="font-bold">{info?.name ?? 'Plan'} plan</div>
+        <div className="text-muted text-xs">{info?.blurb}</div>
         <div className="my-4 border-t border-border" />
         <div className="flex justify-between">
           <span className="text-muted">Billing</span>

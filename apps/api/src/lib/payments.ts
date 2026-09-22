@@ -1,6 +1,7 @@
 import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
-import { PLANS, type PlanTier, type BillingInterval } from '@automation-restaurant/shared';
+import type { PlanTier, BillingInterval } from '@automation-restaurant/shared';
 import { env } from '../env';
+import { getPlanByTier } from './plans';
 
 /**
  * Simulated payment for `PAYMENTS_MODE=mock` (the default when Stripe isn't
@@ -20,11 +21,11 @@ export interface SimulatedPayment {
   paid_at: string;
 }
 
-export function amountForPlan(tier: PlanTier, interval: BillingInterval): number {
-  const info = PLANS[tier];
-  const perMonth = interval === 'annual' ? info.priceAnnual : info.priceMonthly;
+export async function amountForPlan(tier: PlanTier, interval: BillingInterval): Promise<number> {
+  const plan = await getPlanByTier(tier);
+  const perMonthCents = interval === 'annual' ? plan?.priceAnnualCents : plan?.priceMonthlyCents;
   const months = interval === 'annual' ? 12 : 1;
-  return perMonth == null ? 0 : Math.round(perMonth * 100) * months;
+  return perMonthCents == null ? 0 : perMonthCents * months;
 }
 
 function detectBrand(pan: string): string {
@@ -71,15 +72,15 @@ export function validateCard(
   return { ok: true, brand: detectBrand(pan), last4: pan.slice(-4) };
 }
 
-export function simulatePayment(
+export async function simulatePayment(
   tier: PlanTier,
   interval: BillingInterval,
   card?: { brand: string; last4: string },
-): SimulatedPayment {
+): Promise<SimulatedPayment> {
   return {
     reference: `mock_pi_${randomBytes(12).toString('hex')}`,
     customer_reference: `mock_cus_${randomBytes(8).toString('hex')}`,
-    amount_cents: amountForPlan(tier, interval),
+    amount_cents: await amountForPlan(tier, interval),
     currency: 'usd',
     card_brand: card?.brand ?? 'visa',
     card_last4: card?.last4 ?? '4242',

@@ -39,6 +39,7 @@ export interface MgmtClient {
   waitForQueryable(ref: string, timeoutMs?: number): Promise<void>;
   getApiKeys(ref: string): Promise<{ anon: string; service_role: string }>;
   runSql(ref: string, query: string): Promise<unknown>;
+  deleteProject(ref: string): Promise<void>;
 }
 
 export function mgmtClient(token: string): MgmtClient {
@@ -125,6 +126,9 @@ export function mgmtClient(token: string): MgmtClient {
         method: 'POST',
         body: JSON.stringify({ query }),
       }),
+    deleteProject: async (ref) => {
+      await request<unknown>(`/projects/${ref}`, { method: 'DELETE' });
+    },
   };
   return client;
 }

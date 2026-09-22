@@ -456,6 +456,14 @@ export function PerformancePanel({
     let inventoryReconciliation: ReportInventory | undefined;
     let aiInsights: ReportAiInsights | undefined;
     let auditId: string | null = null;
+    // Brand Kit accent color — same "action can't know this, the /confirm
+    // route patches it in" gap as logoUrl already has (routes/ai.ts), so
+    // this PDF's accent matches the restaurant's own theme instead of the
+    // platform default. This panel builds its own ReportData object below
+    // rather than forwarding body.result verbatim (see SectionReportButtons
+    // for the domain-report path that does), so it has to be pulled out
+    // here explicitly or it silently gets dropped.
+    let primaryColor: string | null | undefined;
     try {
       const {
         data: { session },
@@ -475,6 +483,7 @@ export function PerformancePanel({
         promotions = body.result.promotions ?? undefined;
         inventoryReconciliation = body.result.inventoryReconciliation ?? undefined;
         aiInsights = body.result.aiInsights ?? undefined;
+        primaryColor = body.result.primaryColor ?? null;
         auditId = body.auditId ?? null;
       }
     } catch {
@@ -485,6 +494,7 @@ export function PerformancePanel({
     await saveAndStoreReportPdf({
       restaurantName,
       logoUrl,
+      primaryColor,
       periodLabel,
       kpis: {
         net_sales_cents: sales?.net_sales_cents ?? 0,

@@ -1,18 +1,13 @@
-import { redirect } from 'next/navigation';
 import { createControlPlaneServerClient } from '@/lib/supabase/control-plane-server';
-import { StatCard } from '@/components/StatCard';
+import { gateAdminPage } from '@/lib/adminPermissions';
+import { AdminStatCard } from './_components/ui';
 import { AdminClient, type TenantRow } from './AdminClient';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminDashboard() {
   const supabase = await createControlPlaneServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || (user.app_metadata as { role?: string }).role !== 'super_admin') {
-    redirect('/admin/login');
-  }
+  await gateAdminPage(supabase, 'dashboard.view');
 
   const { data, error } = await supabase
     .from('tenants')
@@ -31,16 +26,16 @@ export default async function AdminDashboard() {
       <h1 className="text-xl font-black">Restaurants</h1>
 
       {error && (
-        <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 text-red-400 p-4 text-xs">
           {error.message}
         </div>
       )}
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total" value={rows.length} />
-        <StatCard label="Active" value={active} tone="ok" />
-        <StatCard label="Provisioning" value={provisioning} tone={provisioning ? 'warn' : 'default'} />
-        <StatCard label="Failed" value={failed} tone={failed ? 'danger' : 'default'} />
+        <AdminStatCard label="Total" value={rows.length} />
+        <AdminStatCard label="Active" value={active} tone="ok" />
+        <AdminStatCard label="Provisioning" value={provisioning} tone={provisioning ? 'warn' : 'default'} />
+        <AdminStatCard label="Failed" value={failed} tone={failed ? 'danger' : 'default'} />
       </section>
 
       <AdminClient rows={rows} />

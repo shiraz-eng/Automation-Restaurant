@@ -1,10 +1,12 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
+import { PortalPreview } from './PortalPreview';
+import { Plus, Search, Users, X } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -17,6 +19,7 @@ export type Portal = {
   permissions: string[];
   email: string | null;
   last_login_at: string | null;
+  last_logout_at: string | null;
   created_at: string;
 };
 export type PermRow = { key: string; grp: string; label: string };
@@ -25,23 +28,30 @@ export type PortalStaffLink = { portal_id: string; membership_id: string };
 
 const TYPES = ['checkout', 'kitchen', 'attendance', 'manager', 'custom'] as const;
 
-// Sensible default permission sets per type.
+// Quick-start starting points only — every one of these stays fully
+// editable in the permission grid below, and nothing here gates what a
+// portal can actually do. The portal's real capabilities are always
+// exactly its saved `permissions` array (see lib/portalCapabilities.ts).
 const PRESET: Record<string, string[]> = {
   checkout: ['orders.view', 'payments.view', 'payments.accept'],
   kitchen: ['kitchen.view', 'kitchen.update_status', 'stock.view', 'stock.update'],
-  attendance: ['attendance.view', 'attendance.mark'],
+  attendance: ['attendance.view', 'attendance.mark', 'attendance.check_in', 'attendance.check_out'],
   manager: ['orders.view', 'payments.view', 'kitchen.view', 'menu.view', 'stock.view', 'reports.view', 'reviews.view'],
   custom: [],
 };
 
 export function PortalsManager({
   slug,
+  restaurantName,
+  logoUrl,
   portals,
   perms,
   staff,
   links,
 }: {
   slug: string;
+  restaurantName: string;
+  logoUrl: string | null;
   portals: Portal[];
   perms: PermRow[];
   staff: StaffMember[];
@@ -53,12 +63,14 @@ export function PortalsManager({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState<(typeof TYPES)[number]>('checkout');
-  const [selected, setSelected] = useState<Set<string>>(new Set(PRESET.checkout));
+  const [type, setType] = useState<(typeof TYPES)[number]>('custom');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editId, setEditId] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [permSearch, setPermSearch] = useState('');
 
   const [staffEditId, setStaffEditId] = useState<string | null>(null);
   const [staffDraft, setStaffDraft] = useState<Set<string>>(new Set());
@@ -68,6 +80,14 @@ export function PortalsManager({
     for (const p of perms) m.set(p.grp, [...(m.get(p.grp) ?? []), p]);
     return [...m.entries()];
   }, [perms]);
+
+  const filteredGroups = useMemo(() => {
+    const q = permSearch.trim().toLowerCase();
+    if (!q) return groups;
+    return groups
+      .map(([grp, rows]) => [grp, rows.filter((r) => r.label.toLowerCase().includes(q) || r.key.toLowerCase().includes(q))] as [string, PermRow[]])
+      .filter(([, rows]) => rows.length > 0);
+  }, [groups, permSearch]);
 
   const staffByPortal = useMemo(() => {
     const m = new Map<string, string[]>();
@@ -94,6 +114,15 @@ export function PortalsManager({
       return n;
     });
   }
+  function toggleGroup(rows: PermRow[]) {
+    const allOn = rows.every((r) => selected.has(r.key));
+    setSelected((s) => {
+      const n = new Set(s);
+      for (const r of rows) (allOn ? n.delete(r.key) : n.add(r.key));
+      return n;
+    });
+  }
+
   async function createPortal(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -148,12 +177,7 @@ export function PortalsManager({
       }
       setBusy(false);
       setNotice(`Portal "${name.trim()}" updated.${passwordNotice}`);
-      setEditId(null);
-      setName('');
-      setType('checkout');
-      setSelected(new Set(PRESET.checkout));
-      setLoginEmail('');
-      setLoginPassword('');
+      closeForm();
       router.refresh();
       return;
     }
@@ -176,13 +200,22 @@ export function PortalsManager({
     setNotice(
       `Portal "${body.portal.name}" created.\n  URL:      ${body.url}\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
     );
-    setName('');
-    setSelected(new Set(PRESET[type] ?? []));
-    setLoginEmail('');
-    setLoginPassword('');
+    closeForm();
     router.refresh();
   }
 
+  function openCreate() {
+    setError(null);
+    setNotice(null);
+    setEditId(null);
+    setName('');
+    setType('custom');
+    setSelected(new Set());
+    setLoginEmail('');
+    setLoginPassword('');
+    setPermSearch('');
+    setFormOpen(true);
+  }
   function startEditAccess(p: Portal) {
     setError(null);
     setNotice(null);
@@ -192,12 +225,15 @@ export function PortalsManager({
     setSelected(new Set(p.permissions));
     setLoginEmail(p.email ?? '');
     setLoginPassword('');
+    setPermSearch('');
+    setFormOpen(true);
   }
-  function cancelEditAccess() {
+  function closeForm() {
+    setFormOpen(false);
     setEditId(null);
     setName('');
-    setType('checkout');
-    setSelected(new Set(PRESET.checkout));
+    setType('custom');
+    setSelected(new Set());
     setLoginEmail('');
     setLoginPassword('');
   }
@@ -216,7 +252,6 @@ export function PortalsManager({
       setError(b.message ?? b.error ?? 'Update failed.');
       return;
     }
-    setEditId(null);
     router.refresh();
   }
 
@@ -281,8 +316,11 @@ export function PortalsManager({
     router.refresh();
   }
 
+  const customPortals = portals.filter((p) => p.type !== 'super_admin');
+  const activeCount = customPortals.filter((p) => p.status === 'active').length;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {error && (
         <div className="rounded border border-danger/40 bg-danger/10 text-danger p-3 text-xs whitespace-pre-wrap">
           {error}
@@ -294,215 +332,238 @@ export function PortalsManager({
         </div>
       )}
 
-      <Card>
-        <h2 className="font-bold text-sm mb-3">{editId ? `Edit access — ${name}` : 'Create portal'}</h2>
-        <form onSubmit={createPortal} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Portal name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Counter 1" />
-            </Field>
-            <Field label="Type">
-              <Select value={type} onChange={(e) => pickType(e.target.value as (typeof TYPES)[number])}>
-                {TYPES.map((tp) => (
-                  <option key={tp} value={tp}>
-                    {tp}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Login email">
-              <Input
-                type="email"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder={editId ? 'Unchanged' : 'Auto-generated if left blank'}
-              />
-            </Field>
-            <Field label={editId ? 'New password' : 'Password'}>
-              <Input
-                type="text"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder={editId ? 'Leave blank to keep current' : 'Auto-generated if left blank'}
-              />
-            </Field>
-          </div>
-          <div>
-            <span className="text-muted text-[11px] font-semibold">Permissions</span>
-            <p className="text-muted text-[10px] mt-0.5 mb-1.5">
-              This portal can do exactly what&rsquo;s checked below — nothing more. There&rsquo;s no
-              predefined &ldquo;Kitchen&rdquo; or &ldquo;Finance&rdquo; portal to pick; select the individual
-              permissions this portal needs and it gets that functionality.
-            </p>
-            <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-              {groups.map(([grp, rows]) => (
-                <div key={grp}>
-                  <div className="text-[11px] font-bold text-muted mb-1">{grp}</div>
-                  {rows.map((r) => (
-                    <label key={r.key} className="flex items-center gap-2 text-xs py-0.5">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.key)}
-                        onChange={() => toggle(r.key)}
-                      />
-                      {r.label}
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button type="submit" disabled={busy}>
-              {editId ? 'Save access' : 'Create portal'}
-            </Button>
-            {editId && (
-              <Button type="button" variant="ghost" disabled={busy} onClick={cancelEditAccess}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        </form>
-      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-4 text-xs text-muted">
+          <span>
+            <span className="font-bold text-body text-sm">{customPortals.length}</span> portals
+          </span>
+          <span>
+            <span className="font-bold text-ok text-sm">{activeCount}</span> active
+          </span>
+        </div>
+        <Button onClick={openCreate} className="inline-flex items-center gap-1.5">
+          <Plus size={14} /> Create Custom Portal
+        </Button>
+      </div>
 
-      <Card className="p-0 overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead className="text-muted border-b border-border">
-            <tr>
-              <th className="p-3 font-semibold">Portal</th>
-              <th className="p-3 font-semibold">Type</th>
-              <th className="p-3 font-semibold">URL</th>
-              <th className="p-3 font-semibold">Status</th>
-              <th className="p-3 font-semibold">Assigned staff</th>
-              <th className="p-3 font-semibold">Last login</th>
-              <th className="p-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {portals.map((p) => {
-              const assigned = staffByPortal.get(p.id) ?? [];
-              return (
-              <Fragment key={p.id}>
-              <tr className="border-b border-border/60 last:border-0 align-top">
-                <td className="p-3 font-semibold">{p.name}</td>
-                <td className="p-3 capitalize">{p.type.replace('_', ' ')}</td>
-                <td className="p-3 font-mono text-muted">
-                  <div>{p.type === 'super_admin' ? `/r/${slug}` : `/r/${slug}/portal/${p.route_key}`}</div>
-                  {p.email && <div className="text-[10px] mt-0.5">{p.email}</div>}
-                </td>
-                <td className="p-3">
-                  <span className={p.status === 'active' ? 'text-ok' : 'text-danger'}>
-                    {p.status}
+      {formOpen && (
+        <Card className="border-primary/30">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="font-bold text-sm">{editId ? `Edit access — ${name}` : 'Create custom portal'}</h2>
+              <p className="text-muted text-[11px] mt-0.5">
+                A portal is a name plus the individual permissions you grant it — nothing more.
+                There&rsquo;s no predefined &ldquo;Kitchen&rdquo; or &ldquo;Finance&rdquo; portal to pick.
+              </p>
+            </div>
+            <button type="button" onClick={closeForm} className="text-muted hover:text-body shrink-0" aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+
+          <form onSubmit={createPortal} className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Portal name">
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Counter 1" autoFocus />
+                </Field>
+                <Field label="Quick start (optional)">
+                  <Select value={type} onChange={(e) => pickType(e.target.value as (typeof TYPES)[number])}>
+                    {TYPES.map((tp) => (
+                      <option key={tp} value={tp}>
+                        {tp === 'custom' ? 'Blank — pick permissions myself' : `${tp} starting point`}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Login email">
+                  <Input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder={editId ? 'Unchanged' : 'Auto-generated if left blank'}
+                  />
+                </Field>
+                <Field label={editId ? 'New password' : 'Password'}>
+                  <Input
+                    type="text"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder={editId ? 'Leave blank to keep current' : 'Auto-generated if left blank'}
+                  />
+                </Field>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-muted text-[11px] font-semibold">
+                    Permissions <span className="text-body font-bold">({selected.size} selected)</span>
                   </span>
-                </td>
-                <td className="p-3">
-                  {p.type === 'super_admin' ? (
-                    <span className="text-muted">—</span>
+                  <div className="relative">
+                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                    <input
+                      value={permSearch}
+                      onChange={(e) => setPermSearch(e.target.value)}
+                      placeholder="Search permissions…"
+                      className="rounded border border-border bg-surface pl-6 pr-2 py-1 text-[11px] outline-none focus:border-primary w-40"
+                    />
+                  </div>
+                </div>
+                <div className="max-h-80 overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                  {filteredGroups.length === 0 ? (
+                    <p className="text-muted text-xs col-span-2">No permissions match &ldquo;{permSearch}&rdquo;.</p>
                   ) : (
-                    <>
-                      <div className="text-muted">
-                        {assigned.length === 0
-                          ? 'None'
-                          : assigned.map((id) => staffById.get(id)?.full_name || staffById.get(id)?.email || id).join(', ')}
-                      </div>
-                      <button
-                        type="button"
-                        className="text-primary underline text-[11px] mt-0.5"
-                        disabled={busy}
-                        onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
-                      >
-                        {staffEditId === p.id ? 'Cancel' : 'Edit'}
-                      </button>
-                    </>
-                  )}
-                </td>
-                <td className="p-3 text-muted">
-                  {p.last_login_at ? formatDateTime(p.last_login_at) : '—'}
-                </td>
-                <td className="p-3 text-right whitespace-nowrap">
-                  {p.type === 'super_admin' ? (
-                    <span className="text-muted">—</span>
-                  ) : (
-                    <>
-                      <Button
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => startEditAccess(p)}
-                      >
-                        Edit access
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="ml-1.5"
-                        disabled={busy}
-                        onClick={() =>
-                          patch(p.id, { status: p.status === 'active' ? 'disabled' : 'active' })
-                        }
-                      >
-                        {p.status === 'active' ? 'Disable' : 'Enable'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="ml-1.5"
-                        disabled={busy}
-                        onClick={() => resetPassword(p.id, p.name)}
-                      >
-                        Reset password
-                      </Button>
-                      <Button
-                        variant="danger"
-                        className="ml-1.5"
-                        disabled={busy}
-                        onClick={() => remove(p.id)}
-                      >
-                        Delete
-                      </Button>
-                    </>
-                  )}
-                </td>
-              </tr>
-              {staffEditId === p.id && (
-                <tr className="border-b border-border/60 bg-main/30">
-                  <td colSpan={7} className="p-3">
-                    <div className="text-[11px] font-semibold text-muted mb-1.5">
-                      Staff assigned this portal gain its permissions in addition to their own role.
-                    </div>
-                    {staff.length === 0 ? (
-                      <p className="text-muted text-xs">No staff accounts yet — add one on the Staff page.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                        {staff.map((m) => (
-                          <label key={m.id} className="flex items-center gap-2 text-xs">
-                            <input
-                              type="checkbox"
-                              checked={staffDraft.has(m.id)}
-                              onChange={() => toggleStaff(m.id)}
-                            />
-                            <span>{m.full_name || m.email}</span>
-                            <span className="text-muted text-[10px]">({m.role})</span>
+                    filteredGroups.map(([grp, rows]) => (
+                      <div key={grp}>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(rows)}
+                          className="text-[11px] font-bold text-muted mb-1 hover:text-primary"
+                        >
+                          {grp}
+                        </button>
+                        {rows.map((r) => (
+                          <label key={r.key} className="flex items-center gap-2 text-xs py-0.5">
+                            <input type="checkbox" checked={selected.has(r.key)} onChange={() => toggle(r.key)} />
+                            {r.label}
                           </label>
                         ))}
                       </div>
-                    )}
-                    <div className="flex gap-2 mt-3">
-                      <Button disabled={busy} onClick={() => saveStaff(p.id)}>
-                        {busy ? 'Saving…' : 'Save'}
-                      </Button>
-                      <Button variant="ghost" disabled={busy} onClick={() => setStaffEditId(null)}>
-                        Cancel
-                      </Button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <Button type="submit" disabled={busy}>
+                  {editId ? 'Save access' : 'Create portal'}
+                </Button>
+                <Button type="button" variant="ghost" disabled={busy} onClick={closeForm}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold text-muted mb-1.5">Live workspace preview</div>
+              <PortalPreview restaurantName={restaurantName} logoUrl={logoUrl} portalName={name} permissions={selected} />
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {customPortals.length === 0 ? (
+        <Card>
+          <p className="text-muted text-xs">
+            No custom portals yet. Create one to give a team member exactly the access they need.
+          </p>
+        </Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {customPortals.map((p) => {
+              const assigned = staffByPortal.get(p.id) ?? [];
+              return (
+                <Card key={p.id} className="flex flex-col">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm truncate">{p.name}</div>
+                      <div className="text-muted text-[11px] capitalize">{p.type.replace('_', ' ')}</div>
                     </div>
-                  </td>
-                </tr>
-              )}
-              </Fragment>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                        p.status === 'active' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+                      }`}
+                    >
+                      {p.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-3 text-[11px] text-muted">
+                    <span>
+                      <span className="font-bold text-body">{p.permissions.includes('*') ? 'All' : p.permissions.length}</span>{' '}
+                      permissions
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users size={11} />
+                      {assigned.length}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slug}/portal/{p.route_key}</div>
+                  {p.email && <div className="text-[10px] text-muted truncate">{p.email}</div>}
+                  <div className="text-[10px] text-muted mt-1">
+                    {p.last_login_at ? `Last sign-in ${formatDateTime(p.last_login_at)}` : 'Never signed in'}
+                  </div>
+                  {p.last_logout_at && (
+                    <div className="text-[10px] text-muted">Last sign-out {formatDateTime(p.last_logout_at)}</div>
+                  )}
+
+                  <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-1.5">
+                    <Button variant="ghost" disabled={busy} onClick={() => startEditAccess(p)}>
+                      Edit access
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
+                    >
+                      {staffEditId === p.id ? 'Cancel' : 'Assign staff'}
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => patch(p.id, { status: p.status === 'active' ? 'disabled' : 'active' })}>
+                      {p.status === 'active' ? 'Disable' : 'Enable'}
+                    </Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => resetPassword(p.id, p.name)}>
+                      Reset password
+                    </Button>
+                    <Button variant="danger" disabled={busy} onClick={() => remove(p.id)}>
+                      Delete
+                    </Button>
+                  </div>
+
+                  {staffEditId === p.id && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <div className="text-[11px] font-semibold text-muted mb-1.5">
+                        Staff assigned this portal gain its permissions in addition to their own role.
+                      </div>
+                      {staff.length === 0 ? (
+                        <p className="text-muted text-xs">No staff accounts yet — add one on the Staff page.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto">
+                          {staff.map((m) => (
+                            <label key={m.id} className="flex items-center gap-2 text-xs">
+                              <input type="checkbox" checked={staffDraft.has(m.id)} onChange={() => toggleStaff(m.id)} />
+                              <span className="truncate">{m.full_name || m.email}</span>
+                              <span className="text-muted text-[10px] shrink-0">({m.role})</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2 mt-2.5">
+                        <Button disabled={busy} onClick={() => saveStaff(p.id)}>
+                          {busy ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button variant="ghost" disabled={busy} onClick={() => setStaffEditId(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
               );
             })}
-          </tbody>
-        </table>
-      </Card>
+        </div>
+      )}
+
+      {(() => {
+        const admin = portals.find((p) => p.type === 'super_admin');
+        return admin ? (
+          <p className="text-muted text-[11px]">
+            <span className="font-semibold text-body">{admin.name}</span> (Super Admin) has full
+            control of this restaurant and can&rsquo;t be edited or removed here.
+          </p>
+        ) : null;
+      })()}
     </div>
   );
 }

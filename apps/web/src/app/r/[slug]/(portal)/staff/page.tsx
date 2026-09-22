@@ -14,7 +14,7 @@ export default async function StaffPage({ params }: { params: Promise<{ slug: st
 
   const { data, error } = await t.client
     .from('memberships')
-    .select('id, email, full_name, role, status, created_at')
+    .select('id, email, full_name, role, status, created_at, shift_start_time')
     .order('created_at', { ascending: true });
 
   return (

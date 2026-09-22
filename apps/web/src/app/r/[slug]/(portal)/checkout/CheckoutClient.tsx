@@ -23,6 +23,9 @@ import { NewOrderPanel } from './NewOrderPanel';
  *  escape valve) takes priority over it when both are set. */
 export type ReceiptSettings = {
   logoUrl: string | null;
+  /** Brand Kit's accent color ("R G B" channel string) — highlights the
+   *  PDF download's TOTAL row. Printed thermal receipts stay monochrome. */
+  primaryColor: string | null;
   footerText: string | null;
   templateHtml: string | null;
   receiptConfig: ReceiptTemplateConfig | null;
@@ -33,7 +36,7 @@ export type NewOrderItem = {
   id: string;
   name: string;
   category_id: string | null;
-  menu_variants: { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean }[];
+  menu_variants: { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean; computed_available?: boolean }[];
 };
 
 type Line = {
@@ -87,6 +90,7 @@ function toReceiptContext(bill: Bill, restaurantName: string, receipt: ReceiptSe
   return {
     restaurantName,
     logoUrl: receipt.logoUrl,
+    primaryColor: receipt.primaryColor,
     address: receipt.restaurant.address,
     phone: receipt.restaurant.phone,
     email: receipt.restaurant.email,

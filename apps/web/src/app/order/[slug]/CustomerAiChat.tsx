@@ -27,6 +27,7 @@ export function CustomerAiChat({
   onUseDealMatch,
   onUseAlmostMatch,
   onAddDealPlain,
+  hideTrigger,
 }: {
   slug: string;
   restaurantName: string;
@@ -39,6 +40,10 @@ export function CustomerAiChat({
   onUseDealMatch: (match: DealMatch) => void;
   onUseAlmostMatch: (match: DealMatch) => void;
   onAddDealPlain: (deal: DealLite, qty: number) => void;
+  /** Hide the floating trigger while another full-screen sheet (cart, item
+   *  detail, deal detail) is open on top of it — the chat panel itself
+   *  (once opened) still renders above everything, unaffected. */
+  hideTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -136,27 +141,33 @@ export function CustomerAiChat({
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-24 right-4 z-40 rounded-full bg-primary text-primary-fg w-12 h-12 shadow-lg grid place-items-center text-lg font-bold"
-        aria-label="Ask the ordering assistant"
-      >
-        ✦
-      </button>
+      {!hideTrigger && (
+        <button
+          onClick={() => setOpen(true)}
+          className="fixed bottom-24 lg:bottom-6 right-4 lg:right-[404px] z-40 rounded-full bg-primary text-primary-fg w-[52px] h-[52px] shadow-lg shadow-black/20 grid place-items-center text-xl font-bold active:scale-95 transition-transform"
+          aria-label="Ask the ordering assistant"
+        >
+          ✦
+        </button>
+      )}
 
       {open && (
-        <div className="fixed inset-0 z-50 bg-main flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <div>
-              <div className="font-bold text-sm">Ask about the menu</div>
-              <div className="text-muted text-[11px]">Recommendations only — you always confirm before anything's added</div>
+        <div className="fixed inset-0 z-50 bg-main flex flex-col lg:items-center lg:justify-center lg:bg-black/50">
+          <div className="flex flex-col w-full h-full lg:h-[85vh] lg:max-w-md lg:rounded-2xl lg:border lg:border-border lg:shadow-2xl overflow-hidden bg-main">
+          <div className="flex items-center justify-between px-4 py-3.5 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-full bg-primary text-primary-fg grid place-items-center text-sm font-bold shrink-0">✦</span>
+              <div>
+                <div className="font-bold text-sm">Ask about the menu</div>
+                <div className="text-muted text-[10.5px]">Recommendations only — you confirm before anything&rsquo;s added</div>
+              </div>
             </div>
-            <button onClick={() => setOpen(false)} className="text-muted text-xl leading-none px-2" aria-label="Close">
+            <button onClick={() => setOpen(false)} className="text-muted hover:text-body text-xl leading-none px-2" aria-label="Close">
               ×
             </button>
           </div>
 
-          <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 py-3.5 space-y-3">
             {messages.length === 0 && (
               <div className="space-y-2">
                 <p className="text-muted text-xs">Try asking:</p>
@@ -164,7 +175,7 @@ export function CustomerAiChat({
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="block w-full text-left rounded-lg border border-border px-3 py-2 text-xs"
+                    className="block w-full text-left rounded-xl border border-border px-3.5 py-2.5 text-xs hover:border-primary/40 transition-colors"
                   >
                     {s}
                   </button>
@@ -174,13 +185,13 @@ export function CustomerAiChat({
             {messages.map((m, i) => (
               <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                 <div
-                  className={`max-w-[85%] rounded-lg px-3 py-2 text-xs whitespace-pre-wrap ${
+                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
                     m.role === 'user' ? 'bg-primary text-primary-fg' : 'bg-surface border border-border'
                   }`}
                 >
                   {m.content}
                   {dealCards[i]?.map((card, ci) => (
-                    <div key={ci} className="mt-2 rounded border border-ok/50 bg-ok/10 p-2">
+                    <div key={ci} className="mt-2 rounded-xl border border-ok/50 bg-ok/10 p-2.5">
                       <div className="font-bold text-[11px]">{card.deal_name}</div>
                       <div className="text-[11px]">
                         {formatCents(card.individual_total_cents)} individually → {formatCents(card.deal_total_cents)} as a combo
@@ -191,14 +202,14 @@ export function CustomerAiChat({
                       )}
                       <button
                         onClick={() => useDeal(card)}
-                        className="mt-1 rounded bg-primary text-primary-fg text-[11px] font-bold px-2 py-1"
+                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5"
                       >
                         {card.status === 'eligible_now' ? 'Use Deal' : 'Add & Switch'}
                       </button>
                     </div>
                   ))}
                   {resolvedCards[i]?.map((card, ci) => (
-                    <div key={ci} className="mt-2 rounded border border-border bg-surface p-2">
+                    <div key={ci} className="mt-2 rounded-xl border border-border bg-surface p-2.5">
                       <div className="font-bold text-[11px]">
                         {card.item_name}
                         {card.variant_name ? ` · ${card.variant_name}` : ''}
@@ -212,7 +223,7 @@ export function CustomerAiChat({
                           <button
                             onClick={() => addResolved(card, i, ci)}
                             disabled={addedKeys.has(`${i}:${ci}`)}
-                            className="mt-1 rounded bg-primary text-primary-fg text-[11px] font-bold px-2 py-1 disabled:opacity-50"
+                            className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5 disabled:opacity-50"
                           >
                             {addedKeys.has(`${i}:${ci}`) ? 'Added' : 'Add to cart'}
                           </button>
@@ -223,7 +234,7 @@ export function CustomerAiChat({
                     </div>
                   ))}
                   {budgetCards[i] && (
-                    <div className="mt-2 rounded border border-border bg-surface p-2">
+                    <div className="mt-2 rounded-xl border border-border bg-surface p-2.5">
                       <div className="font-bold text-[11px] mb-1">Suggested order</div>
                       <ul className="text-[11px] space-y-0.5">
                         {budgetCards[i].items.map((it, ii) => (
@@ -242,7 +253,7 @@ export function CustomerAiChat({
                       <div className="text-[11px] font-bold mt-1">Subtotal {formatCents(budgetCards[i].subtotal_cents)}</div>
                       <button
                         onClick={() => addBudgetProposal(budgetCards[i])}
-                        className="mt-1 rounded bg-primary text-primary-fg text-[11px] font-bold px-2 py-1"
+                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5"
                       >
                         Add all to cart
                       </button>
@@ -255,21 +266,22 @@ export function CustomerAiChat({
             {error && <div className="text-danger text-xs">{error}</div>}
           </div>
 
-          <div className="border-t border-border p-3 flex gap-2">
+          <div className="border-t border-border p-3 flex gap-2 shrink-0">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
               placeholder="Ask about the menu…"
-              className="flex-1 min-w-0 rounded border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+              className="flex-1 min-w-0 rounded-full border border-border bg-surface px-4 py-2.5 text-sm outline-none focus:border-primary transition-colors"
             />
             <button
               onClick={() => send()}
               disabled={busy || !input.trim()}
-              className="rounded bg-primary text-primary-fg font-bold px-4 text-sm disabled:opacity-50"
+              className="rounded-full bg-primary text-primary-fg font-bold px-5 text-sm disabled:opacity-50 active:scale-95 transition-transform"
             >
               Ask
             </button>
+          </div>
           </div>
         </div>
       )}

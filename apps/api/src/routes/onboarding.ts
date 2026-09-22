@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
-import { env, oauthConnectEnabled, paymentsMode } from '../env';
+import { env, oauthConnectEnabled } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
@@ -14,6 +14,7 @@ import {
   verifyCheckoutIntent,
 } from '../lib/payments';
 import { tenantServiceClient } from '../lib/tenantAdmin';
+import { getActivePlans, resolvePaymentsMode } from '../lib/plans';
 import {
   stripe,
   priceIdFor,
@@ -54,7 +55,9 @@ const signupSchema = z.object({
   address: z.string().trim().max(300).optional(),
   branch_name: z.string().trim().max(120).optional(),
   table_count: z.coerce.number().int().positive().max(2000).optional(),
-  plan: z.enum(['starter', 'growth', 'enterprise']).default('growth'),
+  // Plan tiers are now admin-editable DB rows (public.plans), not a fixed
+  // set — validity is checked against the live plans list below, not here.
+  plan: z.string().trim().min(1).max(60).default('growth'),
   billing_interval: z.enum(['monthly', 'annual']).default('monthly'),
 });
 
@@ -78,18 +81,23 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
   }
   const d = parsed.data;
 
+  const plans = await getActivePlans();
+  if (!plans.some((p) => p.tier === d.plan)) {
+    return res.status(422).json({ error: 'unknown_plan', message: `"${d.plan}" is not an active plan.` });
+  }
+
   // ── Mock mode: send them to our own card page; the charge is confirmed there ──
-  if (paymentsMode === 'mock') {
+  if ((await resolvePaymentsMode()) === 'mock') {
     const intent = signCheckoutIntent(d);
     return res.status(200).json({
       ok: true,
       pay_url: `${env.APP_URL}/onboarding/pay?i=${encodeURIComponent(intent)}`,
-      amount_cents: amountForPlan(d.plan, d.billing_interval),
+      amount_cents: await amountForPlan(d.plan, d.billing_interval),
     });
   }
 
   // ── Real Stripe checkout ──
-  const priceId = priceIdFor(d.plan, d.billing_interval);
+  const priceId = await priceIdFor(d.plan, d.billing_interval);
   if (!priceId) {
     return res.status(503).json({
       error: 'plan_unavailable',
@@ -126,7 +134,7 @@ onboardingRouter.post('/signup', express.json(), async (req: Request, res: Respo
 
 /** GET /api/onboarding/pay/intent?i=<token> — the card page reads the amount
  *  and restaurant name from the signed intent (client can't tamper with them). */
-onboardingRouter.get('/pay/intent', (req: Request, res: Response) => {
+onboardingRouter.get('/pay/intent', async (req: Request, res: Response) => {
   const intent = verifyCheckoutIntent(String(req.query.i ?? ''));
   if (!intent) return res.status(400).json({ error: 'invalid_or_expired' });
   res.json({
@@ -134,7 +142,7 @@ onboardingRouter.get('/pay/intent', (req: Request, res: Response) => {
     owner_email: intent.owner_email,
     plan: intent.plan,
     billing_interval: intent.billing_interval,
-    amount_cents: amountForPlan(intent.plan, intent.billing_interval),
+    amount_cents: await amountForPlan(intent.plan, intent.billing_interval),
   });
 });
 
@@ -166,7 +174,7 @@ onboardingRouter.post('/pay/confirm', express.json(), async (req: Request, res: 
     return res.status(402).json({ error: 'card_declined', message: check.reason });
   }
 
-  const payment = simulatePayment(d.plan, d.billing_interval, {
+  const payment = await simulatePayment(d.plan, d.billing_interval, {
     brand: check.brand,
     last4: check.last4,
   });

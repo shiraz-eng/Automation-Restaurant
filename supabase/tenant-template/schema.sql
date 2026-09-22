@@ -253,6 +253,10 @@ create table public.memberships (
   role              app.member_role not null default 'waiter',
   extra_permissions text[] not null default '{}',   -- granted on top of the role preset
   status            app.member_status not null default 'pending',
+  -- Default expected clock-in time, set at staff creation/edit — used by
+  -- app.recompute_attendance() to compute late_minutes when no explicit
+  -- shifts row exists for that day (tenant-migrations/0053).
+  shift_start_time  time,
   created_at        timestamptz not null default now()
 );
 create index memberships_user_id_idx on public.memberships(user_id);
@@ -506,6 +510,7 @@ create table public.menu_items (
   image_url text,
   price_cents integer not null default 0 check (price_cents >= 0),  -- base / fallback; real price is on the variant
   is_available boolean not null default true,
+  station text,  -- free-text kitchen prep station (Fryer/Grill/...); null = unassigned (0050)
   created_at timestamptz not null default now()
 );
 
@@ -1244,6 +1249,44 @@ create table public.order_lines (
 );
 create index order_lines_order_idx on public.order_lines(order_id);
 create index order_lines_kds_idx on public.order_lines(kds_status);
+
+-- Keeps order_lines.kds_status in sync with orders.status on EVERY write
+-- path (the kitchen_* RPCs below update both explicitly already; this
+-- trigger is what also covers a direct orders.status write, e.g. from the
+-- Orders page, which is independently permissioned from kitchen.update_status
+-- — see tenant-migrations/0051 for the full rationale).
+--
+-- Deliberately no 'in_kitchen' branch: place_order() itself finalizes
+-- EVERY new order at status='in_kitchen' as its own last step — 'pending'
+-- never exists outside that one transaction. A cascade on transitions TO
+-- 'in_kitchen' would fire on every order's creation, not a genuine
+-- "kitchen started this" action, wrongly advancing every line straight to
+-- preparing before anyone touched it. kitchen_start_order() already does
+-- its own queued->preparing cascade explicitly; this trigger only needs
+-- 'ready'/'served', the two transitions that genuinely happen once, after
+-- an order is already active.
+create function app.sync_order_lines_status()
+returns trigger
+language plpgsql
+security definer set search_path = public, app
+as $$
+begin
+  if new.status is distinct from old.status then
+    if new.status = 'ready' then
+      update public.order_lines set kds_status = 'ready'
+       where order_id = new.id and kds_status not in ('ready', 'served');
+    elsif new.status = 'served' then
+      update public.order_lines set kds_status = 'served'
+       where order_id = new.id and kds_status <> 'served';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger sync_order_lines_status
+  after update of status on public.orders
+  for each row
+  execute function app.sync_order_lines_status();
 
 create table public.stock_ledger (
   id uuid primary key default gen_random_uuid(),
@@ -2767,7 +2810,17 @@ create table public.business_settings (
   -- Structured, section-based receipt template (0048). Null = this
   -- restaurant never configured one — receipt rendering falls back to
   -- the existing receipt_footer_text/receipt_template_html behavior.
-  receipt_config       jsonb
+  receipt_config       jsonb,
+  -- Portal identity (0049) — the browser <title> every portal page and
+  -- sub-page inherits (via Next.js title templates). Null falls back to
+  -- the restaurant's own name (control-plane tenants.restaurant_name).
+  meta_title           text,
+  -- Plan entitlements (0055) — synced from the control-plane subscription
+  -- by apps/api/src/lib/entitlementSync.ts; not writable by tenant staff.
+  -- Lets this project enforce its OWN plan (e.g. the Brand Kit trigger
+  -- below) without a round trip to the control plane on every write.
+  plan_tier            text,
+  plan_features         text[] not null default '{}'
 );
 insert into public.business_settings (id) values (true);
 
@@ -2777,16 +2830,62 @@ create or replace function public.get_brand_kit()
 returns table(
   logo_url text, primary_color text, primary_fg text,
   bg_main text, bg_surface text, border_color text,
-  text_body text, text_muted text, radius text, appearance text
+  text_body text, text_muted text, radius text, appearance text,
+  meta_title text
 )
 language sql stable security definer set search_path = public as $$
   select brand_logo_url, brand_primary, brand_primary_fg,
          brand_bg_main, brand_bg_surface, brand_border,
-         brand_text_body, brand_text_muted, brand_radius, brand_appearance
+         brand_text_body, brand_text_muted, brand_radius, brand_appearance,
+         meta_title
   from public.business_settings where id = true
 $$;
 revoke all on function public.get_brand_kit() from public;
 grant execute on function public.get_brand_kit() to anon, authenticated, service_role;
+
+-- Real, DB-level entitlement enforcement (0055) — only menu.branded has an
+-- obvious single write surface (the brand_* columns) worth blocking; the
+-- other enforceable features are read-side, gated in the frontend instead.
+create or replace function app.enforce_plan_entitlements()
+returns trigger language plpgsql as $fn$
+begin
+  -- business_settings' own mgr_write RLS policy lets anyone holding
+  -- settings.update (e.g. the Owner) write ANY column on this row —
+  -- without this check, a tenant could simply set plan_features itself
+  -- and hand itself entitlements it doesn't actually have. Only the
+  -- service-role sync (entitlementSync.ts) may ever change these two.
+  if app.jwt_role() is distinct from 'service_role' then
+    if new.plan_tier is distinct from old.plan_tier
+    or new.plan_features is distinct from old.plan_features
+    then
+      raise exception 'plan_tier/plan_features are managed by the platform and cannot be changed directly'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  if not ('menu.branded' = any(coalesce(new.plan_features, '{}'))) then
+    if new.brand_logo_url      is distinct from old.brand_logo_url
+    or new.brand_primary       is distinct from old.brand_primary
+    or new.brand_primary_fg    is distinct from old.brand_primary_fg
+    or new.brand_bg_main       is distinct from old.brand_bg_main
+    or new.brand_bg_surface    is distinct from old.brand_bg_surface
+    or new.brand_border        is distinct from old.brand_border
+    or new.brand_text_body     is distinct from old.brand_text_body
+    or new.brand_text_muted    is distinct from old.brand_text_muted
+    or new.brand_radius        is distinct from old.brand_radius
+    or new.brand_appearance    is distinct from old.brand_appearance
+    then
+      raise exception 'menu.branded is not included in this restaurant''s current plan'
+        using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$fn$;
+
+create trigger enforce_plan_entitlements_brand
+  before update on public.business_settings
+  for each row execute function app.enforce_plan_entitlements();
 
 -- ── Promotions ───────────────────────────────────────────────────────────
 -- (app.promo_kind is created earlier, right before place_order() — see the
@@ -4007,12 +4106,14 @@ $fn$;
 create or replace function app.recompute_attendance(p_id uuid)
 returns void language plpgsql set search_path = public, app as $fn$
 declare
-  a public.attendance; s public.shifts; cfg public.attendance_settings;
+  a public.attendance; s public.shifts; cfg public.attendance_settings; m public.memberships;
   v_worked int := 0; v_late int := 0; v_early int := 0; v_ot int := 0; v_status text;
+  v_expected_start timestamptz; v_tz text;
 begin
   select * into a from public.attendance where id = p_id;
   if not found then return; end if;
   select * into cfg from public.attendance_settings where id;
+  select * into m from public.memberships where id = a.membership_id;
   select * into s from public.shifts
    where membership_id = a.membership_id and app.business_day(starts_at) = a.business_date
    order by starts_at limit 1;
@@ -4020,15 +4121,24 @@ begin
   if a.clock_in is not null and a.clock_out is not null then
     v_worked := greatest(0, (extract(epoch from (a.clock_out - a.clock_in)) / 60)::int);
   end if;
+
   if s.id is not null then
-    if a.clock_in is not null then
-      v_late := greatest(0, (extract(epoch from (a.clock_in - s.starts_at)) / 60)::int - coalesce(cfg.grace_minutes, 0));
-    end if;
-    if a.clock_out is not null then
-      v_early := greatest(0, (extract(epoch from (s.ends_at - a.clock_out)) / 60)::int);
-      if coalesce(cfg.overtime_enabled, false) then
-        v_ot := greatest(0, (extract(epoch from (a.clock_out - s.ends_at)) / 60)::int);
-      end if;
+    v_expected_start := s.starts_at;
+  elsif m.shift_start_time is not null then
+    -- No shift scheduled for this day — fall back to the member's own
+    -- default start time (set at staff creation), interpreted in the
+    -- restaurant's configured timezone, same zone app.business_day() uses.
+    select timezone into v_tz from public.business_settings where id;
+    v_expected_start := (a.business_date::timestamp + m.shift_start_time) at time zone coalesce(v_tz, 'UTC');
+  end if;
+
+  if v_expected_start is not null and a.clock_in is not null then
+    v_late := greatest(0, (extract(epoch from (a.clock_in - v_expected_start)) / 60)::int - coalesce(cfg.grace_minutes, 0));
+  end if;
+  if s.id is not null and a.clock_out is not null then
+    v_early := greatest(0, (extract(epoch from (s.ends_at - a.clock_out)) / 60)::int);
+    if coalesce(cfg.overtime_enabled, false) then
+      v_ot := greatest(0, (extract(epoch from (a.clock_out - s.ends_at)) / 60)::int);
     end if;
   end if;
 
@@ -4127,23 +4237,98 @@ grant execute on function public.attendance_mark(uuid, date, text, text) to auth
 
 create or replace function public.attendance_roster(p_date date default null)
 returns table (membership_id uuid, full_name text, role text, status text,
-               clock_in timestamptz, clock_out timestamptz, late_minutes int)
+               clock_in timestamptz, clock_out timestamptz, late_minutes int,
+               shift_start_time time, expected_start timestamptz)
 language plpgsql security definer set search_path = public, app as $fn$
+declare v_date date := coalesce(p_date, app.business_day(now())); v_tz text;
 begin
   if not (app.has_perm('attendance.view') or app.is_staff()) then
     raise exception 'forbidden' using errcode = 'insufficient_privilege';
   end if;
+  select timezone into v_tz from public.business_settings where id;
   return query
     select m.id, m.full_name, m.role::text,
-           coalesce(a.status, 'not_marked'), a.clock_in, a.clock_out, coalesce(a.late_minutes, 0)
+           coalesce(a.status, 'not_marked'), a.clock_in, a.clock_out, coalesce(a.late_minutes, 0),
+           m.shift_start_time,
+           coalesce(
+             (select sh.starts_at from public.shifts sh
+               where sh.membership_id = m.id and app.business_day(sh.starts_at) = v_date
+               order by sh.starts_at limit 1),
+             case when m.shift_start_time is not null
+               then (v_date::timestamp + m.shift_start_time) at time zone coalesce(v_tz, 'UTC')
+             end
+           )
     from public.memberships m
     left join public.attendance a
-      on a.membership_id = m.id and a.business_date = coalesce(p_date, app.business_day(now()))
+      on a.membership_id = m.id and a.business_date = v_date
     where m.status = 'active'
     order by m.full_name nulls last;
 end $fn$;
 revoke all on function public.attendance_roster(date) from public;
 grant execute on function public.attendance_roster(date) to authenticated, service_role;
+
+-- ── Automatic absence marking (0053) — the 'auto' source value already
+-- existed in attendance.source's check constraint, unused until now.
+-- Called periodically per tenant by the API server (apps/api/src/lib/
+-- attendanceAutomation.ts), same setInterval-sweep pattern low-stock/
+-- recipe-cost automation already use — nothing here uses an AI model.
+create or replace function public.attendance_auto_absent_sweep(p_lookback_days int default 3)
+returns int language plpgsql security definer set search_path = public, app as $fn$
+declare
+  v_today date := app.business_day(now());
+  v_marked int := 0;
+  r record;
+begin
+  if not (app.jwt_role() = 'service_role' or app.has_perm('attendance.mark')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+
+  for r in
+    select m.id as membership_id, d.business_date
+      from public.memberships m
+      cross join lateral (
+        select (v_today - g)::date as business_date
+          from generate_series(1, greatest(p_lookback_days, 1)) as g
+      ) d
+     where m.status = 'active'
+       and d.business_date < v_today
+       and (
+         -- Only ever auto-absent someone who was actually expected that
+         -- day: an explicit shift, or a default shift_start_time on a day
+         -- this restaurant normally schedules (attendance_settings.
+         -- working_days) — never for someone never expected in.
+         exists (
+           select 1 from public.shifts sh
+            where sh.membership_id = m.id and app.business_day(sh.starts_at) = d.business_date
+         )
+         or (
+           m.shift_start_time is not null
+           and extract(isodow from d.business_date)::int = any(
+             select unnest(working_days) from public.attendance_settings where id
+           )
+         )
+       )
+       and not exists (
+         select 1 from public.attendance a
+          where a.membership_id = m.id and a.business_date = d.business_date
+            and (a.clock_in is not null or a.status in ('absent', 'leave', 'off', 'half_day'))
+       )
+  loop
+    insert into public.attendance (membership_id, business_date, status, source, marked_by)
+    values (r.membership_id, r.business_date, 'absent', 'auto', null)
+    on conflict (membership_id, business_date) do update
+      set status = 'absent', source = 'auto'
+      where public.attendance.clock_in is null
+        and public.attendance.status not in ('leave', 'off', 'half_day');
+    v_marked := v_marked + 1;
+    perform app.log_action('attendance.auto_absent', 'attendance', r.membership_id::text, null,
+      jsonb_build_object('business_date', r.business_date));
+  end loop;
+
+  return v_marked;
+end $fn$;
+revoke all on function public.attendance_auto_absent_sweep(int) from public;
+grant execute on function public.attendance_auto_absent_sweep(int) to authenticated, service_role;
 
 create or replace function public.attendance_month_summary(
   p_membership_id uuid, p_year int, p_month int
@@ -4898,6 +5083,7 @@ create table public.portals (
   email        text,
   force_pw_change boolean not null default false,
   last_login_at timestamptz,
+  last_logout_at timestamptz,
   created_at   timestamptz not null default now(),
   created_by   uuid
 );
@@ -4930,6 +5116,34 @@ begin
 end $fn$;
 revoke all on function public.clear_force_pw_change() from public;
 grant execute on function public.clear_force_pw_change() to authenticated, service_role;
+
+-- Portal session tracking (0053) — called by the web app right after a
+-- successful sign-in and right before sign-out. No-op for a staff (non-
+-- portal) login since current_portal_id() is only set on a 'kind: portal'
+-- JWT, so the one shared login form / SignOutButton can call these
+-- unconditionally. Also logs a 'portal.sign_in'/'portal.sign_out' row via
+-- app.log_action() so the existing Audit log page surfaces this history.
+create or replace function public.portal_record_sign_in()
+returns void language plpgsql security definer set search_path = public, app as $fn$
+declare v_pid uuid := app.current_portal_id();
+begin
+  if v_pid is null then return; end if;
+  update public.portals set last_login_at = now() where id = v_pid;
+  perform app.log_action('portal.sign_in', 'portals', v_pid::text);
+end $fn$;
+revoke all on function public.portal_record_sign_in() from public;
+grant execute on function public.portal_record_sign_in() to authenticated, service_role;
+
+create or replace function public.portal_record_sign_out()
+returns void language plpgsql security definer set search_path = public, app as $fn$
+declare v_pid uuid := app.current_portal_id();
+begin
+  if v_pid is null then return; end if;
+  update public.portals set last_logout_at = now() where id = v_pid;
+  perform app.log_action('portal.sign_out', 'portals', v_pid::text);
+end $fn$;
+revoke all on function public.portal_record_sign_out() from public;
+grant execute on function public.portal_record_sign_out() to authenticated, service_role;
 
 alter table public.portals enable row level security;
 alter table public.portal_staff enable row level security;
@@ -5170,6 +5384,622 @@ create trigger audit_social_accounts after insert or update or delete on public.
   for each row execute function app.audit_row();
 create trigger audit_social_posts after insert or update or delete on public.social_posts
   for each row execute function app.audit_row();
+
+-- ── Recipe-driven product availability engine (0052) ────────────────────
+-- Layers a derived "can we actually make this right now" signal on top of
+-- the existing manual toggles — see tenant-migrations/0052 for full
+-- rationale (kept in one place there rather than duplicated in both files).
+
+create table public.product_availability (
+  id                           uuid primary key default gen_random_uuid(),
+  menu_item_id                 uuid not null references public.menu_items(id) on delete cascade,
+  variant_id                   uuid references public.menu_variants(id) on delete cascade,
+  status                       text not null check (status in ('available', 'low_stock', 'unavailable')),
+  producible_qty                numeric(14,3),
+  bottleneck_inventory_item_id uuid references public.inventory_items(id) on delete set null,
+  reason                       text,
+  updated_at                   timestamptz not null default now()
+);
+create unique index product_availability_key_idx on public.product_availability(menu_item_id, variant_id) nulls not distinct;
+create index product_availability_item_idx on public.product_availability(menu_item_id);
+alter table public.product_availability enable row level security;
+create policy guest_read on public.product_availability for select using (true);
+create policy staff_read on public.product_availability for select using (app.has_perm('availability.view') or app.is_staff());
+
+create table public.availability_audit_log (
+  id                           bigint generated always as identity primary key,
+  menu_item_id                 uuid not null references public.menu_items(id) on delete cascade,
+  variant_id                   uuid references public.menu_variants(id) on delete cascade,
+  previous_status               text,
+  new_status                    text not null,
+  previous_producible_qty        numeric(14,3),
+  new_producible_qty             numeric(14,3),
+  bottleneck_inventory_item_id uuid references public.inventory_items(id) on delete set null,
+  reason                       text,
+  trigger_type                 text not null,
+  trigger_reference            text,
+  actor                        text not null default 'system',
+  created_at                   timestamptz not null default now()
+);
+create index availability_audit_log_item_idx on public.availability_audit_log(menu_item_id, created_at desc);
+create index availability_audit_log_created_idx on public.availability_audit_log(created_at desc);
+alter table public.availability_audit_log enable row level security;
+create policy staff_read on public.availability_audit_log for select using (app.has_perm('availability.view') or app.is_staff());
+
+-- ── Shared calculation core (0054) — the same math every version of this
+-- engine has used (floor(stock/qty_per_unit), bottleneck tracking,
+-- required-modifier-group viability), parameterized only on which stock
+-- figure to read per ingredient: live inventory_items.stock_qty
+-- (p_use_priority_pool = false — the plain per-product engine below) or
+-- priority_stock_pool.remaining (p_use_priority_pool = true — the
+-- priority waterfall, tenant-migrations/0054). Both callers share this
+-- ONE implementation rather than duplicating it.
+create or replace function app.compute_product_capacity(
+  p_menu_item_id uuid, p_variant_id uuid, p_use_priority_pool boolean default false
+) returns table (
+  tracked boolean, status text, producible_qty numeric,
+  bottleneck_inventory_item_id uuid, reason text
+) language plpgsql stable security definer set search_path = public, app as $fn$
+declare
+  v_effective_variant uuid;
+  v_has_variant_recipe boolean;
+  v_comp record;
+  v_capacity numeric;
+  v_min_capacity numeric;
+  v_bottleneck uuid;
+  v_bottleneck_name text;
+  v_bottleneck_low boolean;
+  v_has_recipe boolean := false;
+  v_tracked boolean := false;
+  v_producible numeric;
+  v_status text;
+  v_reason text;
+  v_req_group record;
+  v_group_viable boolean;
+  v_opt record;
+  v_opt_cap numeric;
+  v_opt_row record;
+  v_cap numeric;
+  v_needs_modifier_override boolean := false;
+  v_modifier_reason text;
+begin
+  if p_variant_id is not null then
+    select exists(
+      select 1 from public.recipe_components where menu_item_id = p_menu_item_id and variant_id = p_variant_id
+    ) into v_has_variant_recipe;
+    v_effective_variant := case when v_has_variant_recipe then p_variant_id else null end;
+  else
+    v_effective_variant := null;
+  end if;
+
+  v_min_capacity := null;
+  for v_comp in
+    select rc.inventory_item_id, rc.qty_per_unit, i.min_threshold, i.name,
+           case when p_use_priority_pool then coalesce(ps.remaining, i.stock_qty) else i.stock_qty end as eff_stock
+      from public.recipe_components rc
+      join public.inventory_items i on i.id = rc.inventory_item_id
+      left join public.priority_stock_pool ps on p_use_priority_pool and ps.inventory_item_id = rc.inventory_item_id
+     where rc.menu_item_id = p_menu_item_id
+       and rc.variant_id is not distinct from v_effective_variant
+  loop
+    v_has_recipe := true;
+    v_capacity := floor(greatest(v_comp.eff_stock, 0) / v_comp.qty_per_unit);
+    if v_min_capacity is null or v_capacity < v_min_capacity then
+      v_min_capacity := v_capacity;
+      v_bottleneck := v_comp.inventory_item_id;
+      v_bottleneck_name := v_comp.name;
+      v_bottleneck_low := v_comp.eff_stock <= v_comp.min_threshold;
+    end if;
+  end loop;
+
+  if v_has_recipe then
+    v_tracked := true;
+    v_producible := v_min_capacity;
+    if v_producible <= 0 then
+      v_status := 'unavailable';
+      v_reason := v_bottleneck_name || ' unavailable';
+    elsif v_bottleneck_low then
+      v_status := 'low_stock';
+      v_reason := v_bottleneck_name || ' approaching reorder level';
+    else
+      v_status := 'available';
+      v_reason := null;
+    end if;
+  else
+    -- No base/variant recipe — nothing constrains capacity from that side,
+    -- but the required-modifier-group check below may still find a real
+    -- constraint (e.g. a "Choose Sauce" group whose only ingredient link is
+    -- on its options, not the item itself — spec §9 / §31 scenario 7).
+    v_producible := null;
+    v_status := 'available';
+    v_reason := null;
+  end if;
+
+  -- Checked unconditionally, even when the item has no base recipe of its
+  -- own — a required group with nothing left to pick makes the product
+  -- itself unorderable regardless of whether it has other ingredients.
+  for v_req_group in
+    select id, name from public.modifier_groups
+     where menu_item_id = p_menu_item_id and min_select >= 1
+  loop
+    v_tracked := true;
+    v_group_viable := false;
+    for v_opt in
+      select id from public.modifier_options where group_id = v_req_group.id and is_available
+    loop
+      v_opt_cap := null;
+      for v_opt_row in
+        select mrc.qty_base,
+               case when p_use_priority_pool then coalesce(ps.remaining, i.stock_qty) else i.stock_qty end as eff_stock
+          from public.modifier_recipe_components mrc
+          join public.inventory_items i on i.id = mrc.inventory_item_id
+          left join public.priority_stock_pool ps on p_use_priority_pool and ps.inventory_item_id = mrc.inventory_item_id
+         where mrc.modifier_option_id = v_opt.id
+      loop
+        v_cap := floor(greatest(v_opt_row.eff_stock, 0) / v_opt_row.qty_base);
+        if v_opt_cap is null or v_cap < v_opt_cap then v_opt_cap := v_cap; end if;
+      end loop;
+      if v_opt_cap is null or v_opt_cap > 0 then
+        v_group_viable := true;
+        exit;
+      end if;
+    end loop;
+    if not v_group_viable then
+      v_needs_modifier_override := true;
+      v_modifier_reason := 'No available options for ' || v_req_group.name;
+      exit;
+    end if;
+  end loop;
+
+  if v_needs_modifier_override and v_status is distinct from 'unavailable' then
+    v_status := 'unavailable';
+    v_reason := v_modifier_reason;
+    v_producible := 0;
+  end if;
+
+  return query select v_tracked, v_status, v_producible, v_bottleneck, v_reason;
+end;
+$fn$;
+
+-- ── Shared write core (0054) — upserts product_availability and, only on
+-- a real change, appends to availability_audit_log + app.log_action.
+-- Used by both the plain engine and the priority waterfall so every
+-- consumer keeps reading the ONE same table regardless of which path
+-- computed it.
+create or replace function app.apply_product_availability_result(
+  p_menu_item_id uuid, p_variant_id uuid, p_tracked boolean, p_status text, p_producible numeric,
+  p_bottleneck uuid, p_reason text, p_trigger_type text, p_trigger_reference text, p_actor text
+) returns void language plpgsql security definer set search_path = public, app as $fn$
+declare v_prev record;
+begin
+  if not p_tracked then
+    delete from public.product_availability
+     where menu_item_id = p_menu_item_id and variant_id is not distinct from p_variant_id;
+    return;
+  end if;
+
+  select status, producible_qty into v_prev
+    from public.product_availability
+   where menu_item_id = p_menu_item_id and variant_id is not distinct from p_variant_id;
+
+  insert into public.product_availability
+    (menu_item_id, variant_id, status, producible_qty, bottleneck_inventory_item_id, reason, updated_at)
+  values
+    (p_menu_item_id, p_variant_id, p_status, p_producible, p_bottleneck, p_reason, now())
+  on conflict (menu_item_id, variant_id) do update set
+    status = excluded.status,
+    producible_qty = excluded.producible_qty,
+    bottleneck_inventory_item_id = excluded.bottleneck_inventory_item_id,
+    reason = excluded.reason,
+    updated_at = now();
+
+  if v_prev is null or v_prev.status is distinct from p_status or v_prev.producible_qty is distinct from p_producible then
+    insert into public.availability_audit_log
+      (menu_item_id, variant_id, previous_status, new_status, previous_producible_qty, new_producible_qty,
+       bottleneck_inventory_item_id, reason, trigger_type, trigger_reference, actor)
+    values
+      (p_menu_item_id, p_variant_id, v_prev.status, p_status, v_prev.producible_qty, p_producible,
+       p_bottleneck, p_reason, p_trigger_type, p_trigger_reference, p_actor);
+    perform app.log_action('availability.changed', 'menu_items', p_menu_item_id::text, null,
+      jsonb_build_object('variant_id', p_variant_id, 'status', p_status, 'producible_qty', p_producible, 'reason', p_reason));
+  end if;
+end;
+$fn$;
+
+create or replace function app.recalc_product_availability(
+  p_menu_item_id uuid,
+  p_variant_id uuid,
+  p_trigger_type text default 'manual_recalculation',
+  p_trigger_reference text default null,
+  p_actor text default 'system'
+) returns void
+language plpgsql security definer set search_path = public, app as $$
+declare v_r record;
+begin
+  select * into v_r from app.compute_product_capacity(p_menu_item_id, p_variant_id, false);
+  perform app.apply_product_availability_result(
+    p_menu_item_id, p_variant_id, v_r.tracked, v_r.status, v_r.producible_qty,
+    v_r.bottleneck_inventory_item_id, v_r.reason, p_trigger_type, p_trigger_reference, p_actor
+  );
+end;
+$$;
+
+create or replace function app.recalc_products_for_ingredient(
+  p_inventory_item_id uuid, p_trigger_type text, p_trigger_reference text default null
+) returns void
+language plpgsql security definer set search_path = public, app as $$
+declare r record;
+begin
+  for r in
+    select distinct menu_item_id, variant_id from public.recipe_components
+     where inventory_item_id = p_inventory_item_id
+  loop
+    perform app.recalc_product_availability(r.menu_item_id, r.variant_id, p_trigger_type, p_trigger_reference);
+  end loop;
+
+  for r in
+    select distinct x.menu_item_id, x.variant_id
+      from public.modifier_recipe_components mrc
+      join public.modifier_options mo on mo.id = mrc.modifier_option_id
+      join public.modifier_groups mg on mg.id = mo.group_id
+      join public.product_availability x on x.menu_item_id = mg.menu_item_id
+     where mrc.inventory_item_id = p_inventory_item_id
+  loop
+    perform app.recalc_product_availability(r.menu_item_id, r.variant_id, p_trigger_type, p_trigger_reference);
+  end loop;
+
+  for r in
+    select distinct mg.menu_item_id
+      from public.modifier_recipe_components mrc
+      join public.modifier_options mo on mo.id = mrc.modifier_option_id
+      join public.modifier_groups mg on mg.id = mo.group_id
+     where mrc.inventory_item_id = p_inventory_item_id
+       and not exists (select 1 from public.product_availability x where x.menu_item_id = mg.menu_item_id)
+  loop
+    perform app.recalc_product_availability(r.menu_item_id, null, p_trigger_type, p_trigger_reference);
+  end loop;
+end;
+$$;
+
+create or replace function app.on_inventory_stock_change() returns trigger
+language plpgsql security definer set search_path = public, app as $$
+begin
+  if new.stock_qty is distinct from old.stock_qty then
+    if exists(select 1 from public.product_priority) then
+      perform app.recalc_priority_allocation(
+        case when new.stock_qty > old.stock_qty then 'inventory_restock' else 'inventory_consumption' end,
+        null
+      );
+    else
+      perform app.recalc_products_for_ingredient(
+        new.id,
+        case when new.stock_qty > old.stock_qty then 'inventory_restock' else 'inventory_consumption' end,
+        null
+      );
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists recalc_availability_on_stock_change on public.inventory_items;
+create trigger recalc_availability_on_stock_change after update of stock_qty on public.inventory_items
+  for each row execute function app.on_inventory_stock_change();
+
+create or replace function app.on_recipe_components_change() returns trigger
+language plpgsql security definer set search_path = public, app as $$
+declare v_item uuid; v_variant uuid;
+begin
+  if tg_op = 'DELETE' then
+    v_item := old.menu_item_id; v_variant := old.variant_id;
+  else
+    v_item := new.menu_item_id; v_variant := new.variant_id;
+  end if;
+  if exists(select 1 from public.product_priority) then
+    perform app.recalc_priority_allocation('recipe_change', null);
+  else
+    perform app.recalc_product_availability(v_item, v_variant, 'recipe_change', null);
+    if v_variant is not null then
+      perform app.recalc_product_availability(v_item, null, 'recipe_change', null);
+    end if;
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+drop trigger if exists recalc_availability_on_recipe_change on public.recipe_components;
+create trigger recalc_availability_on_recipe_change after insert or update or delete on public.recipe_components
+  for each row execute function app.on_recipe_components_change();
+
+create or replace function app.on_modifier_recipe_components_change() returns trigger
+language plpgsql security definer set search_path = public, app as $$
+declare v_option uuid; v_item uuid; r record;
+begin
+  v_option := coalesce(new.modifier_option_id, old.modifier_option_id);
+  select mg.menu_item_id into v_item
+    from public.modifier_options mo join public.modifier_groups mg on mg.id = mo.group_id
+   where mo.id = v_option;
+  if v_item is not null then
+    if exists(select 1 from public.product_priority) then
+      perform app.recalc_priority_allocation('recipe_change', null);
+    else
+      for r in select variant_id from public.product_availability where menu_item_id = v_item loop
+        perform app.recalc_product_availability(v_item, r.variant_id, 'recipe_change', null);
+      end loop;
+      perform app.recalc_product_availability(v_item, null, 'recipe_change', null);
+    end if;
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+drop trigger if exists recalc_availability_on_modifier_recipe_change on public.modifier_recipe_components;
+create trigger recalc_availability_on_modifier_recipe_change after insert or update or delete on public.modifier_recipe_components
+  for each row execute function app.on_modifier_recipe_components_change();
+
+create or replace function app.on_modifier_option_availability_change() returns trigger
+language plpgsql security definer set search_path = public, app as $$
+declare v_item uuid; r record;
+begin
+  if new.is_available is distinct from old.is_available then
+    select mg.menu_item_id into v_item from public.modifier_groups mg where mg.id = new.group_id;
+    if v_item is not null then
+      if exists(select 1 from public.product_priority) then
+        perform app.recalc_priority_allocation('recipe_change', null);
+      else
+        for r in select variant_id from public.product_availability where menu_item_id = v_item loop
+          perform app.recalc_product_availability(v_item, r.variant_id, 'recipe_change', null);
+        end loop;
+        perform app.recalc_product_availability(v_item, null, 'recipe_change', null);
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists recalc_availability_on_modifier_option_change on public.modifier_options;
+create trigger recalc_availability_on_modifier_option_change after update of is_available on public.modifier_options
+  for each row execute function app.on_modifier_option_availability_change();
+
+create or replace function public.get_product_availability_detail(p_menu_item_id uuid, p_variant_id uuid default null)
+returns table (
+  inventory_item_id uuid, ingredient_name text, unit text,
+  stock_qty numeric, qty_per_unit numeric, capacity numeric
+)
+language plpgsql security definer set search_path = public, app as $$
+declare v_effective_variant uuid; v_has_variant_recipe boolean;
+begin
+  if not (app.has_perm('availability.view') or app.has_perm('inventory.view_cost') or app.is_staff()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_variant_id is not null then
+    select exists(select 1 from public.recipe_components where menu_item_id = p_menu_item_id and variant_id = p_variant_id)
+      into v_has_variant_recipe;
+    v_effective_variant := case when v_has_variant_recipe then p_variant_id else null end;
+  else
+    v_effective_variant := null;
+  end if;
+  return query
+    select rc.inventory_item_id, i.name, i.unit, i.stock_qty, rc.qty_per_unit,
+           floor(greatest(i.stock_qty, 0) / rc.qty_per_unit) as capacity
+      from public.recipe_components rc
+      join public.inventory_items i on i.id = rc.inventory_item_id
+     where rc.menu_item_id = p_menu_item_id and rc.variant_id is not distinct from v_effective_variant
+     order by capacity asc;
+end;
+$$;
+revoke all on function public.get_product_availability_detail(uuid, uuid) from public;
+grant execute on function public.get_product_availability_detail(uuid, uuid) to authenticated, service_role;
+
+create or replace function public.recalculate_all_product_availability()
+returns void
+language plpgsql security definer set search_path = public, app as $$
+declare r record;
+begin
+  if not (app.has_perm('availability.update') or app.is_staff()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  for r in select distinct menu_item_id, variant_id from public.recipe_components loop
+    perform app.recalc_product_availability(r.menu_item_id, r.variant_id, 'manual_recalculation', null);
+  end loop;
+  -- Items with no base/variant recipe at all, but a required modifier
+  -- group of their own — recalc_product_availability() tracks these too
+  -- (spec §31 scenario 7), so the bulk backfill needs to reach them even
+  -- though recipe_components has no row for them.
+  for r in
+    select distinct mg.menu_item_id
+      from public.modifier_groups mg
+     where mg.min_select >= 1
+       and not exists (select 1 from public.recipe_components rc where rc.menu_item_id = mg.menu_item_id)
+  loop
+    perform app.recalc_product_availability(r.menu_item_id, null, 'manual_recalculation', null);
+  end loop;
+  perform app.recalc_priority_allocation('manual_recalculation', null);
+end;
+$$;
+revoke all on function public.recalculate_all_product_availability() from public;
+grant execute on function public.recalculate_all_product_availability() to authenticated, service_role;
+
+alter publication supabase_realtime add table public.product_availability;
+
+-- ── Recipe/Menu Inventory Consumption Priority (0054) ────────────────────
+-- Which menu items are "key" enough to have an explicit priority, and
+-- their level (critical/high/medium/low) + rank (drag-and-drop position
+-- within that level). Absence here means "no explicit priority" — such a
+-- product still joins the waterfall (as lowest priority, alphabetical)
+-- whenever ANY priority exists tenant-wide, so it sees the true leftover
+-- stock after prioritized products claim theirs.
+create table public.product_priority (
+  id             uuid primary key default gen_random_uuid(),
+  menu_item_id   uuid not null unique references public.menu_items(id) on delete cascade,
+  priority_level text not null default 'medium' check (priority_level in ('critical', 'high', 'medium', 'low')),
+  priority_rank  int not null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create unique index product_priority_level_rank_uq on public.product_priority(priority_level, priority_rank);
+alter table public.product_priority enable row level security;
+create policy staff_read on public.product_priority for select using (app.has_perm('availability.view') or app.is_staff());
+-- No direct write policy — writes only through set_product_priority/
+-- remove_product_priority/reorder_product_priority below (SECURITY
+-- DEFINER), same immutable-from-client convention product_availability/
+-- availability_audit_log already use.
+create trigger audit_product_priority after insert or update or delete on public.product_priority
+  for each row execute function app.audit_row();
+
+-- Scratch working state for ONE app.recalc_priority_allocation() run —
+-- reseeded from live inventory_items.stock_qty at the start of every call,
+-- decremented as each product in priority order claims its share. Never
+-- read outside that function.
+create table public.priority_stock_pool (
+  inventory_item_id uuid primary key references public.inventory_items(id) on delete cascade,
+  remaining         numeric(14,3) not null default 0
+);
+alter table public.priority_stock_pool enable row level security;
+create policy staff_read on public.priority_stock_pool for select using (app.has_perm('availability.view') or app.is_staff());
+
+alter publication supabase_realtime add table public.product_priority;
+
+-- No-op when no priority is configured. Otherwise: reseed the working
+-- stock pool from live inventory, then walk every tracked (menu_item,
+-- variant) pair in priority order — critical, then high, then medium,
+-- then low, each ordered by rank within that level; anything with no
+-- explicit priority comes last, alphabetically. Each product's capacity
+-- is computed against whatever remains in the pool, then its own claim
+-- (producible_qty × qty_per_unit, per ingredient) is deducted before the
+-- next, lower-priority product is computed — a single-pass greedy
+-- allocation: the direct, auditable meaning of "higher priority gets
+-- shared capacity first".
+create or replace function app.recalc_priority_allocation(
+  p_trigger_type text default 'priority_reallocation', p_trigger_reference text default null
+) returns void language plpgsql security definer set search_path = public, app as $fn$
+declare
+  v_has_priorities boolean;
+  v_prod record;
+  v_r record;
+  v_effective_variant uuid;
+  v_has_variant_recipe boolean;
+begin
+  select exists(select 1 from public.product_priority) into v_has_priorities;
+  if not v_has_priorities then
+    return;
+  end if;
+
+  delete from public.priority_stock_pool where true;
+  insert into public.priority_stock_pool (inventory_item_id, remaining)
+    select id, greatest(stock_qty, 0) from public.inventory_items;
+
+  for v_prod in
+    select x.menu_item_id, x.variant_id,
+           case coalesce(pp.priority_level, 'unprioritized')
+             when 'critical' then 0 when 'high' then 1 when 'medium' then 2 when 'low' then 3
+             else 4
+           end as level_rank,
+           coalesce(pp.priority_rank, 999999) as rank_in_level,
+           mi.name as item_name
+      from (
+        select distinct menu_item_id, variant_id from public.recipe_components
+        union
+        select distinct mg.menu_item_id, null::uuid from public.modifier_groups mg where mg.min_select >= 1
+      ) x
+      join public.menu_items mi on mi.id = x.menu_item_id
+      left join public.product_priority pp on pp.menu_item_id = x.menu_item_id
+     order by level_rank, rank_in_level, mi.name, x.variant_id nulls first
+  loop
+    select * into v_r from app.compute_product_capacity(v_prod.menu_item_id, v_prod.variant_id, true);
+    perform app.apply_product_availability_result(
+      v_prod.menu_item_id, v_prod.variant_id, v_r.tracked, v_r.status, v_r.producible_qty,
+      v_r.bottleneck_inventory_item_id, v_r.reason, p_trigger_type, p_trigger_reference, 'system'
+    );
+
+    if v_r.tracked and coalesce(v_r.producible_qty, 0) > 0 then
+      if v_prod.variant_id is not null then
+        select exists(select 1 from public.recipe_components where menu_item_id = v_prod.menu_item_id and variant_id = v_prod.variant_id)
+          into v_has_variant_recipe;
+        v_effective_variant := case when v_has_variant_recipe then v_prod.variant_id else null end;
+      else
+        v_effective_variant := null;
+      end if;
+
+      update public.priority_stock_pool ps
+         set remaining = ps.remaining - (v_r.producible_qty * rc.qty_per_unit)
+        from public.recipe_components rc
+       where rc.menu_item_id = v_prod.menu_item_id
+         and rc.variant_id is not distinct from v_effective_variant
+         and ps.inventory_item_id = rc.inventory_item_id;
+    end if;
+  end loop;
+end;
+$fn$;
+
+create or replace function public.set_product_priority(p_menu_item_id uuid, p_priority_level text)
+returns void language plpgsql security definer set search_path = public, app as $fn$
+declare v_next_rank int; v_cur_level text;
+begin
+  if not (app.has_perm('availability.update') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_priority_level not in ('critical', 'high', 'medium', 'low') then
+    raise exception 'bad_priority_level' using errcode = 'check_violation';
+  end if;
+
+  select priority_level into v_cur_level from public.product_priority where menu_item_id = p_menu_item_id;
+
+  if v_cur_level is null then
+    select coalesce(max(priority_rank), 0) + 1 into v_next_rank from public.product_priority where priority_level = p_priority_level;
+    insert into public.product_priority (menu_item_id, priority_level, priority_rank)
+    values (p_menu_item_id, p_priority_level, v_next_rank);
+  elsif v_cur_level <> p_priority_level then
+    select coalesce(max(priority_rank), 0) + 1 into v_next_rank from public.product_priority where priority_level = p_priority_level;
+    update public.product_priority set priority_level = p_priority_level, priority_rank = v_next_rank, updated_at = now()
+     where menu_item_id = p_menu_item_id;
+  end if;
+
+  perform app.recalc_priority_allocation('priority_change', p_menu_item_id::text);
+end;
+$fn$;
+revoke all on function public.set_product_priority(uuid, text) from public;
+grant execute on function public.set_product_priority(uuid, text) to authenticated, service_role;
+
+create or replace function public.remove_product_priority(p_menu_item_id uuid)
+returns void language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('availability.update') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  delete from public.product_priority where menu_item_id = p_menu_item_id;
+  if not exists (select 1 from public.product_priority) then
+    perform public.recalculate_all_product_availability();
+  else
+    perform app.recalc_priority_allocation('priority_change', p_menu_item_id::text);
+  end if;
+end;
+$fn$;
+revoke all on function public.remove_product_priority(uuid) from public;
+grant execute on function public.remove_product_priority(uuid) to authenticated, service_role;
+
+create or replace function public.reorder_product_priority(p_priority_level text, p_ordered_menu_item_ids uuid[])
+returns void language plpgsql security definer set search_path = public, app as $fn$
+declare v_id uuid; v_rank int := 1;
+begin
+  if not (app.has_perm('availability.update') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_priority_level not in ('critical', 'high', 'medium', 'low') then
+    raise exception 'bad_priority_level' using errcode = 'check_violation';
+  end if;
+
+  update public.product_priority set priority_rank = priority_rank + 1000000
+   where priority_level = p_priority_level and menu_item_id = any(p_ordered_menu_item_ids);
+
+  foreach v_id in array p_ordered_menu_item_ids loop
+    update public.product_priority set priority_rank = v_rank, updated_at = now()
+     where menu_item_id = v_id and priority_level = p_priority_level;
+    v_rank := v_rank + 1;
+  end loop;
+
+  perform app.recalc_priority_allocation('priority_change', null);
+end;
+$fn$;
+revoke all on function public.reorder_product_priority(text, uuid[]) from public;
+grant execute on function public.reorder_product_priority(text, uuid[]) to authenticated, service_role;
 
 -- ── Seed ─────────────────────────────────────────────────────────────────
 insert into public.menu_categories (name) values ('Uncategorised');

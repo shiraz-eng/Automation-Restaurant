@@ -9,7 +9,8 @@ import { getFreshConnection } from './lib/supabaseOAuth';
 import { tenantServiceClient } from './lib/tenantAdmin';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
-import { PLANS, isPlanTier } from '@automation-restaurant/shared';
+import { getPlanByTier } from './lib/plans';
+import { syncEntitlementsForTenant } from './lib/entitlementSync';
 
 // Bump whenever tenant-template/schema.sql changes; matches the highest applied
 // file in supabase/tenant-migrations/.
@@ -201,7 +202,61 @@ import { PLANS, isPlanTier } from '@automation-restaurant/shared';
 //       needs, none of which existed in this schema before. Null
 //       receipt_config falls back to the pre-existing receipt_footer_text/
 //       receipt_template_html behavior unchanged.
-const SCHEMA_VERSION = 48;
+//   v49 Portal identity: business_settings.meta_title (the browser <title>
+//       every portal page and sub-page inherits, via Next.js title
+//       templates — null falls back to the restaurant's own name) and
+//       get_brand_kit() extended to return it, so the portal layouts that
+//       need it for metadata read it through the same one Brand Kit path.
+//   v50 Kitchen stations: menu_items.station (free-text prep-station
+//       assignment — Fryer/Grill/Drinks/...). Null = unassigned. Powers
+//       the redesigned Kitchen Operations board's station filter; no new
+//       table, same grouped-free-text pattern menu_categories established.
+//   v51 app.sync_order_lines_status() trigger — keeps order_lines.
+//       kds_status in sync with orders.status on every write path, not
+//       just the kitchen_* RPCs (which already did this manually); fixes
+//       a real desync the Orders page's direct status write caused, since
+//       it's independently permissioned (orders.update) from the RPCs
+//       (kitchen.update_status) so routing it through them would silently
+//       break status changes for a custom portal holding only one.
+//   v52 Recipe-driven product availability engine: product_availability
+//       (derived AVAILABLE/LOW_STOCK/UNAVAILABLE status + producible_qty +
+//       bottleneck ingredient per menu_item/variant that has a recipe) and
+//       availability_audit_log (immutable transition history). Layered on
+//       TOP of the existing manual is_available/track_availability/
+//       available_qty toggles, not replacing them. Dependency-aware
+//       triggers recalc only the affected (item, variant) pairs whenever
+//       inventory_items.stock_qty, recipe_components, modifier_recipe_
+//       components, or a required modifier_option's availability changes —
+//       mirrors low_stock_events' own trigger-driven, one-subject-at-a-time
+//       shape (0025). get_product_availability_detail() exposes the
+//       per-ingredient breakdown; recalculate_all_product_availability()
+//       backfills existing tenants (nothing is tracked until it first runs).
+//   v53 Portal sign-in/out tracking (portals.last_logout_at +
+//       portal_record_sign_in/out(), logged to audit_logs) and a
+//       per-staff default shift_start_time (memberships) that
+//       app.recompute_attendance() falls back to for late detection when
+//       no explicit shifts row exists that day. attendance_auto_absent_
+//       sweep() marks a past business day 'absent' (source='auto') for
+//       anyone expected in who never clocked in or got an explicit
+//       status — swept periodically by the API server, same pattern as
+//       the low-stock/recipe-cost automations.
+//   v54 Recipe/Menu Inventory Consumption Priority: product_priority
+//       (critical/high/medium/low level + drag-and-drop rank per level)
+//       and a priority-ordered shared-ingredient allocation waterfall
+//       (app.recalc_priority_allocation, priority_stock_pool scratch
+//       table). Extracted the availability engine's own calculation
+//       (app.compute_product_capacity) and write (app.apply_product_
+//       availability_result) into shared helpers so the plain per-
+//       product engine and the priority waterfall share ONE
+//       implementation rather than duplicating it. No-op — zero
+//       behavior change — until an Owner actually sets a priority.
+//   v55 Plan entitlements: business_settings.plan_tier/plan_features,
+//       synced from the control-plane subscription by
+//       apps/api/src/lib/entitlementSync.ts (Stripe webhook + admin plan
+//       edits), plus a trigger blocking brand_* writes when menu.branded
+//       isn't in the current plan — the one feature with a real write
+//       surface worth enforcing at the DB level.
+const SCHEMA_VERSION = 55;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
@@ -442,6 +497,15 @@ export async function provisionTenant(input: {
     );
     if (memErr) throw new Error(`owner membership failed: ${memErr.message}`);
 
+    // Push this tenant's plan entitlements into its own project (0055) —
+    // has to happen here, not in the Stripe webhook, since the project
+    // doesn't exist yet when the webhook first fires.
+    try {
+      await syncEntitlementsForTenant(tenantId);
+    } catch (err) {
+      console.error(`[provision] ${slug}: entitlement sync failed:`, err);
+    }
+
     // Secure single-use set-password link for the welcome email.
     let setupUrl: string | null = null;
     if (!input.ownerPassword) {
@@ -466,8 +530,7 @@ export async function provisionTenant(input: {
       .select('tier, billing_interval')
       .eq('tenant_id', tenantId)
       .maybeSingle();
-    const planName =
-      sub?.tier && isPlanTier(sub.tier) ? PLANS[sub.tier].name : (sub?.tier ?? 'Subscription');
+    const planName = sub?.tier ? ((await getPlanByTier(sub.tier))?.name ?? sub.tier) : 'Subscription';
 
     const mail = await sendWelcomeEmail({
       to: ownerEmail,
@@ -553,8 +616,7 @@ export async function resendWelcomeEmail(tenantId: string): Promise<MailResult> 
     .select('tier, billing_interval')
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  const planName =
-    sub?.tier && isPlanTier(sub.tier) ? PLANS[sub.tier].name : (sub?.tier ?? 'Subscription');
+  const planName = sub?.tier ? ((await getPlanByTier(sub.tier))?.name ?? sub.tier) : 'Subscription';
 
   const { raw, hash } = createClaimToken();
   await supabaseAdmin.from('onboarding_tokens').insert({

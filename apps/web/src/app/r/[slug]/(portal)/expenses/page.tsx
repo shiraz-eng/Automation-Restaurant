@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
@@ -5,6 +6,7 @@ import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { ExpensesManager, type Expense, type ExpenseSupplier } from './ExpensesManager';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Finance' };
 
 type ProfitRow = {
   orders_count: number;

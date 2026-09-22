@@ -114,17 +114,11 @@ export const aiEnabled = aiProvider !== null;
 /** True when a Meta App is configured — Instagram connect/publish is usable. */
 export const socialEnabled = Boolean(env.META_APP_ID && env.META_APP_SECRET);
 
-/** Real Stripe is usable (secret key + at least one price mapping). */
-const stripeConfigured =
-  /^sk_(test|live)_/.test(env.STRIPE_SECRET_KEY) && env.STRIPE_PRICE_MAP.trim().length > 0;
-
-/**
- * Effective payment mode. 'auto' picks Stripe when configured, else 'mock' — a
- * self-contained simulated payment (random reference in payment format,
- * verified server-side) so onboarding works end-to-end with no external setup.
- */
-export const paymentsMode: 'stripe' | 'mock' =
-  env.PAYMENTS_MODE === 'auto' ? (stripeConfigured ? 'stripe' : 'mock') : env.PAYMENTS_MODE;
+/** A real Stripe secret key is present. Whether a GIVEN plan/interval has an
+ *  actual price configured is a per-plan fact (public.plans.stripe_price_id_*),
+ *  which — unlike this — needs a DB read, so it's not decided here; see
+ *  lib/plans.ts's resolvePaymentsMode() for the full 'auto' decision. */
+export const stripeConfigured = /^sk_(test|live)_/.test(env.STRIPE_SECRET_KEY);
 
 /**
  * Ordered list of Supabase organization ids to provision tenant projects into.

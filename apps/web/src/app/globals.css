@@ -16,28 +16,86 @@
   --warn: 217 119 6;
   --danger: 225 29 72;
   --radius: 12px;
+
+  /* Marketing-site-only tokens (additive — never read by the RMS portal UI,
+     which keeps its own --bg-main/--text-body dark-mode pair above). A near-
+     black "ink" tone for the site's dark command-center sections, and a
+     gold accent reserved for AI content so it reads as a distinct layer
+     rather than another use of the primary brand color. */
+  --ink: 9 9 14;
+  --ink-fg: 250 250 250;
+  --ink-muted: 161 161 170;
+  --gold: 202 138 4;
 }
 
+/* Dark mode (RULE-UI-03) — a restaurant's own Brand Kit "Appearance"
+   setting (light/dark/system) is the ONLY thing that switches these, via
+   ThemeProvider setting data-theme on <html> (see components/ThemeProvider
+   and lib/theme.ts). A near-neutral near-black, refined to match the
+   Owner Dashboard's "Command Center" redesign — previously a navy slate.
+   This must stay conditional: an explicit 'light' choice (data-theme=
+   'light') always wins, exactly as before. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg-main: 2 6 23;
-    --bg-surface: 15 23 42;
-    --border-color: 30 41 59;
-    --text-body: 226 232 240;
-    --text-muted: 148 163 184;
+    --bg-main: 9 9 14;
+    --bg-surface: 20 20 26;
+    --border-color: 38 38 45;
+    --text-body: 245 245 247;
+    --text-muted: 158 158 168;
   }
 }
 
 :root[data-theme='dark'] {
-  --bg-main: 2 6 23;
-  --bg-surface: 15 23 42;
-  --border-color: 30 41 59;
-  --text-body: 226 232 240;
-  --text-muted: 148 163 184;
+  --bg-main: 9 9 14;
+  --bg-surface: 20 20 26;
+  --border-color: 38 38 45;
+  --text-body: 245 245 247;
+  --text-muted: 158 158 168;
 }
 
 html,
 body {
   background: rgb(var(--bg-main));
   color: rgb(var(--text-body));
+}
+
+/* Hides the scrollbar on horizontally-scrollable strips (category pills,
+   image galleries) while keeping the element natively scrollable. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Marketing site motion — restrained, and off entirely for anyone who's
+   asked for reduced motion. Scoped by these specific classes, so nothing
+   in the RMS portal is affected. ────────────────────────────────────── */
+@keyframes site-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.site-fade-in {
+  animation: site-fade-in 0.18s ease-out both;
+}
+
+.site-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+.site-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-fade-in,
+  .site-reveal {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

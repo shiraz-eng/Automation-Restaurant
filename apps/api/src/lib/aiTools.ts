@@ -1198,25 +1198,75 @@ export const AI_TOOLS: AiTool[] = [
   },
   {
     name: 'get_menu',
-    description: "The menu: categories, items, and each item's variants with price and availability.",
+    description:
+      "The menu: categories, items, and each item's variants with price, the manual availability toggle, and — where the recipe-driven availability engine tracks it — the real computed status/producible quantity/reason. Use get_product_availability for a focused bottleneck-level explanation of one item.",
     needs: 'menu.view',
     input_schema: { type: 'object', properties: {} },
     async run(admin) {
-      const { data } = await admin
-        .from('menu_items')
-        .select('name, is_available, menu_categories(name), menu_variants(name, price_cents, is_available, available_qty, track_availability)')
-        .order('name');
+      const [{ data }, { data: availRows }] = await Promise.all([
+        admin
+          .from('menu_items')
+          .select('id, name, is_available, menu_categories(name), menu_variants(id, name, price_cents, is_available, available_qty, track_availability)')
+          .order('name'),
+        admin.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason'),
+      ]);
+      const rows = (availRows ?? []) as { menu_item_id: string; variant_id: string | null; status: string; producible_qty: number | null; reason: string | null }[];
+      const rowFor = (itemId: string, variantId: string) =>
+        rows.find((r) => r.menu_item_id === itemId && r.variant_id === variantId) ??
+        rows.find((r) => r.menu_item_id === itemId && r.variant_id === null);
       return (data ?? []).map((it: Record<string, unknown>) => ({
         item: it.name,
         category: (it.menu_categories as { name?: string } | null)?.name ?? null,
         available: it.is_available,
-        variants: ((it.menu_variants as Record<string, unknown>[]) ?? []).map((v) => ({
-          name: v.name,
-          price_cents: v.price_cents,
-          available: v.is_available,
-          ...(v.track_availability ? { remaining: v.available_qty } : {}),
-        })),
+        variants: ((it.menu_variants as Record<string, unknown>[]) ?? []).map((v) => {
+          const computed = rowFor(it.id as string, v.id as string);
+          return {
+            name: v.name,
+            price_cents: v.price_cents,
+            available: v.is_available,
+            ...(v.track_availability ? { remaining: v.available_qty } : {}),
+            ...(computed
+              ? { computed_status: computed.status, computed_producible_qty: computed.producible_qty, computed_reason: computed.reason }
+              : {}),
+          };
+        }),
       }));
+    },
+  },
+  {
+    name: 'get_product_availability',
+    description:
+      "The recipe-driven availability engine's authoritative read on menu items: computed status (available / low_stock / unavailable), producible quantity, and the real bottleneck ingredient when constrained. Always call this — never guess from the manual is_available toggle alone — when asked why an item is unavailable/low, or to check real producibility before promising something to a customer. Only covers items with a recipe or a required modifier group; absence from the result means the item isn't tracked by this engine.",
+    needs: 'availability.view',
+    input_schema: { type: 'object', properties: { item_name: { type: 'string', description: 'Optional — filter to items whose name contains this (case-insensitive).' } } },
+    async run(admin, args) {
+      const nameFilter = typeof args.item_name === 'string' ? args.item_name.trim().toLowerCase() : '';
+      const { data } = await admin
+        .from('product_availability')
+        .select('status, producible_qty, reason, updated_at, menu_items(name), menu_variants(name), inventory_items(name)')
+        .order('status');
+      const one = <T,>(x: T | T[] | null): T | null => (Array.isArray(x) ? (x[0] ?? null) : x);
+      const rows = ((data ?? []) as {
+        status: string; producible_qty: number | null; reason: string | null; updated_at: string;
+        menu_items: { name: string } | { name: string }[] | null;
+        menu_variants: { name: string } | { name: string }[] | null;
+        inventory_items: { name: string } | { name: string }[] | null;
+      }[])
+        .map((r) => ({
+          item: one(r.menu_items)?.name ?? '',
+          variant: one(r.menu_variants)?.name ?? null,
+          status: r.status,
+          producible_qty: r.producible_qty,
+          bottleneck_ingredient: one(r.inventory_items)?.name ?? null,
+          reason: r.reason,
+          updated_at: r.updated_at,
+        }))
+        .filter((r) => !nameFilter || r.item.toLowerCase().includes(nameFilter));
+      return {
+        tracked_count: rows.length,
+        note: rows.length === 0 && nameFilter ? `No recipe-tracked item matches "${nameFilter}" — it may have no recipe/required-modifier ingredients linked, so only the manual availability toggle applies.` : null,
+        items: rows,
+      };
     },
   },
   {
@@ -2867,7 +2917,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'set_menu_availability',
     description:
-      "Mark a menu item's variant available or unavailable for ordering (e.g. \"we're out of the large fries\"). Proposes the change for the manager to confirm — never runs on its own.",
+      "Mark a menu item's variant available or unavailable for ordering (e.g. \"we're out of the large fries\"). This is the MANUAL override toggle, separate from the recipe-driven availability engine (get_product_availability) — if get_product_availability already shows the item as unavailable due to a real ingredient shortage, restocking that ingredient (adjust_stock) fixes it automatically and this action isn't needed; only use this for a manual hide/show decision that isn't already explained by real stock. Proposes the change for the manager to confirm — never runs on its own.",
     needs: 'availability.update',
     input_schema: {
       type: 'object',
@@ -3937,6 +3987,17 @@ type BuiltReportData = {
     purchases_cents: number; consumption_cents: number; waste_cents: number; adjustments_cents: number;
     closing_value_cents: number; implied_opening_value_cents: number | null; stock_count_variance_cents: number; reconciliation_issue?: string;
   };
+  // Current per-ingredient snapshot (spec: the Inventory report must show
+  // the actual records, not just aggregate movement totals) — same columns
+  // InventoryManager.tsx's own on-screen table shows, not period-filtered
+  // (stock on hand is a snapshot, not a period total, same as Closing Value
+  // above already is).
+  inventoryItems?: { name: string; unit: string; stock_qty: number; min_threshold: number; target_stock_qty: number | null; cost_cents_per_base_unit: number; value_cents: number }[];
+  // Every stock_ledger row dated in the period (spec: the Inventory report
+  // must show real stock movement, not just the aggregate totals above) —
+  // same table InventoryManager.tsx's own "Recent stock movements" reads,
+  // just period-scoped here instead of capped to the latest 15.
+  stockMovements?: { item_name: string; delta_qty: number; reason: string; note: string | null; created_at: string }[];
   aiInsights?: { positives: string[]; areasToReview: { area: string; evidence: string; recommendation: string }[] };
   aiSummary: string | null;
 };
@@ -3953,7 +4014,7 @@ async function buildReportData(
 
   const [
     profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes,
-    attentionItems, dealProfRes, promoRes, inventoryRecRes, positivesRes, areasRes,
+    attentionItems, dealProfRes, promoRes, inventoryRecRes, positivesRes, areasRes, inventoryItemsRes, stockLedgerRes,
   ] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('sales_by_day', { p_from: from.toISOString().slice(0, 10), p_to: to.toISOString().slice(0, 10) }),
@@ -3986,6 +4047,13 @@ async function buildReportData(
     runToolByName(admin, 'get_inventory_reconciliation', forwardRange({ from, to })),
     runToolByName(admin, 'get_positive_highlights', forwardRange({ from, to })),
     runToolByName(admin, 'get_areas_to_review', forwardRange({ from, to })),
+    admin.from('inventory_items').select('name, unit, stock_qty, min_threshold, target_stock_qty, cost_cents_per_base_unit').order('name'),
+    admin
+      .from('stock_ledger')
+      .select('delta_qty, reason, note, created_at, inventory_items(name)')
+      .gte('created_at', from.toISOString())
+      .lte('created_at', to.toISOString())
+      .order('created_at', { ascending: false }),
   ]);
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
@@ -3995,6 +4063,17 @@ async function buildReportData(
   const attendance = (attendanceRes.data as { full_name: string | null; status: string }[] | null) ?? null;
   const itemProf = (itemProfRes.data as { name: string; qty_sold: number; revenue_cents: number; cogs_cents: number; contribution_cents: number; contribution_margin_pct: number | null }[] | null) ?? [];
   const expenseRecords = (expensesRes.data as { category: string; description: string | null; amount_cents: number; expense_date: string }[] | null) ?? [];
+  const inventoryItemRows = (inventoryItemsRes.data as { name: string; unit: string; stock_qty: number; min_threshold: number; target_stock_qty: number | null; cost_cents_per_base_unit: number }[] | null) ?? [];
+  const inventoryItems = inventoryItemRows.map((it) => ({ ...it, value_cents: Math.round(it.stock_qty * it.cost_cents_per_base_unit) }));
+  const stockMovements = (
+    (stockLedgerRes.data as { delta_qty: number; reason: string; note: string | null; created_at: string; inventory_items: { name: string } | { name: string }[] | null }[] | null) ?? []
+  ).map((l) => ({
+    item_name: Array.isArray(l.inventory_items) ? (l.inventory_items[0]?.name ?? '—') : (l.inventory_items?.name ?? '—'),
+    delta_qty: l.delta_qty,
+    reason: l.reason,
+    note: l.note,
+    created_at: l.created_at,
+  }));
 
   const purchasing = purchasingRes as {
     total_purchases_cents: number; purchase_orders: number; received_value_cents: number; pending_value_cents: number;
@@ -4097,6 +4176,8 @@ async function buildReportData(
       deals: (dealProfRes.data ?? []) as BuiltReportData['deals'],
       promotions: ((promoRes.data ?? []) as { name: string; code: string | null; redemptions: number; total_discount_cents: number; total_order_revenue_cents: number }[]),
       inventoryReconciliation: inventoryRecRes as BuiltReportData['inventoryReconciliation'],
+      inventoryItems,
+      stockMovements,
       aiInsights: {
         positives: (positivesRes as { highlights: string[] }).highlights,
         areasToReview: (areasRes as { areas: { area: string; evidence: string; recommendation: string }[] }).areas,
@@ -4145,6 +4226,7 @@ HOW TO ANSWER
 - For "did raising/changing [item]'s price work" / "what happened after I changed the price of X" / any before/after impact of a specific management decision, use get_price_change_impact with the item name — it finds that item's own most recent recorded price change and compares sales in the two equal-length windows around it. Phrase the result as "After the change, sales volume/revenue changed X%" — never "Because of the change" — unless the data makes the direction and size of the effect unambiguous. If no price change is on record for that item, say so; don't guess a change happened.
 - Any of the above tools accepts period: 'last_3_months' | 'last_6_months' | 'last_year' in addition to the usual today..last_month, or an exact from/to ('YYYY-MM-DD') custom range instead of period — use whichever the owner actually asked for.
 - For "how are we doing / what's happening": call get_restaurant_now first, then drill in with get_kitchen_status / get_low_stock / get_customer_feedback / get_attendance_summary as the question needs.
+- For "why is [item] unavailable/out of stock/sold out" or "can we actually make X right now", use get_product_availability (not get_low_stock, which is ingredient-level, or the menu's manual is_available toggle, which an Owner can set independently of real stock) — it's the recipe-driven engine's own computed status and names the real bottleneck ingredient. Distinguish LOW_STOCK (still sellable, one ingredient is near its reorder point) from UNAVAILABLE (zero producible right now) explicitly — never collapse them into one word. If the item isn't in its result, say it isn't recipe-tracked and only the manual toggle applies, rather than guessing a reason.
 - For "what needs my attention" / "what should I do" / "manage my restaurant" / "take care of today" — the single most important command — call get_attention_items and present its list as-is, ranked CRITICAL > HIGH > MEDIUM > LOW exactly as it returns them: do not add items it didn't find, and say "Nothing needs attention right now" plainly when the list is empty rather than inventing something to say. Name which part of the app to open (its open_in field) for each item so the owner can act on it.
 - For "morning brief" / "daily brief" / "how did we do yesterday and what's going on" / "give me today's brief", use get_daily_brief — one call covering yesterday's sales/food cost/rating, today's low-stock and pending-delivery counts, total outstanding payables, missing check-outs, yesterday's low-rated feedback, and the same attention items. Structure the answer in that order (yesterday, inventory, suppliers, finance, attendance, customers, then attention) rather than a wall of text, and only mention a section if it actually has something to say. If finance fields are absent, that's the caller's own permissions, not a fetch failure — don't apologize for it.
 - This assistant IS the sales, attendance AND profitability dashboard — there is no separate charts page, so when asked about sales, attendance, food cost, margin or profit, actually answer with the numbers (as a short table in plain text if there's more than a couple of rows), not just a pointer to "check the app".

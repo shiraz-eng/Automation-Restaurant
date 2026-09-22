@@ -44,7 +44,7 @@ export default async function BrandKitPage({ params }: { params: Promise<{ slug:
     t.client
       .from('business_settings')
       .select(
-        'brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, brand_primary, brand_primary_fg, brand_bg_main, brand_bg_surface, brand_border, brand_text_body, brand_text_muted, brand_radius, brand_appearance',
+        'brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, brand_primary, brand_primary_fg, brand_bg_main, brand_bg_surface, brand_border, brand_text_body, brand_text_muted, brand_radius, brand_appearance, meta_title, plan_tier, plan_features',
       )
       .eq('id', true)
       .maybeSingle(),
@@ -66,6 +66,7 @@ export default async function BrandKitPage({ params }: { params: Promise<{ slug:
     ? {
         restaurantName: t.config.restaurantName,
         logoUrl: data?.brand_logo_url ?? null,
+        primaryColor: data?.brand_primary ?? null,
         address: data?.address ?? null,
         phone: data?.phone ?? null,
         email: data?.contact_email ?? null,
@@ -114,7 +115,14 @@ export default async function BrandKitPage({ params }: { params: Promise<{ slug:
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">{error.message}</div>
       ) : (
         <>
-          <BrandKitManager slug={slug} logoUrl={data?.brand_logo_url ?? null} canEdit={canEdit} />
+          <BrandKitManager
+            slug={slug}
+            logoUrl={data?.brand_logo_url ?? null}
+            metaTitle={data?.meta_title ?? null}
+            restaurantName={t.config.restaurantName}
+            canEdit={canEdit}
+            entitled={!data?.plan_tier || (data.plan_features as string[]).includes('menu.branded')}
+          />
 
           <div>
             <h2 className="text-lg font-black">Receipt Customization</h2>
@@ -128,6 +136,7 @@ export default async function BrandKitPage({ params }: { params: Promise<{ slug:
             initialConfig={(data?.receipt_config as ReceiptConfig | null) ?? null}
             restaurantName={t.config.restaurantName}
             logoUrl={data?.brand_logo_url ?? null}
+            primaryColor={data?.brand_primary ?? null}
             restaurant={{
               address: data?.address ?? null,
               phone: data?.phone ?? null,

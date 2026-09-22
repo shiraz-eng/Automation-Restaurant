@@ -19,6 +19,29 @@ type Item = {
 };
 type Supplier = { id: string; name: string; email: string | null };
 
+/** adjust_stock / record_ingredient_waste / submit_stock_count reject over
+ *  the wire with terse Postgres error codes (e.g. "insufficient_stock: <uuid>")
+ *  rather than a message meant for an end user — translate the ones staff can
+ *  actually trigger into plain language naming the item they were editing. */
+function friendlyStockError(message: string, item: Item): string {
+  if (message.startsWith('insufficient_stock')) {
+    return `Only ${item.stock_qty} ${item.unit} of ${item.name} in stock — enter an amount at or below that.`;
+  }
+  if (message.startsWith('would_go_negative')) {
+    return `That would take ${item.name} below zero stock.`;
+  }
+  if (message.startsWith('reason_required')) {
+    return 'A reason is required to record waste.';
+  }
+  if (message.startsWith('bad_qty')) {
+    return 'Enter a quantity greater than zero.';
+  }
+  if (message.startsWith('forbidden')) {
+    return "You don't have permission to do that.";
+  }
+  return message;
+}
+
 export function InventoryManager({
   items,
   canViewCost,
@@ -62,7 +85,7 @@ export function InventoryManager({
     });
     setBusyId(null);
     if (error) {
-      setError(error.message);
+      setError(friendlyStockError(error.message, item));
       return;
     }
     setDeltas((d) => ({ ...d, [item.id]: '' }));
@@ -86,7 +109,7 @@ export function InventoryManager({
     });
     setBusyId(null);
     if (error) {
-      setError(error.message);
+      setError(friendlyStockError(error.message, item));
       return;
     }
     setDeltas((d) => ({ ...d, [item.id]: '' }));
@@ -110,7 +133,7 @@ export function InventoryManager({
     });
     setBusyId(null);
     if (error) {
-      setError(error.message);
+      setError(friendlyStockError(error.message, item));
       return;
     }
     router.refresh();

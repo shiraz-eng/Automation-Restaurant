@@ -31,13 +31,12 @@ const LABELS: Record<Category, string> = {
 /**
  * The single upload entry point (spec: "one AI Operating System, not a
  * separate Menu AI / Inventory AI / ..."). Upload anything once; the
- * model classifies which of the eight import domains it looks like
- * (pure text classification — this step never writes anything), you
- * confirm or override the guess, and control then hands off to that
- * EXACT SAME domain panel every explicit button below already uses —
- * same upload, same extraction, same diff, same approval. Classification
- * only decides which button gets pressed for you; everything after that
- * is identical to picking it yourself.
+ * model classifies which of the eight import domains it looks like (pure
+ * text classification — this step never writes anything), you confirm or
+ * override the guess, and control then hands off to that domain's own
+ * import panel — same upload, same extraction, same diff, same approval a
+ * domain-specific flow would give you. Classification only decides which
+ * panel opens for you.
  */
 export function SmartImportPanel({
   slug,
@@ -159,7 +158,7 @@ export function SmartImportPanel({
           <p className="text-xs text-muted mb-2">
             Upload any document — a menu, an ingredient list, a recipe sheet, a supplier price list, an order
             request, a staff roster — and the assistant figures out which kind it is. Nothing is created until you
-            review and approve it in the next step, exactly like every import below.
+            review and approve the changes in the next step.
           </p>
           <input
             ref={fileInputRef}

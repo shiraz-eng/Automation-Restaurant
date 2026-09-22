@@ -20,6 +20,25 @@ interface Mail {
   subject: string;
   html: string;
   text: string;
+  /** Restaurant's own display name, shown as the sender instead of just
+   *  the platform — the underlying verified address (env.EMAIL_FROM)
+   *  never changes, since that address is what the provider/DNS actually
+   *  authorizes (SPF/DKIM). Only the human-readable name before <...>
+   *  is safe to customize without per-restaurant domain verification. */
+  fromName?: string | null;
+  /** Restaurant's real contact address — replies go here, not to the
+   *  platform's technical sending address. */
+  replyTo?: string | null;
+}
+
+/** See Mail.fromName: swaps only the display-name portion of the
+ *  platform's one verified From address. */
+function resolveFrom(fromName?: string | null): string {
+  const trimmed = fromName?.trim();
+  if (!trimmed) return env.EMAIL_FROM;
+  const match = env.EMAIL_FROM.match(/^(.*)<(.+)>$/);
+  const address = match?.[2] ? match[2].trim() : env.EMAIL_FROM.trim();
+  return `${trimmed} (via Automation Restaurant) <${address}>`;
 }
 
 const smtpEnabled = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
@@ -40,11 +59,12 @@ function transport(): Transporter {
 async function sendViaSmtp(mail: Mail): Promise<MailResult> {
   try {
     const info = await transport().sendMail({
-      from: env.EMAIL_FROM,
+      from: resolveFrom(mail.fromName),
       to: mail.to,
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
+      ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
     });
     return { delivered: true, provider: 'smtp', id: info.messageId };
   } catch (err) {
@@ -61,11 +81,12 @@ async function sendViaResend(mail: Mail): Promise<MailResult> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: env.EMAIL_FROM,
+        from: resolveFrom(mail.fromName),
         to: mail.to,
         subject: mail.subject,
         html: mail.html,
         text: mail.text,
+        ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       }),
     });
     const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
@@ -82,7 +103,7 @@ export async function sendEmail(mail: Mail): Promise<MailResult> {
   if (smtpEnabled) return sendViaSmtp(mail);
   if (env.RESEND_API_KEY) return sendViaResend(mail);
   console.log(
-    `[mailer:console] to=${mail.to}\n  subject: ${mail.subject}\n  ${mail.text.replace(/\n/g, '\n  ')}`,
+    `[mailer:console] from=${resolveFrom(mail.fromName)}${mail.replyTo ? ` reply-to=${mail.replyTo}` : ''} to=${mail.to}\n  subject: ${mail.subject}\n  ${mail.text.replace(/\n/g, '\n  ')}`,
   );
   return { delivered: false, provider: 'console' };
 }

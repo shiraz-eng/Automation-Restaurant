@@ -14,6 +14,8 @@ const ENTITIES = [
   'memberships',
   'restaurant_tables',
   'reservations',
+  'portals',
+  'attendance',
 ] as const;
 
 type Row = {

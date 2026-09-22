@@ -7,7 +7,7 @@ import type { PlanTier } from '@automation-restaurant/shared';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const inputCls =
-  'mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary';
+  'mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-black';
 
 export function GetStartedForm({
   plan,
@@ -132,11 +132,11 @@ export function GetStartedForm({
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5" />
         <span>
           I agree to the{' '}
-          <Link href="/terms-and-conditions" className="text-primary font-semibold" target="_blank">
+          <Link href="/terms-and-conditions" className="text-black font-semibold" target="_blank">
             Terms &amp; Conditions
           </Link>{' '}
           and acknowledge the{' '}
-          <Link href="/privacy-policy" className="text-primary font-semibold" target="_blank">
+          <Link href="/privacy-policy" className="text-black font-semibold" target="_blank">
             Privacy Policy
           </Link>
           .
@@ -148,7 +148,7 @@ export function GetStartedForm({
       <button
         type="submit"
         disabled={busy}
-        className="rounded-lg bg-primary text-primary-fg font-bold px-6 py-3 text-sm disabled:opacity-60"
+        className="rounded-lg bg-black text-white font-bold px-6 py-3 text-sm transition-transform hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
       >
         {busy ? 'Processing…' : 'Continue to payment'}
       </button>

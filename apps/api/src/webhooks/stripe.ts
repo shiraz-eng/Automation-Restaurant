@@ -5,6 +5,7 @@ import { supabaseAdmin } from '../supabase';
 import { env } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
+import { syncEntitlementsForTenant } from '../lib/entitlementSync';
 import {
   isBillingInterval,
   isPlanTier,
@@ -94,7 +95,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   // client-supplied metadata alone (metadata is only a fallback).
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const priceId = subscription.items.data[0]?.price.id;
-  const mapped = tierFromPriceId(priceId);
+  const mapped = await tierFromPriceId(priceId);
 
   const metaTier = session.metadata?.plan;
   const tier: PlanTier | undefined = mapped?.tier ?? (isPlanTier(metaTier) ? metaTier : undefined);
@@ -169,7 +170,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
 }
 
 async function handleSubscriptionChange(subscription: Stripe.Subscription): Promise<void> {
-  const mapped = tierFromPriceId(subscription.items.data[0]?.price.id);
+  const mapped = await tierFromPriceId(subscription.items.data[0]?.price.id);
   const { error } = await supabaseAdmin.rpc('sync_subscription', {
     p_stripe_subscription_id: subscription.id,
     p_tier: mapped?.tier ?? null,
@@ -180,6 +181,22 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
   });
   if (error) {
     throw new Error(`sync_subscription failed: ${error.message}`);
+  }
+
+  // Push the (possibly new) tier's entitlements down to the tenant's own
+  // project — best-effort, never fails the webhook itself (Stripe would
+  // just retry an already-applied subscription change).
+  const { data: sub } = await supabaseAdmin
+    .from('subscriptions')
+    .select('tenant_id')
+    .eq('stripe_subscription_id', subscription.id)
+    .maybeSingle();
+  if (sub?.tenant_id) {
+    try {
+      await syncEntitlementsForTenant(sub.tenant_id);
+    } catch (err) {
+      console.error(`[stripe] entitlement sync failed for tenant ${sub.tenant_id}:`, err);
+    }
   }
 }
 

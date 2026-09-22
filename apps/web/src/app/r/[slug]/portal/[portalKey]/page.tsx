@@ -18,20 +18,16 @@ import { ExpensesManager, type Expense, type ExpenseSupplier } from '../../(port
 import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/SuppliersManager';
 import { AiChat } from '../../(portal)/ai/AiChat';
 import { InventoryManager } from '../../(portal)/inventory/InventoryManager';
-import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption } from '../../(portal)/recipes/RecipesManager';
+import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from '../../(portal)/recipes/RecipesManager';
 import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from '../../(portal)/purchasing/PurchasingClient';
 import { DealsManager, type Deal, type MenuOption } from '../../(portal)/deals/DealsManager';
 import { SocialManager } from '../../(portal)/social/SocialManager';
 import { StaffManager } from '@/components/StaffManager';
 import { SchedulingClient, type Shift, type Attendance } from '../../(portal)/scheduling/SchedulingClient';
 import { DayCloseClient, type Closing } from '../../(portal)/close/DayCloseClient';
+import { resolvePortalCapabilities, portalSections } from '@/lib/portalCapabilities';
 
 export const dynamic = 'force-dynamic';
-
-const BLURB: Record<string, string> = {
-  manager: 'Operational oversight scoped to its granted portals.',
-  custom: 'A custom portal, scoped to its granted portals.',
-};
 
 type ProfitRow = {
   orders_count: number;
@@ -82,139 +78,46 @@ export default async function PortalHome({
   const has = (k: string) => perms.includes('*') || perms.includes(k);
   const hasAny = (keys: string[]) => keys.some(has);
 
-  if (portal.type === 'kitchen') {
-    const [{ data: orders }, { data: variants }, { data: counters }] = await Promise.all([
-      t.client
-        .from('orders')
-        .select(
-          'id, order_number, table_label, channel, status, customer_note, created_at, pickup_counter_portal_id, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
-        )
-        .in('status', ACTIVE)
-        .order('created_at', { ascending: true }),
-      t.client
-        .from('menu_variants')
-        .select('id, name, is_available, track_availability, available_qty, menu_items(name)')
-        .order('name'),
-      t.client.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name'),
-    ]);
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-black">{portal.name}</h1>
-        <KitchenPortalBoard
-          initialOrders={(orders ?? []) as KOrder[]}
-          initialVariants={(variants ?? []) as unknown as KVariant[]}
-          counters={(counters ?? []) as Counter[]}
-          canAvailability={has('kitchen.manage_availability') || has('availability.update')}
-          canWaste={has('kitchen.record_waste')}
-        />
-      </div>
-    );
-  }
-
-  if (portal.type === 'attendance') {
-    const { data: roster } = await t.client.rpc('attendance_roster', {});
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-black">{portal.name}</h1>
-        <AttendancePortalBoard
-          initialRoster={(roster ?? []) as RosterRow[]}
-          canMark={has('attendance.mark')}
-          canCheckIn={has('attendance.check_in')}
-        />
-      </div>
-    );
-  }
-
-  if (portal.type === 'checkout') {
-    const canCreateOrder = has('orders.create');
-    const [{ data: bills }, { data: settings }, { data: menuCategories }, { data: menuItems }] = await Promise.all([
-      t.client
-        .from('orders')
-        .select(
-          'id, order_number, session_id, table_label, customer_name, channel, status, subtotal_cents, discount_cents, tax_cents, tax_rate_bps, total_cents, refunded_cents, created_at, paid_at, order_lines(id, name_snapshot, variant_name_snapshot, qty, unit_price_cents, line_total_cents, modifiers, customer_note), payments(id, amount_cents, method, reference, tendered_cents, change_cents, status, refunded_cents, created_at)',
-        )
-        .in('status', UNPAID)
-        .order('created_at', { ascending: true }),
-      t.client
-        .from('business_settings')
-        .select('brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
-        .eq('id', true)
-        .maybeSingle(),
-      canCreateOrder
-        ? t.client.from('menu_categories').select('id, name').order('sort_order')
-        : Promise.resolve({ data: null }),
-      canCreateOrder
-        ? t.client
-            .from('menu_items')
-            .select('id, name, category_id, menu_variants(id, name, price_cents, sort_order, is_available)')
-            .eq('is_available', true)
-            .order('name')
-        : Promise.resolve({ data: null }),
-    ]);
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-black">{portal.name}</h1>
-        <CheckoutClient
-          restaurantName={t.config.restaurantName}
-          initial={(bills ?? []) as Bill[]}
-          canRefund={has('payments.refund')}
-          canVoid={has('payments.void')}
-          canDiscount={has('orders.apply_discount')}
-          canCancel={has('orders.cancel')}
-          receipt={{
-            logoUrl: settings?.brand_logo_url ?? null,
-            footerText: settings?.receipt_footer_text ?? null,
-            templateHtml: settings?.receipt_template_html ?? null,
-            receiptConfig: (settings?.receipt_config as PortalReceiptConfig | null) ?? null,
-            restaurant: {
-              address: settings?.address ?? null,
-              phone: settings?.phone ?? null,
-              email: settings?.contact_email ?? null,
-              website: settings?.website ?? null,
-              taxId: settings?.tax_registration_number ?? null,
-            },
-          }}
-          canCreateOrder={canCreateOrder}
-          taxRateBps={800}
-          menuCategories={(menuCategories as NewOrderCategory[] | null) ?? []}
-          menuItems={(menuItems as unknown as NewOrderItem[] | null) ?? []}
-        />
-      </div>
-    );
-  }
-
-  // ── Generated (manager/custom) portal — a composition of the SAME real
-  // module implementations every single-purpose portal type above (and
-  // every standalone Operations Portal page) already uses, one section per
-  // existing RMS area this portal actually holds a permission for. This is
-  // what makes the portal generator GENERIC: a section's inclusion is
-  // driven entirely by has()/hasAny() reads of portal.permissions (itself
-  // entirely Owner-configured, from individual permissions — Portal
-  // Management has no predefined "Kitchen portal"/"Finance portal" bundle
-  // concept), never a hard-coded "if this portal is named X". Registering
-  // a future module only means one more conditional section here — nothing
+  // ── Generated portal — a composition of the SAME real module
+  // implementations every standalone Operations Portal page already uses,
+  // one section per existing RMS area this portal actually holds a
+  // permission for. `portal.type` is a Quick-start convenience label only
+  // (it preselects starting permissions in Portal Management) and carries
+  // NO authorization weight here — a section's inclusion is driven
+  // entirely by has()/hasAny() reads of portal.permissions itself, never
+  // by the portal's name or type. A portal named/typed "Attendance" that
+  // was later granted Finance permissions gets the Finance section, full
+  // stop; Portal Management has no predefined "Kitchen portal"/"Finance
+  // portal" bundle concept, and neither does this page. Registering a
+  // future module only means one more conditional section here — nothing
   // about this branching, the route, or the auth model needs to change.
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
 
-  const includeOperations = has('orders.view');
-  const includeKitchen = has('kitchen.view');
-  const includeCashier = has('payments.view');
-  const includeRecipes = hasAny(['inventory.manage_recipes', 'finance.manage_recipes', 'inventory.view_cost']);
-  const includeInventory = has('stock.view');
-  const includeSuppliers = has('supplier.view');
-  const includePurchasing = has('purchases.view');
-  const canFinance = hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit']);
-  const includeDayClose = has('finance.view');
-  const includeAnalytics = hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']);
-  const includeDeals = has('deals.view');
-  const includeSocial = has('social.view');
-  const includeStaff = has('staff.view');
-  const includeScheduling = has('attendance.view');
-  const includeAi = has('ai.view');
+  const caps = resolvePortalCapabilities(perms);
+  const {
+    operations: includeOperations,
+    kitchen: includeKitchen,
+    cashier: includeCashier,
+    recipes: includeRecipes,
+    inventory: includeInventory,
+    suppliers: includeSuppliers,
+    purchasing: includePurchasing,
+    finance: canFinance,
+    dayClose: includeDayClose,
+    analytics: includeAnalytics,
+    deals: includeDeals,
+    social: includeSocial,
+    staff: includeStaff,
+    scheduling: includeScheduling,
+    attendanceKiosk: includeAttendanceKiosk,
+    ai: includeAi,
+  } = caps;
 
   const canCreateOrderCashier = has('orders.create');
+  const canAttendanceMark = has('attendance.mark');
+  const canAttendanceCheckIn = has('attendance.check_in');
   const canManageAutomation = has('finance.manage_purchases');
   const weekOffset = Number.parseInt(w ?? '0', 10) || 0;
   const weekStartDate = weekStart();
@@ -231,10 +134,12 @@ export default async function PortalHome({
     settingsRes,
     cashierMenuCatRes,
     cashierMenuItemsRes,
+    cashierAvailabilityRes,
     recipesRes,
     recipesMenuRes,
     recipesInventoryRes,
     recipesSubRes,
+    recipesCategoriesRes,
     stockRes,
     stockLedgerRes,
     invSuppliersRes,
@@ -256,6 +161,7 @@ export default async function PortalHome({
     membersRes,
     shiftsRes,
     attendanceRes,
+    attendanceRosterRes,
   ] = await Promise.all([
     includeOperations
       ? t.client
@@ -296,7 +202,7 @@ export default async function PortalHome({
     includeCashier
       ? t.client
           .from('business_settings')
-          .select('brand_logo_url, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
+          .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
           .eq('id', true)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -309,6 +215,9 @@ export default async function PortalHome({
           .select('id, name, category_id, menu_variants(id, name, price_cents, sort_order, is_available)')
           .eq('is_available', true)
           .order('name')
+      : Promise.resolve({ data: null }),
+    includeCashier && canCreateOrderCashier
+      ? t.client.from('product_availability').select('menu_item_id, variant_id, status')
       : Promise.resolve({ data: null }),
     includeRecipes
       ? t.client
@@ -338,6 +247,9 @@ export default async function PortalHome({
           .select('id, name, current_version_id, recipe_versions!recipes_current_version_fk(yield_qty, yield_unit)')
           .in('recipe_type', ['semi_finished', 'preparation'])
           .eq('status', 'active')
+      : Promise.resolve({ data: null }),
+    includeRecipes
+      ? t.client.from('menu_categories').select('id, name').order('sort_order')
       : Promise.resolve({ data: null }),
     includeInventory
       ? t.client
@@ -429,7 +341,7 @@ export default async function PortalHome({
       ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name')
       : Promise.resolve({ data: null }),
     includeStaff
-      ? t.client.from('memberships').select('id, email, full_name, role, status, created_at').order('created_at', { ascending: true })
+      ? t.client.from('memberships').select('id, email, full_name, role, status, created_at, shift_start_time').order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
     includeScheduling
       ? t.client.from('memberships').select('id, full_name, email, role').order('full_name')
@@ -449,6 +361,7 @@ export default async function PortalHome({
           .order('clock_in', { ascending: false })
           .limit(40)
       : Promise.resolve({ data: null }),
+    includeAttendanceKiosk ? t.client.rpc('attendance_roster', {}) : Promise.resolve({ data: null }),
   ]);
 
   const orders = (ordersRes.data ?? []) as unknown as OrdersClientOrder[];
@@ -486,28 +399,37 @@ export default async function PortalHome({
     supplier_name: Array.isArray(o.suppliers) ? (o.suppliers[0]?.name ?? null) : (o.suppliers?.name ?? null),
   })) as PurchaseOrder[];
 
+  // Layer the recipe-driven engine's computed availability (and, once
+  // configured, priority allocation) on top of the manual is_available
+  // toggle the query above already filtered on — same rule Menu
+  // Management/Customer Menu already use, so this portal's own Cashier
+  // stops offering something the engine already knows is out of stock.
+  const cashierAvailByItem = new Map<string, { variant_id: string | null; status: string }[]>();
+  for (const r of (cashierAvailabilityRes.data ?? []) as { menu_item_id: string; variant_id: string | null; status: string }[]) {
+    const arr = cashierAvailByItem.get(r.menu_item_id) ?? [];
+    arr.push(r);
+    cashierAvailByItem.set(r.menu_item_id, arr);
+  }
+  const cashierMenuItemsWithAvailability = ((cashierMenuItemsRes.data ?? []) as Record<string, unknown>[]).map((it) => ({
+    ...it,
+    menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? []).map((v) => ({
+      ...v,
+      computed_available: (cashierAvailByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id)?.status !== 'unavailable',
+    })),
+  }));
+
   // Section nav: only the modules this portal actually holds a permission
   // for appear — an unselected module never renders a link, a section, or
-  // (per the fetches above) even queries its data.
-  const sections: { id: string; label: string }[] = [
-    includeOperations && { id: 'operations', label: 'Operations' },
-    includeKitchen && { id: 'kitchen', label: 'Kitchen' },
-    includeCashier && { id: 'cashier', label: 'Cashier' },
-    includeRecipes && { id: 'recipes', label: 'Recipes & Food Cost' },
-    includeInventory && { id: 'inventory', label: 'Inventory' },
-    (includeSuppliers || includePurchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
-    (canFinance || includeDayClose) && { id: 'finance', label: 'Finance' },
-    includeAnalytics && { id: 'analytics', label: 'Analytics' },
-    (includeDeals || includeSocial) && { id: 'marketing', label: 'Marketing & Social' },
-    (includeStaff || includeScheduling) && { id: 'staff', label: 'Staff' },
-    includeAi && { id: 'ai', label: 'Assistant' },
-  ].filter((s): s is { id: string; label: string } => !!s);
+  // (per the fetches above) even queries its data. Same list Portal
+  // Management's live preview shows while an Owner is building this
+  // portal — one function, not two copies of the rule.
+  const sections = portalSections(caps);
 
   return (
     <div className="max-w-5xl space-y-6">
       <div>
         <h1 className="text-xl font-black">{portal.name}</h1>
-        <p className="text-muted text-xs mt-1">{BLURB[portal.type] ?? BLURB.custom}</p>
+        <p className="text-muted text-xs mt-1">Scoped to its granted permissions.</p>
       </div>
 
       {perms.length === 0 ? (
@@ -565,6 +487,7 @@ export default async function PortalHome({
                 canCancel={has('orders.cancel')}
                 receipt={{
                   logoUrl: settingsRes.data?.brand_logo_url ?? null,
+                  primaryColor: settingsRes.data?.brand_primary ?? null,
                   footerText: settingsRes.data?.receipt_footer_text ?? null,
                   templateHtml: settingsRes.data?.receipt_template_html ?? null,
                   receiptConfig: (settingsRes.data?.receipt_config as PortalReceiptConfig | null) ?? null,
@@ -579,7 +502,7 @@ export default async function PortalHome({
                 canCreateOrder={canCreateOrderCashier}
                 taxRateBps={800}
                 menuCategories={(cashierMenuCatRes.data as NewOrderCategory[] | null) ?? []}
-                menuItems={(cashierMenuItemsRes.data as unknown as NewOrderItem[] | null) ?? []}
+                menuItems={cashierMenuItemsWithAvailability as unknown as NewOrderItem[]}
               />
             </section>
           )}
@@ -592,6 +515,7 @@ export default async function PortalHome({
                 menuItems={(recipesMenuRes.data ?? []) as unknown as MenuItemOption[]}
                 inventoryItems={(recipesInventoryRes.data ?? []) as unknown as InventoryItemOption[]}
                 subRecipes={(recipesSubRes.data ?? []) as unknown as SubRecipeOption[]}
+                categories={(recipesCategoriesRes.data ?? []) as CategoryOption[]}
                 canManage={has('inventory.manage_recipes') || has('finance.manage_recipes')}
                 canViewCost={has('inventory.view_cost')}
               />
@@ -706,6 +630,17 @@ export default async function PortalHome({
                   canApprove={has('social.approve_post')}
                 />
               )}
+            </section>
+          )}
+
+          {includeAttendanceKiosk && (
+            <section id="attendance" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Attendance</h2>
+              <AttendancePortalBoard
+                initialRoster={(attendanceRosterRes.data ?? []) as RosterRow[]}
+                canMark={canAttendanceMark}
+                canCheckIn={canAttendanceCheckIn}
+              />
             </section>
           )}
 

@@ -2,8 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
-import { ThemeProvider } from '@/components/ThemeProvider';
-import { themeFromBrandKit, type BrandKit } from '@/lib/theme';
+import { fetchPortalTheme } from '@/lib/theme';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,16 +50,14 @@ export default async function PortalLayout({
     redirect(`/r/${slug}/set-portal-password?p=${portalKey}`);
   }
 
-  const { data: brandKitRows } = await t.client.rpc('get_brand_kit');
-  const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
-  const initialTheme = themeFromBrandKit(brandKit ?? null);
-  const logoUrl = brandKit?.logo_url ?? null;
+  // Logo only — the theme itself is now applied once, by the tenant root
+  // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
+  const { logoUrl } = await fetchPortalTheme(t.client);
 
   return (
     <PortalProvider
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
-    <ThemeProvider initialTheme={initialTheme} storageKey={`ar-theme:${slug}`} scoped>
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between px-5 h-14 border-b border-border bg-surface shrink-0">
           <div className="flex items-baseline gap-3">
@@ -78,20 +75,11 @@ export default async function PortalLayout({
           </div>
           <div className="flex items-center gap-3 text-xs text-muted">
             <span className="hidden sm:inline">{user.email}</span>
-            {isThisPortal && (
-              <a
-                href={`/r/${slug}/set-portal-password?p=${portalKey}`}
-                className="hover:text-body underline"
-              >
-                Password
-              </a>
-            )}
             <SignOutButton redirectTo={`/r/${slug}/login`} />
           </div>
         </header>
         <main className="flex-1 p-4 md:p-8">{children}</main>
       </div>
-    </ThemeProvider>
     </PortalProvider>
   );
 }

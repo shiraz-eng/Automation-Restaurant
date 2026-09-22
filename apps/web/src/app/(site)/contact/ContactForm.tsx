@@ -42,7 +42,7 @@ export function ContactForm() {
 
   if (done) {
     return (
-      <div className="rounded-xl border border-ok/40 bg-ok/10 p-6 text-sm text-ok">
+      <div className="rounded-2xl border border-ok/40 bg-ok/10 p-6 text-sm text-ok font-medium">
         Thanks — we&apos;ve got your message and will be in touch.
       </div>
     );
@@ -78,7 +78,7 @@ export function ContactForm() {
       <button
         type="submit"
         disabled={busy}
-        className="rounded-lg bg-primary text-primary-fg font-bold px-6 py-3 text-sm disabled:opacity-60"
+        className="w-full sm:w-auto rounded-lg bg-black text-white font-bold px-6 py-3 text-sm transition-transform hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
       >
         {busy ? 'Sending…' : 'Send message'}
       </button>
@@ -87,7 +87,7 @@ export function ContactForm() {
 }
 
 const inputCls =
-  'mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary';
+  'mt-1.5 w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-black focus:ring-2 focus:ring-black/10';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
