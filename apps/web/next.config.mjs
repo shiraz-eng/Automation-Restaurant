@@ -8,7 +8,7 @@ const workspaceRoot = resolve(here, '../..');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  ...(process.env.VERCEL ? {} : { output: 'standalone' }),
   transpilePackages: ['@automation-restaurant/shared'],
   outputFileTracingRoot: workspaceRoot,
 };
