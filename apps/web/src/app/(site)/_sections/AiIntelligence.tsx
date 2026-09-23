@@ -1,6 +1,8 @@
-import { Banknote, ChefHat, Crown, MessageCircleHeart, Package, TrendingUp } from 'lucide-react';
+import Link from 'next/link';
+import { Banknote, ChefHat, Crown, MessageCircleHeart, Package, TrendingUp, Sparkles } from 'lucide-react';
 import { Eyebrow } from '@/components/marketing/Section';
 import { Reveal } from '@/components/marketing/Reveal';
+import { GuideAiPanel } from '@/components/GuideAiPanel';
 
 const LAYERS = [
   {
@@ -40,7 +42,7 @@ export function AiIntelligence() {
     <section id="ai" className="scroll-mt-20 bg-ink text-ink-fg border-y border-black/20">
       <div className="mx-auto max-w-6xl px-5 md:px-8 py-20 md:py-28">
         <div className="text-center max-w-2xl mx-auto mb-14">
-          <Eyebrow tone="dark">AI Intelligence</Eyebrow>
+          <Eyebrow tone="dark">AI Intelligence & Automation</Eyebrow>
           <h2 className="font-display text-3xl md:text-[2.75rem] leading-[1.1] font-bold tracking-tight mt-3">
             AI that understands your restaurant.
           </h2>
@@ -62,6 +64,43 @@ export function AiIntelligence() {
               </div>
             </Reveal>
           ))}
+        </div>
+
+        {/* Embedded Interactive AI Guide */}
+        <div className="mt-14 rounded-2xl border border-gold/30 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-6 md:p-8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div className="lg:col-span-5 space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-semibold text-gold">
+                <Sparkles size={12} />
+                <span>Interactive Product Specialist</span>
+              </div>
+              <h3 className="font-display text-2xl md:text-3xl font-bold tracking-tight text-white">
+                Try the AI Guide live.
+              </h3>
+              <p className="text-sm text-ink-muted leading-relaxed">
+                Have questions about pricing, features, or setup? Test our live Automation Restaurant
+                AI Guide right now. It can explain plan tiers, KDS routing, recipe deductions, and how to get started.
+              </p>
+              <div className="flex flex-wrap gap-2.5 pt-2">
+                <Link
+                  href="/guide"
+                  className="rounded-lg bg-gold px-4 py-2 text-xs font-bold text-ink hover:opacity-90 transition-opacity flex items-center gap-1.5"
+                >
+                  <ChefHat size={14} />
+                  <span>Full AI Guide Page</span>
+                </Link>
+                <Link
+                  href="/pricing"
+                  className="rounded-lg border border-white/20 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 transition-colors"
+                >
+                  View All Plans
+                </Link>
+              </div>
+            </div>
+            <div className="lg:col-span-7">
+              <GuideAiPanel mode="public" embedded={true} />
+            </div>
+          </div>
         </div>
 
         <Reveal delay={200}>
