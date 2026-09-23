@@ -79,7 +79,11 @@ export async function sendPublicGuideMessage(
   messages: GuideMsg[],
   context: GuideContext,
 ): Promise<GuideResponse> {
-  const res = await fetch(`${API}/api/public/guide-ai/chat`, {
+  const endpoint =
+    typeof window !== 'undefined'
+      ? '/api/guide-ai/chat'
+      : `${API}/api/public/guide-ai/chat`;
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages, context }),
@@ -97,7 +101,11 @@ export async function sendAuthGuideMessage(
   context: GuideContext,
   token: string,
 ): Promise<GuideResponse> {
-  const res = await fetch(`${API}/api/guide-ai/chat`, {
+  const endpoint =
+    typeof window !== 'undefined'
+      ? '/api/guide-ai/chat'
+      : `${API}/api/guide-ai/chat`;
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -137,7 +145,11 @@ export function logGuideEvent(
   metadata: Record<string, unknown> = {},
   slug?: string,
 ): void {
-  fetch(`${API}/api/public/guide-ai/event`, {
+  const endpoint =
+    typeof window !== 'undefined'
+      ? '/api/guide-ai/event'
+      : `${API}/api/public/guide-ai/event`;
+  fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event, session_id: sessionId, tenant_slug: slug ?? null, metadata }),
