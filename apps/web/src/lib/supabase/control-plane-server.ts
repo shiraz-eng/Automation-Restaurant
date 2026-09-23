@@ -3,14 +3,20 @@ import { cookies } from 'next/headers';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-const URL =
-  process.env.NEXT_PUBLIC_CONTROL_PLANE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://ckxxpyzxsbhhynlboyid.supabase.co';
-const ANON =
-  process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk1NTQzNCwiZXhwIjoyMTA0NTMxNDM0fQ.8Pf3AAJ0MNn9LdcyWxvRARFx6EunjNWEBHj68JBKuP0';
+// Public by design (RLS enforces access) — never fall back to a
+// service_role key here (see control-plane-client.ts for why).
+function requireEnv(value: string | undefined, name: string): string {
+  if (!value) throw new Error(`Missing ${name} — set it in the deployment environment.`);
+  return value;
+}
+const URL = requireEnv(
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+  'NEXT_PUBLIC_CONTROL_PLANE_URL',
+);
+const ANON = requireEnv(
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  'NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY',
+);
 
 /** Control-plane Supabase client for Server Components (super-admin session). */
 export async function createControlPlaneServerClient() {
