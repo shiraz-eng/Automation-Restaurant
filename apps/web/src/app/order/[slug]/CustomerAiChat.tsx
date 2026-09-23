@@ -72,15 +72,27 @@ export function CustomerAiChat({
     setBusy(true);
     scrollToBottom();
     try {
-      const res = await fetch(`${API}/api/public/ai/chat`, {
+      // The full tool-calling assistant (deal matching, item resolution,
+      // budget proposals as action cards) lives behind the Express API —
+      // unreachable in production as a browser fetch (see guideAi.ts's
+      // same fix). Fall back to a same-origin, plain-text-only version
+      // using the menu data already loaded on this page, rather than
+      // showing "Network error" for every question.
+      const useExpress = typeof window === 'undefined' || (API && !API.includes('localhost:4000'));
+      const endpoint = useExpress ? `${API}/api/public/ai/chat` : '/api/order/ai';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug,
-          restaurant_name: restaurantName,
-          messages: next.slice(-10),
-          cart_lines: cartSnapshot,
-        }),
+        body: JSON.stringify(
+          useExpress
+            ? { slug, restaurant_name: restaurantName, messages: next.slice(-10), cart_lines: cartSnapshot }
+            : {
+                restaurant_name: restaurantName,
+                messages: next.slice(-10),
+                menu_items: products.map((p) => ({ name: p.name, price_cents: p.price_cents })),
+                menu_deals: deals.map((d) => ({ name: d.name, price_cents: d.price_cents, description: d.description })),
+              },
+        ),
       });
       const body = await res.json();
       if (!res.ok) {
