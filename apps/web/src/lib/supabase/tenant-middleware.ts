@@ -3,14 +3,23 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-const CP_URL =
-  process.env.NEXT_PUBLIC_CONTROL_PLANE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  'https://ckxxpyzxsbhhynlboyid.supabase.co';
-const CP_ANON =
-  process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk1NTQzNCwiZXhwIjoyMTA0NTMxNDM0fQ.8Pf3AAJ0MNn9LdcyWxvRARFx6EunjNWEBHj68JBKuP0';
+// The control-plane URL/anon key are public by design (RLS enforces access,
+// see VERCEL_DEPLOY.md) — never fall back to a service_role key here. This
+// runs in Edge Middleware on every /admin and /r/* request, so a
+// service_role fallback would both leak in source AND bypass RLS on every
+// session-cookie refresh.
+function requireEnv(value: string | undefined, name: string): string {
+  if (!value) throw new Error(`Missing ${name} — set it in the deployment environment.`);
+  return value;
+}
+const CP_URL = requireEnv(
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
+  'NEXT_PUBLIC_CONTROL_PLANE_URL',
+);
+const CP_ANON = requireEnv(
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  'NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY',
+);
 
 async function tenantConfig(slug: string): Promise<{ url: string; anonKey: string } | null> {
   try {
