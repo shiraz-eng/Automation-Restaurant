@@ -256,7 +256,12 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       edits), plus a trigger blocking brand_* writes when menu.branded
 //       isn't in the current plan — the one feature with a real write
 //       surface worth enforcing at the DB level.
-const SCHEMA_VERSION = 55;
+//   v56 adjust_stock() auto-links a manual restock to a single unambiguous
+//       open PO line for that item (same weighted-average costing and
+//       status transition as receive_purchase_order_line()) so purchasing
+//       reflects a delivery recorded from the Inventory page too, not only
+//       via "Receive PO".
+const SCHEMA_VERSION = 56;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
