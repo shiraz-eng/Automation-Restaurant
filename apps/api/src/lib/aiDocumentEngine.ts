@@ -1,4 +1,3 @@
-import { PDFParse } from 'pdf-parse';
 import Anthropic from '@anthropic-ai/sdk';
 import { env, aiProvider } from '../env';
 
@@ -20,6 +19,13 @@ import { env, aiProvider } from '../env';
  */
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
+  // Loaded lazily — pdf-parse pulls in @napi-rs/canvas, a native binary
+  // dependency. Importing it eagerly at module scope means every cold
+  // start of the whole API (every route, via app.ts's router mounts)
+  // pays for loading that native binding, and on a platform where the
+  // matching prebuilt binary isn't present the failure kills the entire
+  // function instead of just PDF-upload requests.
+  const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();
