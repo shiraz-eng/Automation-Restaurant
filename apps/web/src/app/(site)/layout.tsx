@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Fraunces, Manrope } from 'next/font/google';
 import { ChefHat } from 'lucide-react';
 import { MobileMenu } from './MobileMenu';
+import { GuideAiWidget } from '@/components/GuideAiWidget';
 
 // Scoped to the marketing site only (via the font-variable classes below) —
 // the RMS portal keeps its own current typography untouched. Fraunces (a
@@ -55,6 +56,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       <main className="flex-1">{children}</main>
 
       <SiteFooter />
+      <GuideAiWidget mode="public" />
     </div>
   );
 }
@@ -82,6 +84,7 @@ function SiteFooter() {
             ['/#platform', 'Features'],
             ['/#ai', 'AI'],
             ['/pricing', 'Pricing'],
+            ['/guide', 'AI Guide'],
           ]}
         />
         <FooterCol

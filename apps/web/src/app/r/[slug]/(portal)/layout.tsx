@@ -6,6 +6,7 @@ import { NavLink } from '@/components/NavLink';
 import { roleHome } from '@/lib/portals';
 import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
+import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import type { FeatureKey } from '@automation-restaurant/shared';
 
 // [segment, label, permission key, ownerOnly, requiredFeature]. Items without a key always
@@ -91,7 +92,7 @@ const NAV_GROUPS: [string, NavItem[]][] = [
       ['exports', 'Export History', 'reports.view'],
     ],
   ],
-  ['AI Intelligence', [['ai', 'Assistant', 'ai.view']]],
+  ['AI Intelligence', [['ai', 'Assistant', 'ai.view'], ['guide', 'AI Guide']]],
   [
     'Settings',
     [
@@ -227,6 +228,12 @@ export default async function PortalLayout({
           <main className="flex-1 min-w-0 p-6 md:p-10 bg-main">{children}</main>
         </div>
       </div>
+      <PortalGuideAiWidget
+        slug={slug}
+        restaurantName={t.config.restaurantName}
+        planTier={t.config.tier ?? undefined}
+        subscriptionStatus={t.config.subscriptionStatus ?? undefined}
+      />
     </PortalProvider>
   );
 }
