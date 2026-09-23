@@ -5,6 +5,7 @@ import { provisionTenant, resendWelcomeEmail } from '../provisioning';
 import { stripe } from '../stripe';
 import { syncEntitlementsForAllTenants } from '../lib/entitlementSync';
 import { requireSuperAdminPerm } from '../middleware/adminAuth';
+import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
 
 export const adminRouter = express.Router();
 
@@ -83,6 +84,32 @@ adminRouter.post(
   async (req: Request, res: Response) => {
     const result = await syncEntitlementsForAllTenants();
     res.json({ ok: true, ...result });
+  },
+);
+
+/** GET /api/admin/tenants/:slug/summary — lightweight per-tenant-project
+ *  headcount, fetched lazily (only when a restaurant/customer drawer opens,
+ *  never in the main directory list) via the one sanctioned cross-project
+ *  path (tenantServiceClientBySlug). Never touches operational rows
+ *  (orders/menu/inventory) — staff count only. */
+adminRouter.get(
+  '/tenants/:slug/summary',
+  requireSuperAdminPerm('restaurants.view'),
+  async (req: Request, res: Response) => {
+    const slug = req.params.slug ?? '';
+    if (!slug) return res.status(400).json({ error: 'missing_slug' });
+    try {
+      const svc = await tenantServiceClientBySlug(slug);
+      if (!svc) return res.status(404).json({ error: 'not_found' });
+      const { count, error } = await svc.admin
+        .from('memberships')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (error) throw new Error(error.message);
+      res.json({ ok: true, staff_count: count ?? 0 });
+    } catch (err) {
+      res.status(502).json({ error: 'summary_failed', message: String((err as Error).message ?? err) });
+    }
   },
 );
 

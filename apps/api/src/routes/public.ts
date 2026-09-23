@@ -6,6 +6,7 @@ import { env } from '../env';
 import { getActivePlans } from '../lib/plans';
 import { billingConfigured } from '../stripe';
 import { getAllSiteSections } from '../lib/siteContent';
+import { getPublishedFaqItems } from '../lib/faqItems';
 
 export const publicRouter = express.Router();
 
@@ -25,6 +26,17 @@ publicRouter.get('/site-content', async (_req: Request, res: Response) => {
   try {
     const sections = await getAllSiteSections();
     res.json({ sections });
+  } catch (err) {
+    res.status(500).json({ error: 'query_failed', message: String((err as Error).message ?? err) });
+  }
+});
+
+/** GET /api/public/faq-items — published FAQ entries (public.faq_items),
+ *  grouped/sorted client-side by lib/cms/content.ts's getFaqItems(). */
+publicRouter.get('/faq-items', async (_req: Request, res: Response) => {
+  try {
+    const items = await getPublishedFaqItems();
+    res.json({ items });
   } catch (err) {
     res.status(500).json({ error: 'query_failed', message: String((err as Error).message ?? err) });
   }

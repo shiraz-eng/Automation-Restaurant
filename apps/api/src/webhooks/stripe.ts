@@ -51,17 +51,34 @@ stripeWebhook.post(
     }
 
     try {
+      let result: { tenantId?: string; summary?: string } | void = undefined;
       switch (event.type) {
         case 'checkout.session.completed':
-          await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+          result = await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
           break;
         case 'customer.subscription.updated':
         case 'customer.subscription.deleted':
-          await handleSubscriptionChange(event.data.object as Stripe.Subscription);
+          result = await handleSubscriptionChange(event.data.object as Stripe.Subscription);
+          break;
+        case 'invoice.payment_failed':
+          result = await handleInvoiceOutcome(event.data.object as Stripe.Invoice, 'Payment failed');
+          break;
+        case 'invoice.paid':
+          result = await handleInvoiceOutcome(event.data.object as Stripe.Invoice, 'Payment succeeded');
           break;
         default:
           break; // acknowledged, nothing to do
       }
+
+      await supabaseAdmin
+        .from('webhook_events')
+        .update({
+          tenant_id: result?.tenantId ?? null,
+          summary: result?.summary ?? null,
+          handled_at: new Date().toISOString(),
+        })
+        .eq('id', event.id);
+
       return res.status(200).json({ received: true });
     } catch (err) {
       console.error(`[stripe] handler error for ${event.type} (${event.id}):`, err);
@@ -72,7 +89,9 @@ stripeWebhook.post(
   },
 );
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
+async function handleCheckoutCompleted(
+  session: Stripe.Checkout.Session,
+): Promise<{ tenantId?: string; summary?: string } | void> {
   if (session.mode !== 'subscription') return;
 
   const email = session.customer_details?.email ?? session.customer_email ?? undefined;
@@ -167,14 +186,18 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session): Promis
   });
 
   console.log(`[stripe] registered tenant ${tenantId} (${slug}); provisioning project…`);
+  return { tenantId, summary: `New signup: ${restaurantName}` };
 }
 
-async function handleSubscriptionChange(subscription: Stripe.Subscription): Promise<void> {
+async function handleSubscriptionChange(
+  subscription: Stripe.Subscription,
+): Promise<{ tenantId?: string; summary?: string } | void> {
   const mapped = await tierFromPriceId(subscription.items.data[0]?.price.id);
+  const status = mapStripeStatus(subscription.status);
   const { error } = await supabaseAdmin.rpc('sync_subscription', {
     p_stripe_subscription_id: subscription.id,
     p_tier: mapped?.tier ?? null,
-    p_status: mapStripeStatus(subscription.status),
+    p_status: status,
     p_current_period_end: subscription.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null,
@@ -198,6 +221,33 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription): Prom
       console.error(`[stripe] entitlement sync failed for tenant ${sub.tenant_id}:`, err);
     }
   }
+
+  const summary =
+    status === 'canceled'
+      ? 'Subscription canceled'
+      : status === 'past_due'
+        ? 'Subscription past due'
+        : status === 'trialing'
+          ? 'Trial started'
+          : 'Subscription updated';
+  return { tenantId: sub?.tenant_id, summary };
+}
+
+/** invoice.payment_failed / invoice.paid — resolves the tenant via the
+ *  invoice's Stripe customer id so the Overview dashboard's billing-alerts
+ *  feed has something real to show, never fabricated. */
+async function handleInvoiceOutcome(
+  invoice: Stripe.Invoice,
+  summary: string,
+): Promise<{ tenantId?: string; summary?: string } | void> {
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+  if (!customerId) return { summary };
+  const { data: sub } = await supabaseAdmin
+    .from('subscriptions')
+    .select('tenant_id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  return { tenantId: sub?.tenant_id, summary };
 }
 
 function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {

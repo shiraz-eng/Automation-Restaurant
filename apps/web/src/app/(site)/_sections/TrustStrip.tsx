@@ -6,10 +6,15 @@ const DEFAULT: FlatListContent = {
   items: ['Quick Service', 'Fast Casual', 'Full Service', 'Cafés & Bakeries', 'Fine Dining', 'Food Trucks', 'Restaurant Groups'],
 };
 
-export async function TrustStrip() {
+export async function TrustStrip({ previewContent }: { previewContent?: FlatListContent } = {}) {
+  if (previewContent) return <TrustStripView content={previewContent} />;
   const result = await getSectionContent('trust-strip', 'flat_list');
   if (result.state === 'hidden') return null;
   const content = result.state === 'active' ? result.content : DEFAULT;
+  return <TrustStripView content={content} />;
+}
+
+function TrustStripView({ content }: { content: FlatListContent }) {
   return (
     <div className="border-y border-border bg-surface">
       <div className="mx-auto max-w-6xl px-5 md:px-8 py-8">

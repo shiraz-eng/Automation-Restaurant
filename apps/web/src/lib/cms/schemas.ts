@@ -32,10 +32,13 @@ export const flatListContentSchema = z.object({
 });
 export type FlatListContent = z.infer<typeof flatListContentSchema>;
 
+// FAQ items now live in their own table (public.faq_items, categorized and
+// individually publishable) rather than this section's content — this
+// schema only owns the surrounding eyebrow/title copy. See lib/cms/content.ts's
+// getFaqItems().
 export const faqContentSchema = z.object({
   eyebrow: z.string(),
   title: z.string(),
-  items: z.array(z.object({ q: z.string().min(1), a: z.string().min(1) })).min(1),
 });
 export type FaqContent = z.infer<typeof faqContentSchema>;
 

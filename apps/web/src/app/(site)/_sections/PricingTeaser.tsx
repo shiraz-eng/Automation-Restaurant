@@ -12,12 +12,20 @@ const DEFAULT: CopyOnlyContent = {
   subtitle: 'Pick a plan — your restaurant workspace provisions automatically after checkout.',
 };
 
-export async function PricingTeaser() {
+export async function PricingTeaser({ previewContent }: { previewContent?: CopyOnlyContent } = {}) {
+  if (previewContent) {
+    const plans = await getActivePlans();
+    return <PricingTeaserView content={previewContent} plans={plans} />;
+  }
   const [plans, result] = await Promise.all([getActivePlans(), getSectionContent('pricing-teaser', 'copy_only')]);
   if (result.state === 'hidden') return null;
   const copy = result.state === 'active' ? result.content : DEFAULT;
+  return <PricingTeaserView content={copy} plans={plans} />;
+}
+
+function PricingTeaserView({ content, plans }: { content: CopyOnlyContent; plans: Awaited<ReturnType<typeof getActivePlans>> }) {
   return (
-    <Section id="pricing" tone="surface" eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle}>
+    <Section id="pricing" tone="surface" eyebrow={content.eyebrow} title={content.title} subtitle={content.subtitle}>
       <PricingCards plans={plans} />
       <div className="text-center mt-10">
         <Link href="/pricing" className="inline-flex items-center gap-1.5 text-sm font-semibold text-black hover:underline">

@@ -1,6 +1,6 @@
 import { createControlPlaneServerClient } from '@/lib/supabase/control-plane-server';
 import { gateAdminPage } from '@/lib/adminPermissions';
-import { AdminCard } from '../_components/ui';
+import { AdminCard } from '../../_components/ui';
 
 export const dynamic = 'force-dynamic';
 

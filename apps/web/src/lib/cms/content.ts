@@ -37,6 +37,28 @@ async function fetchAllSections(): Promise<SiteSectionRow[]> {
  */
 export type SectionResult<T> = { state: 'active'; content: T } | { state: 'hidden' } | { state: 'missing' };
 
+export type FaqItem = { id: string; category: string; question: string; answer: string };
+
+/** Published FAQ items, grouped by category in sort_order — backs
+ *  FaqSection.tsx. Same no-web-layer-cache convention as fetchAllSections. */
+export async function getFaqItems(): Promise<{ category: string; items: { q: string; a: string }[] }[]> {
+  try {
+    const res = await fetch(`${API}/api/public/faq-items`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { items: FaqItem[] };
+    const items = body.items ?? [];
+    const byCategory = new Map<string, { q: string; a: string }[]>();
+    for (const item of items) {
+      const list = byCategory.get(item.category) ?? [];
+      list.push({ q: item.question, a: item.answer });
+      byCategory.set(item.category, list);
+    }
+    return [...byCategory.entries()].map(([category, items]) => ({ category, items }));
+  } catch {
+    return [];
+  }
+}
+
 export async function getSectionContent<T extends SectionType>(
   slug: string,
   type: T,

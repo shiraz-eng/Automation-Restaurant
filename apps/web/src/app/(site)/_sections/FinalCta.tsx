@@ -11,10 +11,15 @@ const DEFAULT: CtaContent = {
   secondaryCta: { label: 'Book a Demo', href: '/contact' },
 };
 
-export async function FinalCta() {
+export async function FinalCta({ previewContent }: { previewContent?: CtaContent } = {}) {
+  if (previewContent) return <FinalCtaView content={previewContent} />;
   const result = await getSectionContent('final-cta', 'cta');
   if (result.state === 'hidden') return null;
   const content = result.state === 'active' ? result.content : DEFAULT;
+  return <FinalCtaView content={content} />;
+}
+
+function FinalCtaView({ content }: { content: CtaContent }) {
   return (
     <section className="relative overflow-hidden bg-ink text-ink-fg">
       <div

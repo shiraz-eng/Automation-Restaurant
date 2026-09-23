@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createControlPlaneBrowserClient } from '@/lib/supabase/control-plane-client';
-import { AdminCard } from '../_components/ui';
+import { AdminCard } from '../../_components/ui';
 import { formatCents } from '@/lib/format';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';

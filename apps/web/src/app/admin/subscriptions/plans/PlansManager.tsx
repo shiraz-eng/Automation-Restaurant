@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createControlPlaneBrowserClient } from '@/lib/supabase/control-plane-client';
-import { AdminButton, AdminCard, AdminField, AdminInput, AdminTextarea } from '../_components/ui';
+import { AdminButton, AdminCard, AdminField, AdminInput, AdminTextarea } from '../../_components/ui';
 import { ENFORCEABLE_FEATURES, ALL_FEATURE_KEYS, type FeatureKey } from '@automation-restaurant/shared';
 
 export type PlanDbRow = {

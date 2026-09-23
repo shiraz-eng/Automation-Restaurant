@@ -26,10 +26,15 @@ const DEFAULT: HeroContent = {
   },
 };
 
-export async function Hero() {
+export async function Hero({ previewContent }: { previewContent?: HeroContent } = {}) {
+  if (previewContent) return <HeroView content={previewContent} />;
   const result = await getSectionContent('hero', 'hero');
   if (result.state === 'hidden') return null;
   const content = result.state === 'active' ? result.content : DEFAULT;
+  return <HeroView content={content} />;
+}
+
+function HeroView({ content }: { content: HeroContent }) {
   return (
     <section className="relative overflow-hidden bg-ink text-ink-fg">
       {/* Warm radial glow behind the copy — restrained, not a full gradient wash */}
