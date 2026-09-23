@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { Button, Card, Field, Input, Select } from '@/components/ui';
+import { Button, Card, Field, Input } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { PortalPreview } from './PortalPreview';
 import { Plus, Search, Users, X } from 'lucide-react';
@@ -26,19 +26,12 @@ export type PermRow = { key: string; grp: string; label: string };
 export type StaffMember = { id: string; email: string; full_name: string | null; role: string; status: string };
 export type PortalStaffLink = { portal_id: string; membership_id: string };
 
-const TYPES = ['checkout', 'kitchen', 'attendance', 'manager', 'custom'] as const;
-
-// Quick-start starting points only — every one of these stays fully
-// editable in the permission grid below, and nothing here gates what a
-// portal can actually do. The portal's real capabilities are always
-// exactly its saved `permissions` array (see lib/portalCapabilities.ts).
-const PRESET: Record<string, string[]> = {
-  checkout: ['orders.view', 'payments.view', 'payments.accept'],
-  kitchen: ['kitchen.view', 'kitchen.update_status', 'stock.view', 'stock.update'],
-  attendance: ['attendance.view', 'attendance.mark', 'attendance.check_in', 'attendance.check_out'],
-  manager: ['orders.view', 'payments.view', 'kitchen.view', 'menu.view', 'stock.view', 'reports.view', 'reviews.view'],
-  custom: [],
-};
+// Every portal is built from scratch — a name plus whichever permissions
+// are picked in the grid below, nothing preset. `type` is no longer
+// user-chosen; new portals are always 'custom', and an existing portal
+// created under an older preset type (checkout/kitchen/attendance/
+// manager) keeps whatever type it already has so its "Edit access" flow
+// (which resubmits `type` unchanged) keeps working exactly as before.
 
 export function PortalsManager({
   slug,
@@ -65,7 +58,7 @@ export function PortalsManager({
 
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState<(typeof TYPES)[number]>('custom');
+  const [type, setType] = useState('custom');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editId, setEditId] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState('');
@@ -103,10 +96,6 @@ export function PortalsManager({
     return session?.access_token ?? '';
   }
 
-  function pickType(v: (typeof TYPES)[number]) {
-    setType(v);
-    if (!editId) setSelected(new Set(PRESET[v] ?? []));
-  }
   function toggle(key: string) {
     setSelected((s) => {
       const n = new Set(s);
@@ -221,7 +210,7 @@ export function PortalsManager({
     setNotice(null);
     setEditId(p.id);
     setName(p.name);
-    setType((TYPES as readonly string[]).includes(p.type) ? (p.type as (typeof TYPES)[number]) : 'custom');
+    setType(p.type);
     setSelected(new Set(p.permissions));
     setLoginEmail(p.email ?? '');
     setLoginPassword('');
@@ -363,20 +352,9 @@ export function PortalsManager({
 
           <form onSubmit={createPortal} className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Portal name">
-                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Counter 1" autoFocus />
-                </Field>
-                <Field label="Quick start (optional)">
-                  <Select value={type} onChange={(e) => pickType(e.target.value as (typeof TYPES)[number])}>
-                    {TYPES.map((tp) => (
-                      <option key={tp} value={tp}>
-                        {tp === 'custom' ? 'Blank — pick permissions myself' : `${tp} starting point`}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
+              <Field label="Portal name">
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Counter 1" autoFocus />
+              </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Login email">
                   <Input
