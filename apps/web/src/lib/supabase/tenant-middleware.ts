@@ -3,8 +3,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
-const CP_URL = process.env.NEXT_PUBLIC_CONTROL_PLANE_URL!;
-const CP_ANON = process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY!;
+const CP_URL =
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://ckxxpyzxsbhhynlboyid.supabase.co';
+const CP_ANON =
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk1NTQzNCwiZXhwIjoyMTA0NTMxNDM0fQ.8Pf3AAJ0MNn9LdcyWxvRARFx6EunjNWEBHj68JBKuP0';
 
 async function tenantConfig(slug: string): Promise<{ url: string; anonKey: string } | null> {
   try {

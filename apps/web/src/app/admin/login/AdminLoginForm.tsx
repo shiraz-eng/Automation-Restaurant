@@ -6,10 +6,16 @@ import { createControlPlaneBrowserClient } from '@/lib/supabase/control-plane-cl
 
 export function AdminLoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@automationrestaurant.dev');
+  const [password, setPassword] = useState('Password123!');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  function fillDemo() {
+    setEmail('admin@automationrestaurant.dev');
+    setPassword('Password123!');
+    setError(null);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,6 +77,15 @@ export function AdminLoginForm() {
           >
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
+          <div className="pt-2 text-center">
+            <button
+              type="button"
+              onClick={fillDemo}
+              className="text-xs text-gold/80 hover:text-gold hover:underline transition-colors"
+            >
+              Prefill Super Admin: admin@automationrestaurant.dev
+            </button>
+          </div>
         </form>
       </div>
     </div>
