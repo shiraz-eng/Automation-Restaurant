@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 -H 0.0.0.0",
+    "prebuild": "cd ../.. && npm run build:shared",
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit"

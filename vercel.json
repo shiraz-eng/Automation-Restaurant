@@ -1,9 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "npm run build:shared && cd apps/web && npx next build",
+  "buildCommand": "npm run build",
   "outputDirectory": "apps/web/.next",
-  "installCommand": "npm install",
   "headers": [
     {
       "source": "/(.*)",
@@ -14,11 +13,5 @@
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
     }
-  ],
-  "env": {
-    "NEXT_PUBLIC_CONTROL_PLANE_URL": "@next_public_control_plane_url",
-    "NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY": "@next_public_control_plane_anon_key",
-    "NEXT_PUBLIC_API_URL": "@next_public_api_url",
-    "NEXT_PUBLIC_SITE_URL": "@next_public_site_url"
-  }
+  ]
 }
