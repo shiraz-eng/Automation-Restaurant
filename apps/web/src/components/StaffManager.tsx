@@ -53,25 +53,30 @@ export function StaffManager({ staff }: { staff: Member[] }) {
     setSavingId(m.id);
     setError(null);
     setNotice(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/staff/access`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
-      },
-      body: JSON.stringify({ slug, membership_id: m.id, role: nextRole }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setSavingId(null);
-    if (!res.ok) {
-      setError(body.message ?? body.error ?? 'Could not change the role.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/staff/access`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ slug, membership_id: m.id, role: nextRole }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.message ?? body.error ?? 'Could not change the role.');
+        return;
+      }
+      setNotice(`${m.email} is now ${ROLE_LABELS[nextRole]}.`);
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setSavingId(null);
     }
-    setNotice(`${m.email} is now ${ROLE_LABELS[nextRole]}.`);
-    router.refresh();
   }
 
   async function add(e: React.FormEvent) {
@@ -83,37 +88,42 @@ export function StaffManager({ staff }: { staff: Member[] }) {
       return;
     }
     setBusy(true);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    // No email/password to type here — the account is created with a
-    // generated login (same pattern as a kiosk portal's), shown once
-    // below so it can be handed to the person directly.
-    const res = await fetch(`${API}/api/staff`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
-      },
-      body: JSON.stringify({
-        slug,
-        full_name: fullName.trim(),
-        role,
-        ...(shiftStartTime ? { shift_start_time: shiftStartTime } : {}),
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(body.message ?? body.error ?? 'Could not create the account.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      // No email/password to type here — the account is created with a
+      // generated login (same pattern as a kiosk portal's), shown once
+      // below so it can be handed to the person directly.
+      const res = await fetch(`${API}/api/staff`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({
+          slug,
+          full_name: fullName.trim(),
+          role,
+          ...(shiftStartTime ? { shift_start_time: shiftStartTime } : {}),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.message ?? body.error ?? 'Could not create the account.');
+        return;
+      }
+      setNotice(
+        `${fullName.trim()} added as ${ROLE_LABELS[role]}.\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
+      );
+      setFullName('');
+      setShiftStartTime('');
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    setNotice(
-      `${fullName.trim()} added as ${ROLE_LABELS[role]}.\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
-    );
-    setFullName('');
-    setShiftStartTime('');
-    router.refresh();
   }
 
   async function saveShiftStart(m: Member) {
@@ -121,25 +131,30 @@ export function StaffManager({ staff }: { staff: Member[] }) {
     setSavingId(m.id);
     setError(null);
     setNotice(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/staff/${m.id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token ?? ''}`,
-      },
-      body: JSON.stringify({ slug, shift_start_time: value || null }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setSavingId(null);
-    if (!res.ok) {
-      setError(body.message ?? body.error ?? 'Could not update the shift start time.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/staff/${m.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ slug, shift_start_time: value || null }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.message ?? body.error ?? 'Could not update the shift start time.');
+        return;
+      }
+      setNotice(`Updated ${m.full_name || m.email}'s shift start time.`);
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setSavingId(null);
     }
-    setNotice(`Updated ${m.full_name || m.email}'s shift start time.`);
-    router.refresh();
   }
 
   return (

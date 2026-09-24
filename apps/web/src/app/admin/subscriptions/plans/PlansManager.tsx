@@ -234,16 +234,21 @@ export function PlansManager({ plans }: { plans: PlanDbRow[] }) {
   async function resyncEntitlements() {
     setResyncing(true);
     setResyncMsg(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/admin/resync-entitlements`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
-    });
-    const body = await res.json().catch(() => ({}));
-    setResyncing(false);
-    setResyncMsg(res.ok ? `Synced ${body.synced} tenant(s)${body.failed ? `, ${body.failed} failed` : ''}.` : (body.message ?? 'Resync failed.'));
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/admin/resync-entitlements`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      setResyncMsg(res.ok ? `Synced ${body.synced} tenant(s)${body.failed ? `, ${body.failed} failed` : ''}.` : (body.message ?? 'Resync failed.'));
+    } catch {
+      setResyncMsg('Network error — try again.');
+    } finally {
+      setResyncing(false);
+    }
   }
 
   if (creating) {

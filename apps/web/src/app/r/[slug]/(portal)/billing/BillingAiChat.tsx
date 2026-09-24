@@ -27,21 +27,26 @@ export function BillingAiChat({ slug, restaurantName }: { slug: string; restaura
     setInput('');
     setBusy(true);
     setError(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/saas-ai/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ slug, restaurant_name: restaurantName, messages: next }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(body.message ?? 'The billing assistant is not available right now.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/saas-ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ slug, restaurant_name: restaurantName, messages: next }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.message ?? 'The billing assistant is not available right now.');
+        return;
+      }
+      setMessages((m) => [...m, { role: 'assistant', content: body.reply }]);
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    setMessages((m) => [...m, { role: 'assistant', content: body.reply }]);
   }
 
   return (

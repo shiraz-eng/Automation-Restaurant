@@ -33,20 +33,25 @@ function InviteForm({ roles, catalog, onDone }: { roles: Role[]; catalog: Catalo
   async function submit() {
     setBusy(true);
     setError(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/admin/team/invite`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ email, role, extra_permissions: extra }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok || body.ok === false) return setError(body.message ?? body.error ?? 'Invite failed');
-    setEmail('');
-    setExtra([]);
-    onDone();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/admin/team/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ email, role, extra_permissions: extra }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) return setError(body.message ?? body.error ?? 'Invite failed');
+      setEmail('');
+      setExtra([]);
+      onDone();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -119,15 +124,20 @@ export function TeamManager() {
 
   async function setStatus(id: string, status: 'active' | 'disabled') {
     setBusyId(id);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    await fetch(`${API}/api/admin/team/${id}/${status === 'active' ? 'reactivate' : 'disable'}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
-    });
-    setBusyId(null);
-    refresh();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      await fetch(`${API}/api/admin/team/${id}/${status === 'active' ? 'reactivate' : 'disable'}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+      });
+      refresh();
+    } catch {
+      // no error state on this row-level action; the row simply stays as-is
+    } finally {
+      setBusyId(null);
+    }
   }
 
   if (admins === null) return <p className="text-ink-muted text-xs">Loading…</p>;

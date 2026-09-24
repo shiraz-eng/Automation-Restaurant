@@ -54,21 +54,26 @@ export function BillingActions({ slug, billingConfigured }: { slug: string; bill
   async function openPortal() {
     setBusy(true);
     setError(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/billing/portal-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ slug }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok || !body.url) {
-      setError(body.message ?? 'Could not open billing management right now.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/billing/portal-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ slug }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.url) {
+        setError(body.message ?? 'Could not open billing management right now.');
+        return;
+      }
+      window.location.href = body.url;
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    window.location.href = body.url;
   }
 
   async function cancelSubscription() {
@@ -84,21 +89,26 @@ export function BillingActions({ slug, billingConfigured }: { slug: string; bill
     setCanceling(true);
     setCancelError(null);
     setCancelResult(null);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const res = await fetch(`${API}/api/billing/cancel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ slug }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setCanceling(false);
-    if (!res.ok) {
-      setCancelError(body.message ?? 'Could not cancel your subscription right now.');
-      return;
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/billing/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ slug }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCancelError(body.message ?? 'Could not cancel your subscription right now.');
+        return;
+      }
+      setCancelResult(body.message);
+    } catch {
+      setCancelError('Network error — try again.');
+    } finally {
+      setCanceling(false);
     }
-    setCancelResult(body.message);
   }
 
   return (

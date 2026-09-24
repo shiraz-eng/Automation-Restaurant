@@ -121,18 +121,56 @@ export function PortalsManager({
       return setError('Password must be at least 8 characters — or leave it blank.');
     }
     setBusy(true);
+    try {
+      if (editId) {
+        // Editing an existing portal's access — the SAME /api/portals/:id
+        // PATCH used for status/rename, so it goes through the same
+        // anti-escalation check and immediately recomputes every linked
+        // staff member's effective permissions and the portal login's own
+        // Auth metadata. The generated portal reads portal.permissions
+        // fresh from the database on every request, so whatever is saved
+        // here takes effect on this portal's very next page load — no
+        // separate "rebuild" step.
+        const res = await fetch(`${API}/api/portals/${editId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+          body: JSON.stringify({
+            slug,
+            name: name.trim(),
+            type,
+            permissions: [...selected],
+            ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(body.message ?? body.error ?? 'Could not update the portal.');
+          return;
+        }
+        // A password change is a separate call (POST /:id/password) — the
+        // PATCH above only ever touches name/type/permissions/status/email.
+        let passwordNotice = '';
+        if (loginPassword) {
+          const pwRes = await fetch(`${API}/api/portals/${editId}/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+            body: JSON.stringify({ slug, password: loginPassword }),
+          });
+          if (!pwRes.ok) {
+            const pwBody = await pwRes.json().catch(() => ({}));
+            setError(pwBody.message ?? pwBody.error ?? 'Access was updated, but the password change failed.');
+            return;
+          }
+          passwordNotice = `\n  Password: ${loginPassword}\n(Shown once — copy it now.)`;
+        }
+        setNotice(`Portal "${name.trim()}" updated.${passwordNotice}`);
+        closeForm();
+        router.refresh();
+        return;
+      }
 
-    if (editId) {
-      // Editing an existing portal's access — the SAME /api/portals/:id
-      // PATCH used for status/rename, so it goes through the same
-      // anti-escalation check and immediately recomputes every linked
-      // staff member's effective permissions and the portal login's own
-      // Auth metadata. The generated portal reads portal.permissions
-      // fresh from the database on every request, so whatever is saved
-      // here takes effect on this portal's very next page load — no
-      // separate "rebuild" step.
-      const res = await fetch(`${API}/api/portals/${editId}`, {
-        method: 'PATCH',
+      const res = await fetch(`${API}/api/portals`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
         body: JSON.stringify({
           slug,
@@ -140,57 +178,21 @@ export function PortalsManager({
           type,
           permissions: [...selected],
           ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
+          ...(loginPassword ? { password: loginPassword } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setBusy(false);
-        return setError(body.message ?? body.error ?? 'Could not update the portal.');
-      }
-      // A password change is a separate call (POST /:id/password) — the
-      // PATCH above only ever touches name/type/permissions/status/email.
-      let passwordNotice = '';
-      if (loginPassword) {
-        const pwRes = await fetch(`${API}/api/portals/${editId}/password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-          body: JSON.stringify({ slug, password: loginPassword }),
-        });
-        if (!pwRes.ok) {
-          const pwBody = await pwRes.json().catch(() => ({}));
-          setBusy(false);
-          setError(pwBody.message ?? pwBody.error ?? 'Access was updated, but the password change failed.');
-          return;
-        }
-        passwordNotice = `\n  Password: ${loginPassword}\n(Shown once — copy it now.)`;
-      }
-      setBusy(false);
-      setNotice(`Portal "${name.trim()}" updated.${passwordNotice}`);
+      if (!res.ok) return setError(body.message ?? body.error ?? 'Could not create the portal.');
+      setNotice(
+        `Portal "${body.portal.name}" created.\n  URL:      ${body.url}\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
+      );
       closeForm();
       router.refresh();
-      return;
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-
-    const res = await fetch(`${API}/api/portals`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({
-        slug,
-        name: name.trim(),
-        type,
-        permissions: [...selected],
-        ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
-        ...(loginPassword ? { password: loginPassword } : {}),
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) return setError(body.message ?? body.error ?? 'Could not create the portal.');
-    setNotice(
-      `Portal "${body.portal.name}" created.\n  URL:      ${body.url}\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
-    );
-    closeForm();
-    router.refresh();
   }
 
   function openCreate() {
@@ -230,49 +232,65 @@ export function PortalsManager({
   async function patch(id: string, changes: Record<string, unknown>) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API}/api/portals/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ slug, ...changes }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      setError(b.message ?? b.error ?? 'Update failed.');
-      return;
+    try {
+      const res = await fetch(`${API}/api/portals/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ slug, ...changes }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        setError(b.message ?? b.error ?? 'Update failed.');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    router.refresh();
   }
 
   async function resetPassword(id: string, portalName: string) {
     setBusy(true);
     setError(null);
     setNotice(null);
-    const res = await fetch(`${API}/api/portals/${id}/password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ slug }),
-    });
-    const b = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) return setError(b.message ?? b.error ?? 'Reset failed.');
-    setNotice(`New password for "${portalName}": ${b.password}\n(Shown once.)`);
+    try {
+      const res = await fetch(`${API}/api/portals/${id}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ slug }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) return setError(b.message ?? b.error ?? 'Reset failed.');
+      setNotice(`New password for "${portalName}": ${b.password}\n(Shown once.)`);
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove(id: string) {
     setBusy(true);
-    const res = await fetch(`${API}/api/portals/${id}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ slug }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      setError(b.message ?? b.error ?? 'Delete failed.');
-      return;
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/portals/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ slug }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        setError(b.message ?? b.error ?? 'Delete failed.');
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    router.refresh();
   }
 
   function startStaffEdit(portalId: string) {
@@ -290,19 +308,24 @@ export function PortalsManager({
   async function saveStaff(portalId: string) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`${API}/api/portals/${portalId}/staff`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ slug, membership_ids: [...staffDraft] }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const b = await res.json().catch(() => ({}));
-      setError(b.message ?? b.error ?? 'Could not update assigned staff.');
-      return;
+    try {
+      const res = await fetch(`${API}/api/portals/${portalId}/staff`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ slug, membership_ids: [...staffDraft] }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        setError(b.message ?? b.error ?? 'Could not update assigned staff.');
+        return;
+      }
+      setStaffEditId(null);
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setBusy(false);
     }
-    setStaffEditId(null);
-    router.refresh();
   }
 
   const customPortals = portals.filter((p) => p.type !== 'super_admin');
