@@ -26,25 +26,29 @@ export function extractionDetail(err: unknown): string {
   return msg.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
-// The local parser has been seen to fail or stall on serverless hosts; it
-// gets a short window, then the AI reader takes over.
+// A local parser gets a short window each, then the next reader takes over.
 const LOCAL_PDF_TIMEOUT_MS = 8000;
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms))]);
+}
+
+const hasText = (t: string) => t.replace(/\s+/g, '').length >= 20;
+
+/** PDF -> text:
+ *  1. unpdf — a pure-JS pdf.js build made for serverless hosts. (It
+ *     replaced pdf-parse, whose native canvas binary and worker file were
+ *     not bundled on Vercel: every PDF import said "Could not read this file".)
+ *  2. The AI reads the PDF itself — when unpdf fails, and for a scanned
+ *     PDF, which has no text layer at all. */
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   let text = '';
   try {
-    text = await Promise.race([
-      extractPdfTextLocally(buffer),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error('local pdf parse timed out')), LOCAL_PDF_TIMEOUT_MS)),
-    ]);
+    text = await withTimeout(extractWithUnpdf(buffer), LOCAL_PDF_TIMEOUT_MS, 'pdf text extraction');
+    if (hasText(text)) return text;
   } catch (err) {
-    console.warn('[pdf] local text extraction failed, asking the AI to read the PDF:', (err as Error).message);
+    console.warn('[pdf] text extraction failed, asking the AI to read the PDF:', (err as Error).message);
   }
-  // A scanned/photographed PDF has no text layer at all, and on Vercel the
-  // local parser can fail outright (its native canvas binary and worker
-  // file aren't always bundled). Either way the AI can still read the
-  // pages directly.
-  if (text.replace(/\s+/g, '').length >= 20) return text;
   if (!aiProvider) {
     if (text) return text;
     throw new Error('pdf_unreadable');
@@ -52,21 +56,51 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
   return transcribePdfWithAi(buffer);
 }
 
-async function extractPdfTextLocally(buffer: Buffer): Promise<string> {
-  // Loaded lazily — pdf-parse pulls in @napi-rs/canvas, a native binary
-  // dependency. Importing it eagerly at module scope means every cold
-  // start of the whole API (every route, via app.ts's router mounts)
-  // pays for loading that native binding, and on a platform where the
-  // matching prebuilt binary isn't present the failure kills the entire
-  // function instead of just PDF-upload requests.
-  const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText();
-    return result.text;
-  } finally {
-    await parser.destroy();
+async function extractWithUnpdf(buffer: Buffer): Promise<string> {
+  // Loaded lazily so only PDF requests pay for pdf.js on a cold start.
+  const { extractText, getDocumentProxy } = await import('unpdf');
+  // pdf.js takes ownership of (and detaches) the array it is given — copy.
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const { text } = await extractText(pdf, { mergePages: true });
+  return text;
+}
+
+// Models to fall back to when the configured one is overloaded (503) or
+// rate-limited (429). All are available to the standard Gemini API key.
+const GEMINI_FALLBACK_MODELS = ['gemini-flash-latest', 'gemini-3.1-flash-lite'];
+
+/** Gemini generateContent with retry: a busy model ("This model is
+ *  currently experiencing high demand") is retried once, then the request
+ *  moves to the next model. Any other error (bad request, auth) fails
+ *  immediately — retrying it would only waste the request's time budget. */
+export async function geminiGenerate(body: object): Promise<string> {
+  const models = [...new Set([env.GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS])];
+  let lastErr: Error = new Error('gemini unavailable');
+  for (const [i, model] of models.entries()) {
+    for (let attempt = 0; attempt < (i === 0 ? 2 : 1); attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
+        body: JSON.stringify(body),
+      }).catch((e: Error) => e);
+      if (res instanceof Error) {
+        lastErr = res;
+        continue;
+      }
+      const json = (await res.json().catch(() => ({}))) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+        error?: { code?: number; message?: string };
+      };
+      if (res.ok && !json.error) return (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\n');
+      lastErr = new Error(json.error?.message ?? `gemini ${res.status}`);
+      const busy = res.status === 429 || res.status >= 500;
+      // 404: this key can't use that model — try the next one.
+      if (!busy && res.status !== 404) throw lastErr;
+      if (res.status === 404) break;
+    }
   }
+  throw lastErr;
 }
 
 // The transcript is still untrusted document content: every caller wraps
@@ -79,29 +113,16 @@ const TRANSCRIBE_PROMPT =
 async function transcribePdfWithAi(buffer: Buffer): Promise<string> {
   const data = buffer.toString('base64');
   if (aiProvider === 'gemini') {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: TRANSCRIBE_PROMPT }] },
-          contents: [
-            {
-              role: 'user',
-              parts: [{ inline_data: { mime_type: 'application/pdf', data } }, { text: 'Transcribe this document.' }],
-            },
-          ],
-          generationConfig: { temperature: 0, maxOutputTokens: 8192 },
-        }),
-      },
-    );
-    const json = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-      error?: { message?: string };
-    };
-    if (!res.ok || json.error) throw new Error(json.error?.message ?? `gemini ${res.status}`);
-    return (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\n');
+    return geminiGenerate({
+      systemInstruction: { parts: [{ text: TRANSCRIBE_PROMPT }] },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inline_data: { mime_type: 'application/pdf', data } }, { text: 'Transcribe this document.' }],
+        },
+      ],
+      generationConfig: { temperature: 0, maxOutputTokens: 8192 },
+    });
   }
   // Raw REST: the installed SDK version predates PDF document blocks.
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -183,26 +204,11 @@ async function callAnthropicStructured(systemPrompt: string, userText: string): 
 // live for menu import); responseMimeType alone only asks for JSON, it
 // doesn't constrain the token-level structure the way responseSchema does.
 async function callGeminiStructured(systemPrompt: string, userText: string, responseSchema: object): Promise<string> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: userText }] }],
-        generationConfig: { responseMimeType: 'application/json', responseSchema },
-      }),
-    },
-  );
-  const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-    error?: { code?: number; message?: string };
-  };
-  if (!res.ok || json.error) {
-    throw new Error(json.error?.message ?? `gemini ${res.status}`);
-  }
-  return (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\n');
+  return geminiGenerate({
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: { responseMimeType: 'application/json', responseSchema },
+  });
 }
 
 // Observed live (menu import): the model occasionally emits JSON that
