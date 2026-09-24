@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
 
@@ -30,9 +30,17 @@ const PortalContext = createContext<PortalContextValue | null>(null);
  */
 export function PortalProvider({
   value,
+  expectedUserId,
   children,
 }: {
   value: PortalValue;
+  /** The user this page was rendered for. The session lives in one cookie per
+   *  restaurant, shared by every tab — signing a portal login in on another
+   *  tab silently swaps the identity under an already-open Owner page, whose
+   *  next action then runs as the portal (and is refused). When the session
+   *  user stops matching, reload so the server re-renders for whoever is
+   *  actually signed in now. */
+  expectedUserId?: string;
   children: React.ReactNode;
 }) {
   const supabase = useMemo(
@@ -40,6 +48,34 @@ export function PortalProvider({
     [value.supabaseUrl, value.supabaseAnonKey],
   );
   const ctx = useMemo(() => ({ ...value, supabase }), [value, supabase]);
+
+  useEffect(() => {
+    if (!expectedUserId) return;
+    let reloading = false;
+    const check = async () => {
+      if (reloading || document.visibilityState === 'hidden') return;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session && session.user.id !== expectedUserId) {
+        reloading = true;
+        window.location.reload();
+      }
+    };
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session && session.user.id !== expectedUserId && !reloading) {
+        reloading = true;
+        window.location.reload();
+      }
+    });
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      sub.subscription.unsubscribe();
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [supabase, expectedUserId]);
   return <PortalContext.Provider value={ctx}>{children}</PortalContext.Provider>;
 }
 

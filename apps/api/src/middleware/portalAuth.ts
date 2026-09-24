@@ -94,7 +94,15 @@ export function requirePortalPerm(need: string | string[]) {
     if (!needs.some((k) => permits(permissions, role, k))) {
       return res
         .status(403)
-        .json({ error: 'forbidden', message: "You don't have permission to perform this action." });
+        .json({
+          error: 'forbidden',
+          // Name the account: one browser shares a single session per
+          // restaurant across tabs, so "you" may be a portal login that
+          // signed in elsewhere — saying which makes that obvious.
+          message: data.user.email
+            ? `Signed in as ${data.user.email}, which doesn't have permission to do this.`
+            : "You don't have permission to perform this action.",
+        });
     }
 
     req.tenant = {

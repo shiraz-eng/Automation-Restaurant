@@ -35,6 +35,7 @@ export default async function FloorLayout({
 
   return (
     <PortalProvider
+      expectedUserId={user.id}
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
       <div className="min-h-screen flex flex-col bg-main">

@@ -32,7 +32,7 @@ export default async function DeliveriesLayout({
   const { logoUrl } = await fetchPortalTheme(t.client);
 
   return (
-    <PortalProvider value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}>
+    <PortalProvider expectedUserId={user.id} value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}>
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between px-5 h-14 border-b border-border bg-surface shrink-0">
           <div className="flex items-baseline gap-3">
