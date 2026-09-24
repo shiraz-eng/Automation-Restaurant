@@ -26,6 +26,7 @@ declare
   v_prev_setting boolean;
   v_tub uuid; v_ch2 uuid; v_a uuid; v_b uuid; v_c uuid; v_d uuid;
   v_qa numeric; v_qb numeric; v_qc numeric; v_qd numeric;
+  v_ch3 uuid; v_box uuid; v_burger uuid; v_reg uuid; v_dbl uuid; v_strip uuid; v_fry uuid;
 
   -- helpers are inline: qty(item) = producible_qty of the item's base row
 begin
@@ -283,6 +284,40 @@ begin
   if v_qb = 0 and v_qa > 20 and (v_qa * 200 + v_qc * 200 + v_qd * 100) <= 10000 then
     res := res || format(E'PASS P12 High inactive → B %s, others share its 30%%: A %s, C %s, D %s\n', v_qb, v_qa, v_qc, v_qd);
   else fails := fails + 1; res := res || format(E'FAIL P12 got A %s, B %s, C %s, D %s\n', v_qa, v_qb, v_qc, v_qd); end if;
+
+  -- ── Fair split inside a level (0065) ─────────────────────────────────
+  perform public.set_priority_level_allocation('[{"priority_level":"critical","allocation_pct":40},{"priority_level":"high","allocation_pct":30},{"priority_level":"medium","allocation_pct":20},{"priority_level":"low","allocation_pct":10}]');
+  insert into public.inventory_items (name, unit, stock_qty, min_threshold) values ('ZZ Cheese3', 'slice', 126, 0) returning id into v_ch3;
+  insert into public.inventory_items (name, unit, stock_qty, min_threshold) values ('ZZ Box', 'pcs', 148, 0) returning id into v_box;
+  insert into public.menu_items (name, price_cents, is_available) values ('ZZ Burger', 100, true) returning id into v_burger;
+  insert into public.menu_variants (menu_item_id, name, price_cents) values (v_burger, 'Regular', 100) returning id into v_reg;
+  insert into public.menu_variants (menu_item_id, name, price_cents) values (v_burger, 'Double', 150) returning id into v_dbl;
+  insert into public.menu_items (name, price_cents, is_available) values ('ZZ Strips', 100, true) returning id into v_strip;
+  insert into public.menu_items (name, price_cents, is_available) values ('ZZ Fries', 100, true) returning id into v_fry;
+  insert into public.recipe_components (menu_item_id, variant_id, inventory_item_id, qty_per_unit) values
+    (v_burger, v_reg, v_ch3, 1), (v_burger, v_dbl, v_ch3, 2), (v_strip, null, v_box, 1), (v_fry, null, v_box, 1);
+  perform public.set_product_priority(v_burger, 'critical');
+  perform public.set_product_priority(v_strip, 'low');   -- Fries left with no priority
+  update public.inventory_items set stock_qty = 126 where id = v_ch3;
+
+  -- F1. Two sizes of one dish share its level evenly: 63 slices each →
+  -- Regular 63, Double 31; together they use (nearly) all 126.
+  select producible_qty into v_qa from public.product_availability where menu_item_id = v_burger and variant_id = v_reg;
+  select producible_qty into v_qb from public.product_availability where menu_item_id = v_burger and variant_id = v_dbl;
+  if v_qa > 0 and v_qb > 0 and v_qa + 2 * v_qb between 125 and 126 then
+    res := res || format(E'PASS F1 sizes share fairly: Regular %s, Double %s (cheese %s of 126 used)
+', v_qa, v_qb, v_qa + 2 * v_qb);
+  else fails := fails + 1; res := res || format(E'FAIL F1 Regular %s, Double %s
+', v_qa, v_qb); end if;
+
+  -- F2. A dish with no priority counts as Low and shares with the ranked
+  -- Low dish: 148 boxes → 74 / 74.
+  select producible_qty into v_qa from public.product_availability where menu_item_id = v_strip and variant_id is null;
+  select producible_qty into v_qb from public.product_availability where menu_item_id = v_fry and variant_id is null;
+  if v_qa = 74 and v_qb = 74 then res := res || E'PASS F2 unprioritized Fries share Low with Strips: 74 / 74 boxes
+';
+  else fails := fails + 1; res := res || format(E'FAIL F2 expected 74/74, got %s/%s
+', v_qa, v_qb); end if;
 
   -- S1. Regression for 0063: app.can_write() used to be NULL for portal
   -- logins, which made  if not (has_perm(x) or can_write())  guards skip.

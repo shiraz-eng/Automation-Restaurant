@@ -192,10 +192,14 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
                   <tr key={key} className="border-b border-border/60 last:border-0 align-middle">
                     <td className="p-2.5">
                       <div className="font-semibold">{name(r)}</div>
-                      {r.reason && <div className="text-muted text-[11px]">{r.reason}</div>}
+                      {r.reason ? (
+                        <div className="text-muted text-[11px]">{r.reason}</div>
+                      ) : r.producible_qty == null ? (
+                        <div className="text-muted text-[11px]">No recipe linked to inventory — not limited by stock</div>
+                      ) : null}
                     </td>
                     <td className="p-2.5 text-right font-mono tabular-nums text-sm font-bold">
-                      {r.producible_qty == null ? '—' : Math.floor(Number(r.producible_qty))}
+                      {r.producible_qty == null ? <span className="text-muted text-xs font-normal">No limit</span> : Math.floor(Number(r.producible_qty))}
                     </td>
                     <td className="p-2.5">
                       <span className={`font-semibold ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span>
@@ -204,7 +208,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
                     {(canManage || canWaste) && (
                       <td className="p-2.5">
                         <div className="flex flex-wrap justify-end gap-1.5">
-                          {canWaste && (
+                          {canWaste && r.producible_qty != null && (
                             <Button variant="danger" disabled={busy === key} onClick={() => waste(r)}>
                               Waste
                             </Button>

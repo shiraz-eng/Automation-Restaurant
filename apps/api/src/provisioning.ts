@@ -289,7 +289,10 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       time window), rules (min/max per order, usage limit), channels,
 //       customer display fields; order-time rule enforcement; performance,
 //       availability, cost-estimate and live-deal RPCs; deal images.
-const SCHEMA_VERSION = 64;
+//   v65 Fair allocation inside a priority level: a level's share is split
+//       evenly between its products (every size), and products with no
+//       priority count as Low.
+const SCHEMA_VERSION = 65;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
