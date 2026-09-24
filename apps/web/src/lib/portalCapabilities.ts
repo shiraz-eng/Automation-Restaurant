@@ -121,7 +121,9 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
     'payables.view', 'payables.record_payment', 'payables.manage',
   ],
   finance: ['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit', 'finance.close_day', 'finance.reopen_day'],
-  analytics: ['orders.view', 'analytics.view', 'analytics.export', 'reports.generate', 'reports.export'],
+  // The three cost keys unlock PerformancePanel's profit tiles and Top
+  // Products (period_profitability/item_profitability accept any of them).
+  analytics: ['orders.view', 'analytics.view', 'analytics.export', 'reports.generate', 'reports.export', 'finance.view_profit', 'finance.view_cogs', 'inventory.view_cost'],
   marketing: ['deals.view', 'deals.update', 'social.view', 'social.manage', 'social.propose_post', 'social.approve_post'],
   attendance: ['attendance.view', 'attendance.mark', 'attendance.check_in'],
   staff: ['staff.view', 'staff.create', 'staff.update', 'permissions.assign', 'attendance.view', 'attendance.mark'],
