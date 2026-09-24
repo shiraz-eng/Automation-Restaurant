@@ -157,3 +157,71 @@ export function logGuideEvent(
     /* analytics failure is non-fatal */
   });
 }
+
+// ─── Streaming ────────────────────────────────────────────────────────────────
+
+export type GuideStreamContext = GuideContext & {
+  restaurantName?: string;
+  planTier?: string;
+  subscriptionStatus?: string;
+};
+
+const SUGGEST_MARK = '[[SUGGEST]]';
+
+/** Split the model's trailing "[[SUGGEST]] a | b | c" line off the answer. */
+export function splitSuggestions(text: string): { body: string; suggestions: string[] } {
+  const i = text.lastIndexOf(SUGGEST_MARK);
+  if (i < 0) {
+    // Hide a partially-streamed marker ("[[SUG…") while it's still arriving.
+    const partial = text.lastIndexOf('[[');
+    return { body: partial >= 0 && text.length - partial < SUGGEST_MARK.length + 1 ? text.slice(0, partial) : text, suggestions: [] };
+  }
+  const suggestions = text
+    .slice(i + SUGGEST_MARK.length)
+    .split('|')
+    .map((s) => s.replace(/[\s*_`]+$/g, '').replace(/^[\s*_`-]+/, '').trim())
+    .filter((s) => s.length > 1 && s.length < 90)
+    .slice(0, 3);
+  return { body: text.slice(0, i).trimEnd(), suggestions };
+}
+
+/**
+ * Ask the guide and receive the answer as it's generated. `onText` gets the
+ * full text so far on every chunk. Resolves with the quick-link actions the
+ * server picked for this question.
+ */
+export async function streamGuideMessage(
+  messages: GuideMsg[],
+  context: GuideStreamContext,
+  onText: (textSoFar: string) => void,
+  signal?: AbortSignal,
+): Promise<{ actions: GuideAction[]; text: string }> {
+  const res = await fetch('/api/guide-ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, context }),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { message?: string }).message ?? 'The guide is not available right now.');
+  }
+  let actions: GuideAction[] = [];
+  try {
+    actions = JSON.parse(decodeURIComponent(res.headers.get('X-Guide-Actions') ?? '%5B%5D')) as GuideAction[];
+  } catch {
+    actions = [];
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    onText(text);
+  }
+  text += decoder.decode();
+  onText(text);
+  return { actions, text };
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { ChefHat, X, Sparkles } from 'lucide-react';
 import { GuideAiPanel, type GuideAiPanelProps } from './GuideAiPanel';
 import { logGuideEvent, makeSessionId } from '@/lib/guideAi';
@@ -19,6 +20,9 @@ export function GuideAiWidget({
   getToken,
   initiallyOpen = false,
 }: GuideAiWidgetProps) {
+  // Public pages don't pass the path in; recommendations still follow the page.
+  const pathname = usePathname();
+  const currentPage = page ?? pathname ?? undefined;
   const [isOpen, setIsOpen] = useState(initiallyOpen);
   const [hasInteracted, setHasInteracted] = useState(false);
 
@@ -39,11 +43,11 @@ export function GuideAiWidget({
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end">
       {/* Expanded panel */}
       {isOpen && (
-        <div className="mb-3 w-[92vw] max-w-[420px] h-[580px] max-h-[82vh] transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 shadow-2xl rounded-2xl overflow-hidden border border-border">
+        <div className="mb-3 w-[92vw] max-w-[420px] h-[600px] max-h-[80vh] bg-surface transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 shadow-2xl rounded-2xl overflow-hidden border border-border">
           <GuideAiPanel
             mode={mode}
             slug={slug}
-            page={page}
+            page={currentPage}
             restaurantName={restaurantName}
             planTier={planTier}
             subscriptionStatus={subscriptionStatus}
@@ -69,7 +73,7 @@ export function GuideAiWidget({
             <Sparkles size={11} className="text-gold" />
           </span>
           <span className="text-[10px] text-ink-muted leading-none">
-            {mode === 'portal' ? 'Product & Setup Guide' : 'Ask anything'}
+            {mode === 'portal' ? 'Setup help, instantly' : 'Setup & plans, answered fast'}
           </span>
         </div>
       </button>
