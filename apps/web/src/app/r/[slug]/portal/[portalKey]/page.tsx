@@ -45,6 +45,7 @@ import {
   type MenuItemOption as PriorityMenuItemOption,
   type AvailabilityRow as PriorityAvailabilityRow,
 } from '../../(portal)/menu/priority/PriorityManager';
+import type { LevelAllocation } from '../../(portal)/menu/priority/LevelAllocationEditor';
 import { IngredientCostPanel } from '../../(portal)/inventory/IngredientCostPanel';
 import { PaymentReconciliationPanel, CashCountPanel } from '../../(portal)/close/ReconciliationPanels';
 import { AttendanceInsights } from '../../(portal)/scheduling/AttendanceInsights';
@@ -503,6 +504,7 @@ export default async function PortalHome({
     priorityMenuRes,
     priorityAvailRes,
     allocationEnabledRes,
+    levelAllocationRes,
     managedPortalsRes,
     catalogRes,
     rolesRes,
@@ -532,6 +534,9 @@ export default async function PortalHome({
       ? t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason')
       : Promise.resolve({ data: null }),
     includeAvailability ? t.client.rpc('get_priority_allocation_enabled') : Promise.resolve({ data: null }),
+    includeAvailability
+      ? t.client.from('priority_level_allocation').select('priority_level, allocation_pct, is_active')
+      : Promise.resolve({ data: null }),
     includePortals
       ? t.client
           .from('portals')
@@ -794,6 +799,7 @@ export default async function PortalHome({
                 availability={(priorityAvailRes.data ?? []) as PriorityAvailabilityRow[]}
                 canManage={has('availability.update')}
                 allocationEnabled={allocationEnabledRes.data === true}
+                levelAllocation={(levelAllocationRes.data ?? []) as LevelAllocation[]}
               />
               <div className="space-y-3">
                 <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Availability history</h3>

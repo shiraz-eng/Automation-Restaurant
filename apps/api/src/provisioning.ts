@@ -279,7 +279,13 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       order lines checked against the allocated quantity, kitchen dish
 //       waste through recipe ingredients, item take-off-sale switch.
 //   v61 get_priority_allocation_enabled() for availability.view holders.
-const SCHEMA_VERSION = 61;
+//   v62 Priority-level percentage allocation (priority_level_allocation,
+//       set_priority_level_allocation, percentage rounds + redistribution
+//       inside app.recalc_priority_allocation).
+//   v63 SECURITY: app.can_write()/app.has_perm() never return NULL — a
+//       portal login used to slip past  if not (has_perm or can_write())
+//       guards.
+const SCHEMA_VERSION = 63;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

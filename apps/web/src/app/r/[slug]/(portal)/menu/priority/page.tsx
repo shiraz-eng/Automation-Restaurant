@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { PriorityManager, type PriorityRow, type MenuItemOption, type AvailabilityRow } from './PriorityManager';
+import type { LevelAllocation } from './LevelAllocationEditor';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Priority Allocation' };
@@ -15,7 +16,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
   const { role, perms } = await gatePortalPage(t.client, slug, 'availability.view');
   const canManage = can(perms, role, 'availability.update');
 
-  const [{ data: priorities, error }, { data: menuItems }, { data: availability }, { data: settings }] = await Promise.all([
+  const [{ data: priorities, error }, { data: menuItems }, { data: availability }, { data: settings }, { data: levels }] = await Promise.all([
     t.client
       .from('product_priority')
       .select('id, menu_item_id, priority_level, priority_rank, updated_at, menu_items(name, category_id)')
@@ -24,6 +25,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
     t.client.from('menu_items').select('id, name, category_id').order('name'),
     t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason'),
     t.client.rpc('get_priority_allocation_enabled'),
+    t.client.from('priority_level_allocation').select('priority_level, allocation_pct, is_active'),
   ]);
 
   return (
@@ -46,6 +48,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
           availability={(availability ?? []) as AvailabilityRow[]}
           canManage={canManage}
           allocationEnabled={settings === true}
+          levelAllocation={(levels ?? []) as LevelAllocation[]}
         />
       )}
     </div>

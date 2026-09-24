@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { GripVertical, X } from 'lucide-react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Field, Select } from '@/components/ui';
+import { LevelAllocationEditor, type LevelAllocation } from './LevelAllocationEditor';
 
 type Ref<T> = T | T[] | null;
 function one<T>(x: Ref<T>): T | null {
@@ -59,6 +60,7 @@ export function PriorityManager({
   availability,
   canManage,
   allocationEnabled,
+  levelAllocation,
 }: {
   slug: string;
   priorities: PriorityRow[];
@@ -67,6 +69,8 @@ export function PriorityManager({
   canManage: boolean;
   /** business_settings.priority_allocation_enabled — the Priority Allocation ON/OFF switch. */
   allocationEnabled: boolean;
+  /** priority_level_allocation — the four levels' percentages. */
+  levelAllocation: LevelAllocation[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -81,6 +85,7 @@ export function PriorityManager({
       .channel('priority-allocation')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_priority' }, () => router.refresh())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_availability' }, () => router.refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'priority_level_allocation' }, () => router.refresh())
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -161,7 +166,7 @@ export function PriorityManager({
           </div>
           <p className="text-muted text-[11px] mt-1 max-w-xl">
             {allocationEnabled
-              ? 'Shared ingredients go to higher-priority products first; lower-priority products get what is left. Availability updates automatically on every stock or priority change.'
+              ? 'Limited shared ingredients are divided between priority levels by the shares below; within a level, dishes are served in the order listed. Availability updates automatically on every stock or priority change.'
               : 'Each product shows everything its ingredients could make on its own, so products sharing an ingredient can promise the same stock twice. Turn on to allocate by priority.'}
           </p>
         </div>
@@ -175,6 +180,8 @@ export function PriorityManager({
           </Button>
         )}
       </div>
+
+      {allocationEnabled && <LevelAllocationEditor initial={levelAllocation} canManage={canManage} />}
 
       {canManage && (
         <div className="rounded-lg border border-border bg-surface p-4">
