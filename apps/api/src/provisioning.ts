@@ -294,7 +294,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       priority count as Low.
 //   v66 Legacy per-size manual food counters retired (they still blocked
 //       orders and showed Sold Out after the Food Stock panel was removed).
-const SCHEMA_VERSION = 66;
+//   v67 delete_recipe(): permanently delete a recipe (refused while another
+//       recipe uses it as a sub-recipe).
+const SCHEMA_VERSION = 67;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

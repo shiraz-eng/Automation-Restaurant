@@ -221,6 +221,19 @@ export function RecipesManager({
     if (!confirm('Archive this recipe? It will stop being used for new orders, but its history is kept.')) return;
     await run(() => supabase.rpc('archive_recipe', { p_recipe_id: recipeId }));
   }
+  async function remove(recipe: Recipe) {
+    const linked = recipe.status === 'active' && one(recipe.menu_items);
+    const warning = linked
+      ? `\n\n"${linked.name}" will stop using stock and no longer have a food cost until it gets a new recipe.`
+      : '';
+    if (
+      !confirm(
+        `Delete "${recipe.name}" permanently?\n\nAll its versions and cost history are removed. This can't be undone — use Archive to keep the history.${warning}`,
+      )
+    )
+      return;
+    await run(() => supabase.rpc('delete_recipe', { p_recipe_id: recipe.id }));
+  }
 
   return (
     <div className="space-y-5">
@@ -433,13 +446,20 @@ export function RecipesManager({
                       </div>
                     )}
 
-                    {canManage && r.status !== 'archived' && (
+                    {canManage && (
                       <div className="flex gap-2 pt-2 border-t border-border">
-                        <Button variant="ghost" onClick={() => setNewVersionFor(r)}>
-                          Create New Version
-                        </Button>
-                        <Button variant="danger" onClick={() => archive(r.id)} disabled={busy}>
-                          Archive
+                        {r.status !== 'archived' && (
+                          <>
+                            <Button variant="ghost" onClick={() => setNewVersionFor(r)}>
+                              Create New Version
+                            </Button>
+                            <Button variant="ghost" onClick={() => archive(r.id)} disabled={busy}>
+                              Archive
+                            </Button>
+                          </>
+                        )}
+                        <Button variant="danger" onClick={() => remove(r)} disabled={busy} className="ml-auto">
+                          Delete Recipe
                         </Button>
                       </div>
                     )}
