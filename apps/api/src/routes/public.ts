@@ -93,7 +93,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   const tenant = slug ? await tenantClientForSlug(slug) : null;
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }] = await Promise.all([
+  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }, liveDeals] = await Promise.all([
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
@@ -119,7 +119,12 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     // the only thing that removes an item/variant from the payload
     // entirely; the engine only adds an "Unavailable" flag on top.
     tenant.from('product_availability').select('menu_item_id, variant_id, status'),
+    // Deals sellable right now on the customer menu (status, dates, days,
+    // time window, channel) — the same rule place_order enforces
+    // (tenant-migrations/0064). A tenant without it just skips the filter.
+    tenant.rpc('live_deal_ids', { p_sales_channel: 'customer_portal' }),
   ]);
+  const liveDealIds = liveDeals.error ? null : new Set((liveDeals.data as string[] | null) ?? []);
   const brandKit = Array.isArray(brandKitRows) ? (brandKitRows[0] ?? null) : (brandKitRows ?? null);
 
   type AvailRow = { menu_item_id: string; variant_id: string | null; status: string };
@@ -184,7 +189,9 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   // variant is no longer available (mirrors the modifier-option cleaning
   // above), then drop any group left with zero selectable options — a
   // required group with nothing to pick would strand the customer.
-  const cleanedDeals = (deals ?? []).map((d: Record<string, unknown>) => ({
+  const cleanedDeals = (deals ?? [])
+    .filter((d: Record<string, unknown>) => !liveDealIds || liveDealIds.has(d.id as string))
+    .map((d: Record<string, unknown>) => ({
     ...d,
     deal_option_groups: ((d.deal_option_groups as Array<Record<string, unknown>>) ?? [])
       .map((g): Record<string, unknown> => ({

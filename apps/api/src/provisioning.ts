@@ -285,7 +285,11 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v63 SECURITY: app.can_write()/app.has_perm() never return NULL — a
 //       portal login used to slip past  if not (has_perm or can_write())
 //       guards.
-const SCHEMA_VERSION = 63;
+//   v64 Deals & Combos workspace: deal type/status/ref, schedule (days +
+//       time window), rules (min/max per order, usage limit), channels,
+//       customer display fields; order-time rule enforcement; performance,
+//       availability, cost-estimate and live-deal RPCs; deal images.
+const SCHEMA_VERSION = 64;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

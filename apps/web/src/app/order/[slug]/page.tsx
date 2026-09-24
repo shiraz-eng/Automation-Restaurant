@@ -41,7 +41,7 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
 
   try {
     const client = createClient(config.url, config.anonKey);
-    const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }] =
+    const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }, liveDeals] =
       await Promise.all([
         client.from('menu_categories').select('id, name, sort_order').order('sort_order'),
         // Same nested select the Express endpoint uses (apps/api/src/routes/public.ts)
@@ -54,7 +54,11 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
         // The backend's authoritative availability (guest-readable) — the
         // same rows the Express route reduces to computed_available.
         client.from('product_availability').select('menu_item_id, variant_id, status'),
+        // Deals sellable right now on the customer menu — same rule as the
+        // Express route and place_order (tenant-migrations/0064).
+        client.rpc('live_deal_ids', { p_sales_channel: 'customer_portal' }),
       ]);
+    const liveDealIds = liveDeals.error ? null : new Set((liveDeals.data as string[] | null) ?? []);
 
     const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
 
@@ -93,7 +97,7 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
     return {
       categories: (categories ?? []) as MenuCategory[],
       items: cleanedItems as unknown as MenuItem[],
-      deals: (deals ?? []) as unknown as DealLite[],
+      deals: ((deals ?? []) as { id: string }[]).filter((d) => !liveDealIds || liveDealIds.has(d.id)) as unknown as DealLite[],
       brandKit: brandKit ?? null,
     };
   } catch (err) {

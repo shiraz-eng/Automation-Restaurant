@@ -17,7 +17,8 @@ import { AiChat } from '../../(portal)/ai/AiChat';
 import { InventoryManager } from '../../(portal)/inventory/InventoryManager';
 import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from '../../(portal)/recipes/RecipesManager';
 import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from '../../(portal)/purchasing/PurchasingClient';
-import { DealsManager, type Deal, type MenuOption } from '../../(portal)/deals/DealsManager';
+import { DealsWorkspace } from '../../(portal)/deals/DealsWorkspace';
+import { DEAL_SELECT, MENU_PICK_SELECT, type DealRow, type MenuPick } from '../../(portal)/deals/dealTypes';
 import { SocialManager } from '../../(portal)/social/SocialManager';
 import { StaffManager } from '@/components/StaffManager';
 import { SchedulingClient, type Shift, type Attendance } from '../../(portal)/scheduling/SchedulingClient';
@@ -260,10 +261,10 @@ export default async function PortalHome({
           .in('status', UNPAID)
           .order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
-    includeCashier
+    includeCashier || includeDeals
       ? t.client
           .from('business_settings')
-          .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, max_refund_without_approval_cents')
+          .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, max_refund_without_approval_cents, currency_code')
           .eq('id', true)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -393,13 +394,12 @@ export default async function PortalHome({
     includeDeals
       ? t.client
           .from('deals')
-          .select(
-            'id, name, description, image_url, price_cents, is_available, track_availability, available_qty, starts_at, ends_at, sort_order, deal_components(id, menu_item_id, variant_id, qty, sort_order), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order))',
-          )
+          .select(DEAL_SELECT)
           .order('sort_order')
+          .order('created_at', { ascending: false })
       : Promise.resolve({ data: null }),
     includeDeals
-      ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name')
+      ? t.client.from('menu_items').select(MENU_PICK_SELECT).order('name')
       : Promise.resolve({ data: null }),
     includeStaff
       ? t.client.from('memberships').select('id, email, full_name, role, status, created_at, shift_start_time').order('created_at', { ascending: true })
@@ -979,12 +979,16 @@ export default async function PortalHome({
             <section id="marketing" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Marketing &amp; Social</h2>
               {includeDeals && (
-                <DealsManager
-                  deals={(dealsRes.data ?? []) as Deal[]}
-                  menu={(dealsMenuRes.data ?? []) as unknown as MenuOption[]}
-                  canEdit={has('deals.update')}
-                  canCreate={hasAny(['deals.update', 'deals.create'])}
-                  canArchive={hasAny(['deals.update', 'deals.archive'])}
+                <DealsWorkspace
+                  deals={(dealsRes.data ?? []) as unknown as DealRow[]}
+                  menu={(dealsMenuRes.data ?? []) as unknown as MenuPick[]}
+                  currency={(settingsRes.data as { currency_code?: string } | null)?.currency_code ?? 'USD'}
+                  caps={{
+                    create: hasAny(['deals.update', 'deals.create']),
+                    edit: has('deals.update'),
+                    archive: hasAny(['deals.update', 'deals.archive']),
+                  }}
+                  canViewCost={hasAny(['inventory.view_cost', 'finance.view_cogs', 'finance.view_profit'])}
                 />
               )}
               {includeSocial && (

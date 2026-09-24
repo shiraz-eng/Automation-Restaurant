@@ -3383,6 +3383,8 @@ export const AI_ACTIONS: AiAction[] = [
           description: args.description ? String(args.description).trim() : null,
           price_cents: Math.round(price * 100),
           is_available: false,
+          // A Draft in the Deals workspace — a manager reviews and publishes it.
+          status: 'draft',
         })
         .select('id')
         .single();
