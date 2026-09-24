@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import QRCode from 'qrcode';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { TablesManager, type TableRow } from './TablesManager';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export default async function TablesPage({ params }: { params: Promise<{ slug: s
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  await gatePortalPage(t.client, slug, 'tables.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'tables.view');
 
   const { data, error } = await t.client
     .from('restaurant_tables')
@@ -40,7 +40,7 @@ export default async function TablesPage({ params }: { params: Promise<{ slug: s
           {error.message}
         </div>
       ) : (
-        <TablesManager rows={rows} />
+        <TablesManager rows={rows} canEdit={can(perms, role, 'tables.update')} />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { ReservationsClient } from './ReservationsClient';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export default async function ReservationsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'tables.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'tables.view');
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -36,7 +36,7 @@ export default async function ReservationsPage({
           {error.message}
         </div>
       ) : (
-        <ReservationsClient reservations={data ?? []} />
+        <ReservationsClient reservations={data ?? []} canEdit={can(perms, role, 'tables.update')} />
       )}
     </div>
   );

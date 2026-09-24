@@ -64,10 +64,14 @@ export function PromotionsManager({
   promos,
   performance = [],
   menuItems = [],
+  canEdit = true,
 }: {
   promos: Promo[];
   performance?: PromoPerformance[];
   menuItems?: MenuItemOption[];
+  /** menu.update — promotions' RLS write key. Gates create/pause/delete;
+   *  without it the table is read-only. */
+  canEdit?: boolean;
 }) {
   const perfByPromo = new Map(performance.map((p) => [p.promotion_id, p]));
   const router = useRouter();
@@ -203,6 +207,7 @@ export function PromotionsManager({
         </div>
       )}
 
+      {canEdit && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">New promotion</h2>
         <form onSubmit={add} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
@@ -326,6 +331,7 @@ export function PromotionsManager({
           </div>
         </div>
       </Card>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-left text-xs">
@@ -378,6 +384,8 @@ export function PromotionsManager({
                     </span>
                   </td>
                   <td className="p-3 text-right whitespace-nowrap">
+                    {canEdit && (
+                    <>
                     <Button
                       variant="ghost"
                       disabled={busy}
@@ -402,6 +410,8 @@ export function PromotionsManager({
                     >
                       Delete
                     </Button>
+                    </>
+                    )}
                   </td>
                 </tr>
                 );

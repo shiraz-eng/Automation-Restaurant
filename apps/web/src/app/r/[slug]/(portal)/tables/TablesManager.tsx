@@ -14,7 +14,11 @@ export type TableRow = {
   qrSvg: string;
 };
 
-export function TablesManager({ rows }: { rows: TableRow[] }) {
+/** `canEdit` (tables.update) gates adding/removing tables — the same key
+ *  restaurant_tables' RLS write policy checks, so the UI never offers a
+ *  write the database would reject. Viewing and printing QR codes only
+ *  needs tables.view. */
+export function TablesManager({ rows, canEdit = true }: { rows: TableRow[]; canEdit?: boolean }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [label, setLabel] = useState('');
@@ -54,11 +58,12 @@ export function TablesManager({ rows }: { rows: TableRow[] }) {
 
       <Card className="print:hidden">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-sm">Add table</h2>
+          <h2 className="font-bold text-sm">{canEdit ? 'Add table' : 'Tables'}</h2>
           <Button variant="ghost" onClick={() => window.print()}>
             Print all QR codes
           </Button>
         </div>
+        {canEdit && (
         <form onSubmit={add} className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
           <Field label="Label">
             <Input
@@ -74,6 +79,7 @@ export function TablesManager({ rows }: { rows: TableRow[] }) {
             Add
           </Button>
         </form>
+        )}
       </Card>
 
       {rows.length === 0 ? (
@@ -96,13 +102,15 @@ export function TablesManager({ rows }: { rows: TableRow[] }) {
               >
                 {r.url}
               </a>
-              <Button
-                variant="danger"
-                className="mt-2 print:hidden"
-                onClick={() => remove(r.id)}
-              >
-                Remove
-              </Button>
+              {canEdit && (
+                <Button
+                  variant="danger"
+                  className="mt-2 print:hidden"
+                  onClick={() => remove(r.id)}
+                >
+                  Remove
+                </Button>
+              )}
             </Card>
           ))}
         </div>

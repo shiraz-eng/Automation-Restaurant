@@ -19,6 +19,13 @@ export default async function FinanceLayout({
     data: { user },
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
+  // A portal login has no staff role — without this it would fall through
+  // to the 'owner' default below. Send it to its own portal, same as the
+  // Operations layout does.
+  const portalMeta = user.app_metadata as { kind?: string; portal_route?: string };
+  if (portalMeta.kind === 'portal') {
+    redirect(portalMeta.portal_route ? `/r/${slug}/portal/${portalMeta.portal_route}` : `/r/${slug}/login`);
+  }
   const role = (user.app_metadata as { role?: string }).role ?? 'owner';
   if (!canSeeFinance(role)) redirect(roleHome(role, slug));
 

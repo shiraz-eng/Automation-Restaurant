@@ -21,6 +21,13 @@ export default async function KitchenLayout({
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
 
+  // A portal login has no staff role — without this it would fall through
+  // to the 'owner' default below. Send it to its own portal, same as the
+  // Operations layout does.
+  const portalMeta = user.app_metadata as { kind?: string; portal_route?: string };
+  if (portalMeta.kind === 'portal') {
+    redirect(portalMeta.portal_route ? `/r/${slug}/portal/${portalMeta.portal_route}` : `/r/${slug}/login`);
+  }
   const role = (user.app_metadata as { role?: string }).role ?? 'owner';
   if (!canSeeKitchen(role)) redirect(roleHome(role, slug));
 

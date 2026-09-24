@@ -41,6 +41,12 @@ export type PortalCapabilities = {
    *  attendance.view alone unlocks this but NOT the full Staff section. */
   attendanceKiosk: boolean;
   ai: boolean;
+  /** MenuManager + PromotionsManager — menu_items/promotions RLS read key. */
+  menu: boolean;
+  /** TablesManager (QR codes) + ReservationsClient — both tables' RLS read key. */
+  tables: boolean;
+  /** ExportHistoryPanel — GET /api/ai/export-history requires reports.view. */
+  reportHistory: boolean;
 };
 
 export function resolvePortalCapabilities(permissions: string[]): PortalCapabilities {
@@ -72,6 +78,9 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     scheduling: has('staff.view') && has('attendance.view'),
     attendanceKiosk: has('attendance.view'),
     ai: has('ai.view'),
+    menu: has('menu.view'),
+    tables: has('tables.view'),
+    reportHistory: has('reports.view'),
   };
 }
 
@@ -85,11 +94,14 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       caps.operations && { id: 'operations', label: 'Operations' },
       caps.kitchen && { id: 'kitchen', label: 'Kitchen' },
       caps.cashier && { id: 'cashier', label: 'Cashier' },
+      caps.tables && { id: 'tables', label: 'Tables & Reservations' },
+      caps.menu && { id: 'menu', label: 'Menu & Promotions' },
       caps.recipes && { id: 'recipes', label: 'Recipes & Food Cost' },
       caps.inventory && { id: 'inventory', label: 'Inventory' },
       (caps.suppliers || caps.purchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
       (caps.finance || caps.dayClose) && { id: 'finance', label: 'Finance' },
       caps.analytics && { id: 'analytics', label: 'Analytics' },
+      caps.reportHistory && { id: 'reports', label: 'Report History' },
       (caps.deals || caps.social) && { id: 'marketing', label: 'Marketing & Social' },
       caps.attendanceKiosk && { id: 'attendance', label: 'Attendance' },
       (caps.staff || caps.scheduling) && { id: 'staff', label: 'Staff' },
@@ -112,6 +124,11 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   operations: ['orders.view', 'orders.update', 'orders.cancel'],
   kitchen: ['kitchen.view', 'kitchen.update_status'],
   cashier: ['payments.view', 'payments.accept', 'orders.create', 'orders.apply_discount', 'payments.refund', 'payments.void', 'orders.cancel'],
+  // Creating/deleting a product also needs menu.update: menu_items' RLS
+  // write policy checks that one key for every write.
+  menu: ['menu.view', 'menu.update', 'menu.create', 'menu.delete', 'inventory.view_cost'],
+  tables: ['tables.view', 'tables.update'],
+  reports: ['reports.view'],
   recipes: ['inventory.manage_recipes', 'finance.manage_recipes', 'inventory.view_cost'],
   inventory: ['stock.view', 'stock.update', 'stock.adjust', 'inventory.manage', 'inventory.manage_waste', 'stock.count', 'inventory.view_cost', 'finance.manage_purchases'],
   suppliers: [
@@ -130,6 +147,14 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   ai: ['ai.view'],
 };
 
+/** Keys that only take effect alongside another key — the portal page gates
+ *  them as has(key) && has(dep) because the underlying RLS write policy
+ *  checks the dependency, so the preview must not call them "allowed" alone. */
+export const PERMISSION_REQUIRES: Record<string, string[]> = {
+  'menu.create': ['menu.update'],
+  'menu.delete': ['menu.update'],
+};
+
 export type SectionBreakdown = PortalSection & { allowed: string[]; restricted: string[] };
 
 /** Per-section allowed/restricted action keys for a permission set, plus
@@ -137,7 +162,7 @@ export type SectionBreakdown = PortalSection & { allowed: string[]; restricted: 
 export function portalActionBreakdown(permissions: string[]): { sections: SectionBreakdown[]; unused: string[] } {
   const all = permissions.includes('*');
   const granted = new Set(permissions);
-  const has = (k: string) => all || granted.has(k);
+  const has = (k: string) => all || (granted.has(k) && (PERMISSION_REQUIRES[k] ?? []).every((d) => granted.has(d)));
   const sections = portalSections(resolvePortalCapabilities(permissions)).map((s) => {
     const keys = SECTION_PERMISSION_KEYS[s.id] ?? [];
     return { ...s, allowed: keys.filter(has), restricted: keys.filter((k) => !has(k)) };

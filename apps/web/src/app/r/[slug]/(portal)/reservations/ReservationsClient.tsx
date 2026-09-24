@@ -48,7 +48,15 @@ function timeOf(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function ReservationsClient({ reservations }: { reservations: Reservation[] }) {
+/** `canEdit` (tables.update — reservations' RLS write key) gates creating
+ *  a booking and changing its status; tables.view alone is a read-only list. */
+export function ReservationsClient({
+  reservations,
+  canEdit = true,
+}: {
+  reservations: Reservation[];
+  canEdit?: boolean;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [filter, setFilter] = useState('all');
@@ -127,6 +135,7 @@ export function ReservationsClient({ reservations }: { reservations: Reservation
         </div>
       )}
 
+      {canEdit && (
       <Card>
         <h2 className="font-bold text-sm mb-3">New reservation</h2>
         <form onSubmit={create} className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
@@ -161,6 +170,7 @@ export function ReservationsClient({ reservations }: { reservations: Reservation
           </Button>
         </form>
       </Card>
+      )}
 
       <div className="flex items-center gap-2">
         <span className="text-muted text-xs font-semibold">Filter</span>
@@ -203,17 +213,19 @@ export function ReservationsClient({ reservations }: { reservations: Reservation
                         {r.status.replace('_', ' ')}
                       </td>
                       <td className="p-3 text-right">
-                        <Select
-                          value={r.status}
-                          onChange={(e) => setStatus(r.id, e.target.value)}
-                          className="w-32"
-                        >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s.replace('_', ' ')}
-                            </option>
-                          ))}
-                        </Select>
+                        {canEdit && (
+                          <Select
+                            value={r.status}
+                            onChange={(e) => setStatus(r.id, e.target.value)}
+                            className="w-32"
+                          >
+                            {STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {s.replace('_', ' ')}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
                       </td>
                     </tr>
                   ))}

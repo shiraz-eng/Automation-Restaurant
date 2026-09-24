@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import QRCode from 'qrcode';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
@@ -22,9 +23,24 @@ import { StaffManager } from '@/components/StaffManager';
 import { SchedulingClient, type Shift, type Attendance } from '../../(portal)/scheduling/SchedulingClient';
 import { DayCloseClient, type Closing } from '../../(portal)/close/DayCloseClient';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
+import { MenuManager } from '../../(portal)/menu/MenuManager';
+import type {
+  Category as MenuCategory,
+  Item as MenuItem,
+  Ingredient as MenuIngredient,
+  DealRow as MenuDealRow,
+  RecipeRow as MenuRecipeRow,
+  ProductAvailabilityRow,
+} from '../../(portal)/menu/menuTypes';
+import { PromotionsManager, type Promo, type PromoPerformance } from '../../(portal)/promotions/PromotionsManager';
+import { TablesManager, type TableRow } from '../../(portal)/tables/TablesManager';
+import { ReservationsClient } from '../../(portal)/reservations/ReservationsClient';
+import { ExportHistoryPanel } from '../../(portal)/exports/ExportHistoryPanel';
 import { resolvePortalCapabilities, portalSections } from '@/lib/portalCapabilities';
 
 export const dynamic = 'force-dynamic';
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3005';
 
 type ProfitRow = {
   orders_count: number;
@@ -110,6 +126,9 @@ export default async function PortalHome({
     scheduling: includeScheduling,
     attendanceKiosk: includeAttendanceKiosk,
     ai: includeAi,
+    menu: includeMenu,
+    tables: includeTables,
+    reportHistory: includeReportHistory,
   } = caps;
 
   const canCreateOrderCashier = has('orders.create');
@@ -370,6 +389,97 @@ export default async function PortalHome({
     includeAttendanceKiosk ? t.client.rpc('attendance_roster', {}) : Promise.resolve({ data: null }),
   ]);
 
+  // Menu & Promotions / Tables & Reservations — the same queries the
+  // standalone /menu, /promotions, /tables and /reservations pages run.
+  const canViewMenuCost = has('inventory.view_cost');
+  const [
+    menuCategoriesRes,
+    menuItemsRes,
+    menuIngredientsRes,
+    menuDealsRes,
+    menuRecipesRes,
+    menuAvailabilityRes,
+    promosRes,
+    promoPerfRes,
+    promoMenuRes,
+    tablesRes,
+    reservationsRes,
+  ] = await Promise.all([
+    includeMenu
+      ? t.client.from('menu_categories').select('id, name, sort_order').order('sort_order')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client
+          .from('menu_items')
+          .select(
+            'id, name, description, price_cents, is_available, category_id, image_url, station, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order)), recipe_components(id, inventory_item_id, qty_per_unit, variant_id, inventory_items(name, unit))',
+          )
+          .order('name')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client.from('inventory_items').select('id, name, unit, stock_qty, min_threshold').order('name')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client
+          .from('deals')
+          .select(
+            'id, name, price_cents, is_available, deal_components(menu_item_id, variant_id, qty), deal_option_groups(deal_option_items(menu_item_id, variant_id))',
+          )
+          .eq('is_available', true)
+          .order('sort_order')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client
+          .from('recipes')
+          .select(
+            `id, name, status, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, recipe_ingredients(${
+              canViewMenuCost
+                ? 'qty_base, inventory_item_id, sub_recipe_id, inventory_items(cost_cents_per_base_unit)'
+                : 'qty_base, inventory_item_id, sub_recipe_id'
+            }))`,
+          )
+          .eq('status', 'active')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client
+          .from('product_availability')
+          .select('menu_item_id, variant_id, status, producible_qty, bottleneck_inventory_item_id, reason')
+      : Promise.resolve({ data: null }),
+    includeMenu
+      ? t.client
+          .from('promotions')
+          .select(
+            'id, name, kind, value_bps, value_cents, code, min_subtotal_cents, active, starts_at, ends_at, days_of_week, start_time, end_time, usage_limit_total, usage_count, auto_apply, bogo_menu_item_id, bogo_buy_qty, bogo_get_qty, bogo_get_discount_bps, created_at',
+          )
+          .order('created_at', { ascending: false })
+      : Promise.resolve({ data: null }),
+    includeMenu ? t.client.rpc('promotion_performance') : Promise.resolve({ data: null }),
+    includeMenu ? t.client.from('menu_items').select('id, name').order('name') : Promise.resolve({ data: null }),
+    includeTables
+      ? t.client.from('restaurant_tables').select('id, label, seats, sort_order').order('sort_order')
+      : Promise.resolve({ data: null }),
+    includeTables
+      ? t.client
+          .from('reservations')
+          .select('id, customer_name, phone, party_size, reserved_at, table_label, occasion, notes, status')
+          .gte('reserved_at', todayStart.toISOString())
+          .order('reserved_at', { ascending: true })
+          .limit(200)
+      : Promise.resolve({ data: null }),
+  ]);
+  const tableRows: TableRow[] = await Promise.all(
+    ((tablesRes.data ?? []) as { id: string; label: string; seats: number; sort_order: number }[]).map(async (r) => {
+      const url = `${SITE}/order/${slug}?table=${encodeURIComponent(r.label)}`;
+      const qrSvg = await QRCode.toString(url, {
+        type: 'svg',
+        margin: 1,
+        width: 150,
+        color: { dark: '#0f172a', light: '#ffffff' },
+      });
+      return { ...r, url, qrSvg };
+    }),
+  );
+
   const orders = (ordersRes.data ?? []) as unknown as OrdersClientOrder[];
   const todayOrders = orders.filter((o) => new Date(o.created_at) >= todayStart);
   const revenueToday = todayOrders.filter((o) => o.status === 'paid').reduce((s, o) => s + o.total_cents, 0);
@@ -522,6 +632,48 @@ export default async function PortalHome({
             </section>
           )}
 
+          {includeTables && (
+            <section id="tables" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Tables &amp; Reservations</h2>
+              <TablesManager rows={tableRows} canEdit={has('tables.update')} />
+              <div className="space-y-3">
+                <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Reservations</h3>
+                <ReservationsClient
+                  reservations={(reservationsRes.data ?? []) as Parameters<typeof ReservationsClient>[0]['reservations']}
+                  canEdit={has('tables.update')}
+                />
+              </div>
+            </section>
+          )}
+
+          {includeMenu && (
+            <section id="menu" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Menu &amp; Promotions</h2>
+              <MenuManager
+                slug={slug}
+                categories={(menuCategoriesRes.data ?? []) as MenuCategory[]}
+                items={(menuItemsRes.data ?? []) as unknown as MenuItem[]}
+                ingredients={(menuIngredientsRes.data ?? []) as MenuIngredient[]}
+                deals={(menuDealsRes.data ?? []) as unknown as MenuDealRow[]}
+                recipes={(menuRecipesRes.data ?? []) as unknown as MenuRecipeRow[]}
+                availabilityRows={(menuAvailabilityRes.data ?? []) as ProductAvailabilityRow[]}
+                canEdit={has('menu.update')}
+                canCreate={has('menu.create') && has('menu.update')}
+                canDelete={has('menu.delete') && has('menu.update')}
+                canViewCost={canViewMenuCost}
+              />
+              <div className="space-y-3">
+                <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Promotions</h3>
+                <PromotionsManager
+                  promos={(promosRes.data ?? []) as Promo[]}
+                  performance={(promoPerfRes.data ?? []) as PromoPerformance[]}
+                  menuItems={(promoMenuRes.data ?? []) as { id: string; name: string }[]}
+                  canEdit={has('menu.update')}
+                />
+              </div>
+            </section>
+          )}
+
           {includeRecipes && (
             <section id="recipes" className="scroll-mt-16">
               <h2 className="font-bold text-sm mb-3">Recipes &amp; Food Cost</h2>
@@ -653,6 +805,13 @@ export default async function PortalHome({
             <section id="analytics" className="scroll-mt-16">
               <h2 className="font-bold text-sm mb-3">Analytics</h2>
               <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} />
+            </section>
+          )}
+
+          {includeReportHistory && (
+            <section id="reports" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Report History</h2>
+              <ExportHistoryPanel slug={slug} />
             </section>
           )}
 

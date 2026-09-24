@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { PromotionsManager, type Promo, type PromoPerformance } from './PromotionsManager';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export default async function PromotionsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'menu.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'menu.view');
 
   const [{ data, error }, { data: perf }, { data: menuItems }] = await Promise.all([
     t.client
@@ -47,6 +47,7 @@ export default async function PromotionsPage({
           promos={(data ?? []) as Promo[]}
           performance={(perf ?? []) as PromoPerformance[]}
           menuItems={menuItems ?? []}
+          canEdit={can(perms, role, 'menu.update')}
         />
       )}
     </div>
