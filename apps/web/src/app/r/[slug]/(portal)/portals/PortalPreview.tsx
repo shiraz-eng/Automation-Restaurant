@@ -1,24 +1,31 @@
-import { resolvePortalCapabilities, portalSections } from '@/lib/portalCapabilities';
+import { Check, Lock } from 'lucide-react';
+import { portalActionBreakdown } from '@/lib/portalCapabilities';
+import type { PermRow } from './PortalsManager';
 
 /**
  * The Create/Edit Portal live preview — built from the exact same
- * permission→section mapping the generated portal itself renders from
- * (lib/portalCapabilities.ts), so this can never show access the portal
- * won't actually have. Not a mock: if a permission is missing here, the
- * real portal won't show that section either.
+ * permission→section→action mapping the generated portal itself renders
+ * from (lib/portalCapabilities.ts), so this can never show access the
+ * portal won't actually have. Not a mock: every "allowed" line here is a
+ * has() check the real portal page passes, every locked one is a check it
+ * fails.
  */
 export function PortalPreview({
   restaurantName,
   logoUrl,
   portalName,
   permissions,
+  catalog,
 }: {
   restaurantName: string;
   logoUrl?: string | null;
   portalName: string;
   permissions: Set<string>;
+  catalog: PermRow[];
 }) {
-  const sections = portalSections(resolvePortalCapabilities([...permissions]));
+  const { sections, unused } = portalActionBreakdown([...permissions]);
+  const labelOf = new Map(catalog.map((p) => [p.key, p.label]));
+  const label = (k: string) => labelOf.get(k) ?? k;
 
   return (
     <div className="rounded-xl border border-border bg-main overflow-hidden">
@@ -41,25 +48,49 @@ export function PortalPreview({
             <div className="font-bold text-sm truncate">{portalName.trim() || 'Untitled portal'}</div>
           </div>
         </div>
+
         {sections.length === 0 ? (
           <p className="text-muted text-xs">
-            No permissions selected yet — this portal won&rsquo;t have anything to show when
-            someone signs in.
+            No section unlocked yet — this portal won&rsquo;t have anything to show when someone signs in.
           </p>
         ) : (
-          <>
-            <div className="text-[10px] font-semibold text-muted uppercase tracking-wide mb-1.5">
-              Generated navigation
+          <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            {sections.map((s) => (
+              <div key={s.id} className="rounded-md border border-border/60 p-2">
+                <div className="text-xs font-bold mb-1">{s.label}</div>
+                <ul className="space-y-0.5">
+                  {s.allowed.map((k) => (
+                    <li key={k} className="flex items-center gap-1.5 text-[11px] text-body">
+                      <Check size={11} className="text-ok shrink-0" />
+                      {label(k)}
+                    </li>
+                  ))}
+                  {s.restricted.map((k) => (
+                    <li key={k} className="flex items-center gap-1.5 text-[11px] text-muted/70">
+                      <Lock size={10} className="shrink-0" />
+                      {label(k)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {unused.length > 0 && (
+          <div className="mt-3 rounded-md border border-warn/40 bg-warn/5 p-2">
+            <div className="text-[10px] font-bold text-warn uppercase tracking-wide mb-1">
+              Selected but no effect in a portal
             </div>
-            <ul className="space-y-1">
-              <li className="rounded-md bg-primary/10 text-primary text-xs font-semibold px-2 py-1.5">Dashboard</li>
-              {sections.map((s) => (
-                <li key={s.id} className="rounded-md text-xs font-medium px-2 py-1.5 text-body border border-border/60">
-                  {s.label}
-                </li>
+            <p className="text-[10px] text-muted mb-1">
+              These areas don&rsquo;t have a portal view yet, so granting them changes nothing here.
+            </p>
+            <ul className="text-[11px] text-muted space-y-0.5">
+              {unused.map((k) => (
+                <li key={k}>{label(k)}</li>
               ))}
             </ul>
-          </>
+          </div>
         )}
       </div>
     </div>

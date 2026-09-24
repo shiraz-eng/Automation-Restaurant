@@ -261,7 +261,12 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       status transition as receive_purchase_order_line()) so purchasing
 //       reflects a delivery recorded from the Inventory page too, not only
 //       via "Receive PO".
-const SCHEMA_VERSION = 56;
+//   v57 permission_catalog gains type (read/write/approval/export) and
+//       risk_level (normal/high) metadata for Portal Management's selected-
+//       permission summary, plus the two keys already enforced server-side
+//       but missing from the catalog (inventory.manage,
+//       inventory.manage_purchases).
+const SCHEMA_VERSION = 57;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

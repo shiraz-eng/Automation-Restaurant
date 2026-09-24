@@ -97,3 +97,50 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
     ] as (PortalSection | false)[]
   ).filter((s): s is PortalSection => !!s);
 }
+
+/**
+ * Every permission key the generated portal page actually reads inside
+ * each section — the section's own gate plus every in-section action gate
+ * (the has()/hasAny() calls in app/r/[slug]/portal/[portalKey]/page.tsx).
+ * Keep this in step with that page: it's what lets Portal Management's
+ * preview say exactly which actions a selection unlocks and which stay
+ * locked, instead of just listing section names. A key granted to a
+ * portal that appears in none of these lists has no effect on a generated
+ * portal at all (see portalActionBreakdown's `unused`).
+ */
+export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
+  operations: ['orders.view', 'orders.update', 'orders.cancel'],
+  kitchen: ['kitchen.view', 'kitchen.update_status'],
+  cashier: ['payments.view', 'payments.accept', 'orders.create', 'orders.apply_discount', 'payments.refund', 'payments.void', 'orders.cancel'],
+  recipes: ['inventory.manage_recipes', 'finance.manage_recipes', 'inventory.view_cost'],
+  inventory: ['stock.view', 'stock.update', 'stock.adjust', 'inventory.manage', 'inventory.manage_waste', 'stock.count', 'inventory.view_cost', 'finance.manage_purchases'],
+  suppliers: [
+    'supplier.view', 'supplier.manage',
+    'purchases.view', 'purchases.update', 'purchases.approve', 'purchases.receive', 'inventory.manage_purchases',
+    'invoices.create', 'invoices.match',
+    'payables.view', 'payables.record_payment', 'payables.manage',
+  ],
+  finance: ['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit', 'finance.close_day', 'finance.reopen_day'],
+  analytics: ['orders.view', 'analytics.view', 'analytics.export', 'reports.generate', 'reports.export'],
+  marketing: ['deals.view', 'deals.update', 'social.view', 'social.manage', 'social.propose_post', 'social.approve_post'],
+  attendance: ['attendance.view', 'attendance.mark', 'attendance.check_in'],
+  staff: ['staff.view', 'staff.create', 'staff.update', 'permissions.assign', 'attendance.view', 'attendance.mark'],
+  ai: ['ai.view'],
+};
+
+export type SectionBreakdown = PortalSection & { allowed: string[]; restricted: string[] };
+
+/** Per-section allowed/restricted action keys for a permission set, plus
+ *  any granted keys that no generated-portal section reads at all. */
+export function portalActionBreakdown(permissions: string[]): { sections: SectionBreakdown[]; unused: string[] } {
+  const all = permissions.includes('*');
+  const granted = new Set(permissions);
+  const has = (k: string) => all || granted.has(k);
+  const sections = portalSections(resolvePortalCapabilities(permissions)).map((s) => {
+    const keys = SECTION_PERMISSION_KEYS[s.id] ?? [];
+    return { ...s, allowed: keys.filter(has), restricted: keys.filter((k) => !has(k)) };
+  });
+  const read = new Set(Object.values(SECTION_PERMISSION_KEYS).flat());
+  const unused = all ? [] : permissions.filter((k) => !read.has(k));
+  return { sections, unused };
+}

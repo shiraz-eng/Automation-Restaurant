@@ -467,7 +467,7 @@ export default async function PortalHome({
                 <h2 className="font-bold text-sm">Operations</h2>
                 <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="orders" label="Orders" />
               </div>
-              <OrdersClient orders={orders} canCancel={has('orders.cancel')} />
+              <OrdersClient orders={orders} canCancel={has('orders.cancel')} canUpdateStatus={has('orders.update')} />
             </section>
           )}
 
@@ -499,6 +499,7 @@ export default async function PortalHome({
                 canVoid={has('payments.void')}
                 canDiscount={has('orders.apply_discount')}
                 canCancel={has('orders.cancel')}
+                canTakePayment={has('payments.accept')}
                 receipt={{
                   logoUrl: settingsRes.data?.brand_logo_url ?? null,
                   primaryColor: settingsRes.data?.brand_primary ?? null,

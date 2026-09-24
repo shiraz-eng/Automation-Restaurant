@@ -232,6 +232,7 @@ export function CheckoutClient({
   canVoid,
   canDiscount,
   canCancel,
+  canTakePayment,
   receipt,
   canCreateOrder,
   taxRateBps,
@@ -244,6 +245,9 @@ export function CheckoutClient({
   canVoid: boolean;
   canDiscount: boolean;
   canCancel: boolean;
+  /** payments.accept — matches record_payment()'s has_perm check (no
+   *  can_write()/is_staff() fallback there, unlike most other RPCs). */
+  canTakePayment: boolean;
   receipt: ReceiptSettings;
   canCreateOrder: boolean;
   taxRateBps: number;
@@ -512,7 +516,7 @@ export function CheckoutClient({
             </div>
           </dl>
 
-          {owed > 0 && (
+          {owed > 0 && canTakePayment && (
             <div className="mt-4 space-y-2">
               <div className="grid grid-cols-3 gap-2">
                 {METHODS.map((m) => (

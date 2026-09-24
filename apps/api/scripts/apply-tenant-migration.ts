@@ -60,4 +60,7 @@ async function main() {
   if (failed > 0) process.exitCode = 1;
 }
 
-main();
+main().catch((e) => {
+  console.error('migration run failed:', e instanceof Error ? e.message : JSON.stringify(e));
+  process.exitCode = 1;
+});

@@ -80,6 +80,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           canVoid={can(perms, role, 'payments.void')}
           canDiscount={can(perms, role, 'orders.apply_discount')}
           canCancel={can(perms, role, 'orders.cancel')}
+          canTakePayment={can(perms, role, 'payments.accept')}
           receipt={{
             logoUrl: settings?.brand_logo_url ?? null,
             primaryColor: settings?.brand_primary ?? null,

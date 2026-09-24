@@ -41,7 +41,11 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
       ) : (
         <>
           <LiveRefresh tables={['orders', 'payments']} channel="orders-page-live" />
-          <OrdersClient orders={orders ?? []} canCancel={can(perms, role, 'orders.cancel')} />
+          <OrdersClient
+            orders={orders ?? []}
+            canCancel={can(perms, role, 'orders.cancel')}
+            canUpdateStatus={can(perms, role, 'orders.update')}
+          />
         </>
       )}
     </div>

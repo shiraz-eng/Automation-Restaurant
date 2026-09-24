@@ -30,7 +30,16 @@ export type Order = {
   order_lines: Line[];
 };
 
-export function OrdersClient({ orders, canCancel }: { orders: Order[]; canCancel: boolean }) {
+export function OrdersClient({
+  orders,
+  canCancel,
+  canUpdateStatus,
+}: {
+  orders: Order[];
+  canCancel: boolean;
+  /** orders.update — matches the orders table's staff_update RLS policy. */
+  canUpdateStatus: boolean;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -113,17 +122,23 @@ export function OrdersClient({ orders, canCancel }: { orders: Order[]; canCancel
                     </span>
                   ) : (
                     <div className="flex items-center gap-2">
-                      <Select
-                        value={o.status}
-                        disabled={savingId === o.id}
-                        onChange={(e) => setStatus(o.id, e.target.value)}
-                      >
-                        {EDITABLE_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s.replace('_', ' ')}
-                          </option>
-                        ))}
-                      </Select>
+                      {canUpdateStatus ? (
+                        <Select
+                          value={o.status}
+                          disabled={savingId === o.id}
+                          onChange={(e) => setStatus(o.id, e.target.value)}
+                        >
+                          {EDITABLE_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {s.replace('_', ' ')}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
+                          {o.status.replace('_', ' ')}
+                        </span>
+                      )}
                       {canCancel && (
                         <button
                           onClick={() => cancel(o)}
