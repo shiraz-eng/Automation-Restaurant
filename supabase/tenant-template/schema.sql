@@ -2795,7 +2795,8 @@ begin
                          jsonb_build_object('available_qty', p_new_qty, 'reason', p_reason));
 end $fn$;
 revoke all on function public.set_food_stock(uuid, int, text, text) from public;
-grant execute on function public.set_food_stock(uuid, int, text, text) to authenticated, service_role;
+-- 0066: retired (legacy manual counters); service role only.
+grant execute on function public.set_food_stock(uuid, int, text, text) to service_role;
 
 create or replace function public.set_variant_available(
   p_variant_id uuid, p_available boolean, p_reason text default null
@@ -2837,7 +2838,7 @@ begin
                          jsonb_build_object('available_qty', v_new, 'wasted', p_qty, 'reason', p_reason));
 end $fn$;
 revoke all on function public.record_waste(uuid, int, text, text) from public;
-grant execute on function public.record_waste(uuid, int, text, text) to authenticated, service_role;
+grant execute on function public.record_waste(uuid, int, text, text) to service_role;
 
 alter publication supabase_realtime add table public.menu_variants;
 

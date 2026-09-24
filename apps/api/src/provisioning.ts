@@ -292,7 +292,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v65 Fair allocation inside a priority level: a level's share is split
 //       evenly between its products (every size), and products with no
 //       priority count as Low.
-const SCHEMA_VERSION = 65;
+//   v66 Legacy per-size manual food counters retired (they still blocked
+//       orders and showed Sold Out after the Food Stock panel was removed).
+const SCHEMA_VERSION = 66;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
