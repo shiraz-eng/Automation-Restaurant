@@ -60,7 +60,10 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
     ...it,
     menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? []).map((v) => ({
       ...v,
-      computed_available: (availByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id)?.status !== 'unavailable',
+      // A variant without its own recipe row runs on the item's base row.
+      computed_available:
+        ((availByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id) ??
+          (availByItem.get(it.id as string) ?? []).find((r) => r.variant_id === null))?.status !== 'unavailable',
     })),
   }));
 

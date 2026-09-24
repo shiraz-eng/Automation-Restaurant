@@ -149,7 +149,14 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
           .map(
             (v): Record<string, unknown> => ({
               ...v,
-              computed_available: computedAvailable(itemRows.filter((r) => r.variant_id === v.id)),
+              // A variant without its own recipe runs on the item's base
+              // recipe row (variant_id null) — same resolution rule as the
+              // engine and place_order().
+              computed_available: computedAvailable(
+                itemRows.some((r) => r.variant_id === v.id)
+                  ? itemRows.filter((r) => r.variant_id === v.id)
+                  : itemRows.filter((r) => r.variant_id === null),
+              ),
             }),
           )
           .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),

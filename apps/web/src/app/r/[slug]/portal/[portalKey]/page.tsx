@@ -36,7 +36,7 @@ import { PromotionsManager, type Promo, type PromoPerformance } from '../../(por
 import { TablesManager, type TableRow } from '../../(portal)/tables/TablesManager';
 import { ExportHistoryPanel } from '../../(portal)/exports/ExportHistoryPanel';
 import { resolvePortalCapabilities, portalSections, effectiveHas } from '@/lib/portalCapabilities';
-import { FoodStockPanel } from '../../(portal)/kds/FoodStockPanel';
+import { KitchenAvailabilityBoard } from '../../(portal)/kds/KitchenAvailabilityBoard';
 import { VariantsPanel } from '../../(portal)/menu/VariantsPanel';
 import { AvailabilityHistory, type AvailabilityHistoryRow } from '../../(portal)/menu/availability/AvailabilityHistory';
 import {
@@ -502,6 +502,7 @@ export default async function PortalHome({
     priorityRes,
     priorityMenuRes,
     priorityAvailRes,
+    allocationEnabledRes,
     managedPortalsRes,
     catalogRes,
     rolesRes,
@@ -530,6 +531,7 @@ export default async function PortalHome({
     includeAvailability
       ? t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason')
       : Promise.resolve({ data: null }),
+    includeAvailability ? t.client.rpc('get_priority_allocation_enabled') : Promise.resolve({ data: null }),
     includePortals
       ? t.client
           .from('portals')
@@ -612,7 +614,10 @@ export default async function PortalHome({
     ...it,
     menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? []).map((v) => ({
       ...v,
-      computed_available: (cashierAvailByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id)?.status !== 'unavailable',
+      // A variant without its own recipe row runs on the item's base row.
+      computed_available:
+        ((cashierAvailByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id) ??
+          (cashierAvailByItem.get(it.id as string) ?? []).find((r) => r.variant_id === null))?.status !== 'unavailable',
     })),
   }));
 
@@ -687,9 +692,7 @@ export default async function PortalHome({
                 }
               />
               )}
-              {includeKitchenStock && (
-                <FoodStockPanel canManage={has('kitchen.manage_availability')} canWaste={has('kitchen.record_waste')} />
-              )}
+              <KitchenAvailabilityBoard canManage={has('kitchen.manage_availability')} canWaste={has('kitchen.record_waste')} />
             </section>
           )}
 
@@ -790,6 +793,7 @@ export default async function PortalHome({
                 menuItems={(priorityMenuRes.data ?? []) as PriorityMenuItemOption[]}
                 availability={(priorityAvailRes.data ?? []) as PriorityAvailabilityRow[]}
                 canManage={has('availability.update')}
+                allocationEnabled={allocationEnabledRes.data === true}
               />
               <div className="space-y-3">
                 <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Availability history</h3>

@@ -15,7 +15,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
   const { role, perms } = await gatePortalPage(t.client, slug, 'availability.view');
   const canManage = can(perms, role, 'availability.update');
 
-  const [{ data: priorities, error }, { data: menuItems }, { data: availability }] = await Promise.all([
+  const [{ data: priorities, error }, { data: menuItems }, { data: availability }, { data: settings }] = await Promise.all([
     t.client
       .from('product_priority')
       .select('id, menu_item_id, priority_level, priority_rank, updated_at, menu_items(name, category_id)')
@@ -23,6 +23,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
       .order('priority_rank'),
     t.client.from('menu_items').select('id, name, category_id').order('name'),
     t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason'),
+    t.client.rpc('get_priority_allocation_enabled'),
   ]);
 
   return (
@@ -44,6 +45,7 @@ export default async function PriorityAllocationPage({ params }: { params: Promi
           menuItems={(menuItems ?? []) as MenuItemOption[]}
           availability={(availability ?? []) as AvailabilityRow[]}
           canManage={canManage}
+          allocationEnabled={settings === true}
         />
       )}
     </div>

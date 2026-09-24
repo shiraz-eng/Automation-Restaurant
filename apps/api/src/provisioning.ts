@@ -274,7 +274,12 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       anti-escalation triggers on portals and roles.
 //   v59 Customers, Roles & Access and permissions.view retired from the
 //       permission catalog (sections removed from the product).
-const SCHEMA_VERSION = 59;
+//   v60 Food availability automation: Priority Allocation ON/OFF setting,
+//       scoped (connected-ingredient) waterfall instead of whole-restaurant,
+//       order lines checked against the allocated quantity, kitchen dish
+//       waste through recipe ingredients, item take-off-sale switch.
+//   v61 get_priority_allocation_enabled() for availability.view holders.
+const SCHEMA_VERSION = 61;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

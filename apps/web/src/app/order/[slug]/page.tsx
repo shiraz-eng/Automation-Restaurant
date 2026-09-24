@@ -41,7 +41,7 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
 
   try {
     const client = createClient(config.url, config.anonKey);
-    const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }] =
+    const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }] =
       await Promise.all([
         client.from('menu_categories').select('id, name, sort_order').order('sort_order'),
         // Same nested select the Express endpoint uses (apps/api/src/routes/public.ts)
@@ -51,26 +51,44 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
         client.from('menu_items').select(MENU_ITEM_SELECT).eq('is_available', true).order('name'),
         client.from('deals').select(DEAL_SELECT).eq('is_available', true).order('sort_order'),
         client.rpc('get_brand_kit'),
+        // The backend's authoritative availability (guest-readable) — the
+        // same rows the Express route reduces to computed_available.
+        client.from('product_availability').select('menu_item_id, variant_id, status'),
       ]);
 
     const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
 
-    // Same manual-toggle filtering the Express endpoint applies (minus its
-    // recipe-driven computed_available layer, which needs the tenant's
-    // product_availability table — acceptable to omit here since an item
-    // missing that flag just always shows as available, never vanishes).
-    const cleanedItems = ((items ?? []) as Record<string, unknown>[]).map((it) => ({
-      ...it,
-      menu_variants: ((it.menu_variants as Record<string, unknown>[] | null) ?? [])
-        .filter((v) => v.is_available && (!v.track_availability || ((v.available_qty as number) ?? 0) > 0))
-        .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
-      modifier_groups: ((it.modifier_groups as Record<string, unknown>[] | null) ?? []).map((g) => ({
-        ...g,
-        modifier_options: ((g.modifier_options as Record<string, unknown>[] | null) ?? [])
-          .filter((o) => o.is_available)
+    // Same filtering + computed_available layer as the Express endpoint
+    // (apps/api/src/routes/public.ts): manual toggles remove an item or
+    // variant; the engine's rows only flag it Unavailable. A variant with
+    // no row of its own uses the item's base-recipe row.
+    type AvailRow = { menu_item_id: string; variant_id: string | null; status: string };
+    const availRows = (availabilityRows ?? []) as AvailRow[];
+    const computedAvailable = (rows: AvailRow[]) => rows.length === 0 || !rows.every((r) => r.status === 'unavailable');
+    const cleanedItems = ((items ?? []) as Record<string, unknown>[]).map((it) => {
+      const itemRows = availRows.filter((r) => r.menu_item_id === it.id);
+      return {
+        ...it,
+        computed_available: computedAvailable(itemRows),
+        menu_variants: ((it.menu_variants as Record<string, unknown>[] | null) ?? [])
+          .filter((v) => v.is_available && (!v.track_availability || ((v.available_qty as number) ?? 0) > 0))
+          .map((v): Record<string, unknown> => ({
+            ...v,
+            computed_available: computedAvailable(
+              itemRows.some((r) => r.variant_id === v.id)
+                ? itemRows.filter((r) => r.variant_id === v.id)
+                : itemRows.filter((r) => r.variant_id === null),
+            ),
+          }))
           .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
-      })),
-    }));
+        modifier_groups: ((it.modifier_groups as Record<string, unknown>[] | null) ?? []).map((g) => ({
+          ...g,
+          modifier_options: ((g.modifier_options as Record<string, unknown>[] | null) ?? [])
+            .filter((o) => o.is_available)
+            .sort((a, b) => (a.sort_order as number) - (b.sort_order as number)),
+        })),
+      };
+    });
 
     return {
       categories: (categories ?? []) as MenuCategory[],

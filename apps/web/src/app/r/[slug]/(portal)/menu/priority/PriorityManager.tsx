@@ -58,12 +58,15 @@ export function PriorityManager({
   menuItems,
   availability,
   canManage,
+  allocationEnabled,
 }: {
   slug: string;
   priorities: PriorityRow[];
   menuItems: MenuItemOption[];
   availability: AvailabilityRow[];
   canManage: boolean;
+  /** business_settings.priority_allocation_enabled — the Priority Allocation ON/OFF switch. */
+  allocationEnabled: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -143,6 +146,35 @@ export function PriorityManager({
   return (
     <div className="space-y-5">
       {error && <div className="rounded border border-danger/40 bg-danger/10 text-danger p-3 text-xs">{error}</div>}
+
+      <div className="rounded-lg border border-border bg-surface p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-sm">Priority Allocation</h2>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                allocationEnabled ? 'bg-ok/10 text-ok' : 'bg-main text-muted'
+              }`}
+            >
+              {allocationEnabled ? 'On' : 'Off'}
+            </span>
+          </div>
+          <p className="text-muted text-[11px] mt-1 max-w-xl">
+            {allocationEnabled
+              ? 'Shared ingredients go to higher-priority products first; lower-priority products get what is left. Availability updates automatically on every stock or priority change.'
+              : 'Each product shows everything its ingredients could make on its own, so products sharing an ingredient can promise the same stock twice. Turn on to allocate by priority.'}
+          </p>
+        </div>
+        {canManage && (
+          <Button
+            variant={allocationEnabled ? 'ghost' : 'primary'}
+            disabled={busy}
+            onClick={() => run(() => supabase.rpc('set_priority_allocation', { p_enabled: !allocationEnabled }))}
+          >
+            {allocationEnabled ? 'Turn off' : 'Turn on'}
+          </Button>
+        )}
+      </div>
 
       {canManage && (
         <div className="rounded-lg border border-border bg-surface p-4">

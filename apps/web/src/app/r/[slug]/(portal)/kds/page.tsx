@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
-import { FoodStockPanel } from './FoodStockPanel';
+import { KitchenAvailabilityBoard } from './KitchenAvailabilityBoard';
 import { KdsBoard } from './KdsBoard';
 import type { Kot, RecipeComponentRow } from './kitchenTypes';
 
@@ -61,12 +61,10 @@ export default async function KdsPage({ params }: { params: Promise<{ slug: stri
           stationRoutingEntitled={stationRoutingEntitled}
         />
       )}
-      {(can(perms, role, 'kitchen.manage_availability') || can(perms, role, 'kitchen.record_waste')) && (
-        <FoodStockPanel
-          canManage={can(perms, role, 'kitchen.manage_availability')}
-          canWaste={can(perms, role, 'kitchen.record_waste')}
-        />
-      )}
+      <KitchenAvailabilityBoard
+        canManage={can(perms, role, 'kitchen.manage_availability')}
+        canWaste={can(perms, role, 'kitchen.record_waste')}
+      />
     </div>
   );
 }
