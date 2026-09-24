@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { isAllowedOrigin, env } from '../env';
-import { requirePortalPerm } from '../middleware/portalAuth';
+import { requirePortalPerm, holdsAll } from '../middleware/portalAuth';
 import { tempPassword } from '../lib/tempPassword';
 import { slugify } from '../lib/slug';
 
@@ -14,7 +14,7 @@ staffRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
-  res.header('Access-Control-Allow-Methods', 'POST, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'POST, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
@@ -202,6 +202,53 @@ staffRouter.patch(
       .update({ shift_start_time: parsed.data.shift_start_time })
       .eq('id', req.params.id);
     if (error) return res.status(400).json({ error: 'update_failed', message: error.message });
+    res.json({ ok: true });
+  },
+);
+
+/**
+ * DELETE /api/staff/:id — remove a staff member (staff.delete). Their login
+ * is deleted so they can no longer sign in, and the membership is disabled
+ * rather than dropped: attendance, shifts and audit history reference it and
+ * are kept. Nobody can remove the owner, themselves, or a member who holds
+ * access the caller doesn't.
+ */
+staffRouter.delete(
+  '/:id',
+  express.json(),
+  requirePortalPerm('staff.delete'),
+  async (req: Request, res: Response) => {
+    const { admin, permissions, role, userId } = req.tenant!;
+    const { data: member } = await admin
+      .from('memberships')
+      .select('id, user_id, role, status')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!member) return res.status(404).json({ error: 'not_found' });
+    if (member.role === 'owner') {
+      return res.status(409).json({ error: 'immutable', message: 'The owner cannot be removed.' });
+    }
+    if (member.user_id && member.user_id === userId) {
+      return res.status(409).json({ error: 'self', message: "You can't remove yourself." });
+    }
+
+    const { data: eff } = await admin.rpc('membership_effective_permissions', { p_membership_id: member.id });
+    const effective = ((eff as { effective: string[] }[] | null)?.[0]?.effective ?? []) as string[];
+    if (!holdsAll(permissions, role, effective)) {
+      return res
+        .status(403)
+        .json({ error: 'forbidden', message: 'That staff member has access you do not hold, so you cannot remove them.' });
+    }
+
+    const { error } = await admin
+      .from('memberships')
+      .update({ status: 'disabled', user_id: null, extra_permissions: [] })
+      .eq('id', member.id);
+    if (error) return res.status(400).json({ error: 'remove_failed', message: error.message });
+    await admin.from('portal_staff').delete().eq('membership_id', member.id);
+    if (member.user_id) {
+      await admin.auth.admin.deleteUser(member.user_id).catch(() => {});
+    }
     res.json({ ok: true });
   },
 );

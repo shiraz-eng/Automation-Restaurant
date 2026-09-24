@@ -110,6 +110,9 @@ export function PurchasingClient({
   canManagePO,
   canApprovePO,
   canReceive,
+  canCreatePO = canManagePO,
+  canDeletePO = false,
+  canViewInvoices = canInvoice || canMatch,
 }: {
   suppliers: Supplier[];
   items: Item[];
@@ -128,6 +131,12 @@ export function PurchasingClient({
   canApprovePO: boolean;
   /** purchases.receive or inventory.manage_purchases — matches receive_purchase_order[_line]()'s has_perm check. */
   canReceive: boolean;
+  /** purchases.create — the purchases_create insert policies (0058). */
+  canCreatePO?: boolean;
+  /** purchases.delete — delete an unsent draft PO (purchases_delete policy, 0058). */
+  canDeletePO?: boolean;
+  /** invoices.view — see supplier invoices without recording or matching them. */
+  canViewInvoices?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -489,7 +498,7 @@ export function PurchasingClient({
       {/* Purchase orders */}
       <section>
         <h2 className="font-bold text-sm mb-3">Purchase orders</h2>
-        {canManagePO && (
+        {canCreatePO && (
         <Card>
           <h3 className="font-bold mb-3 text-sm">New purchase order</h3>
           {suppliers.length === 0 ? (
@@ -635,6 +644,18 @@ export function PurchasingClient({
                             Cancel
                           </Button>
                         )}
+                        {canDeletePO && o.status === 'draft' && !o.sent_at && (
+                          <Button
+                            variant="danger"
+                            disabled={busy}
+                            onClick={() => {
+                              if (confirm(`Delete draft PO #${o.po_number}?`))
+                                void act(() => supabase.from('purchase_orders').delete().eq('id', o.id));
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        )}
                         {canApprovePO && o.status === 'draft' && !o.approved_at && (
                           <Button disabled={busy} onClick={() => act(() => supabase.rpc('approve_purchase_order', { p_po_id: o.id }))}>
                             Approve
@@ -665,9 +686,10 @@ export function PurchasingClient({
       </section>
 
       {/* Supplier invoices */}
-      {canInvoice && (
+      {(canInvoice || canMatch || canViewInvoices) && (
         <section>
           <h2 className="font-bold text-sm mb-3">Supplier invoices</h2>
+          {canInvoice && (
           <Card className="mb-3">
             <form onSubmit={createInvoice} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -739,6 +761,7 @@ export function PurchasingClient({
               </Button>
             </form>
           </Card>
+          )}
 
           <div className="space-y-3">
             {invoices.length === 0 ? (

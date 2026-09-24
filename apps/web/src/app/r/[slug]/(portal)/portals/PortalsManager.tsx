@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input } from '@/components/ui';
@@ -66,6 +66,10 @@ export function PortalsManager({
   perms,
   staff,
   links,
+  caps = { create: true, update: true, disable: true, credentials: true },
+  callerPermissions = ['*'],
+  selfPortalId = null,
+  roles = [],
 }: {
   slug: string;
   restaurantName: string;
@@ -74,6 +78,15 @@ export function PortalsManager({
   perms: PermRow[];
   staff: StaffMember[];
   links: PortalStaffLink[];
+  /** portals.create / portals.update / portals.disable / portals.credentials. */
+  caps?: { create: boolean; update: boolean; disable: boolean; credentials: boolean };
+  /** The caller's own keys: only these can be granted, and only portals
+   *  holding a subset of them can be managed (the API enforces both). */
+  callerPermissions?: string[];
+  /** A portal viewing Portal Management never sees controls for itself. */
+  selfPortalId?: string | null;
+  /** Role presets offered as a starting point when creating a portal. */
+  roles?: { key: string; name: string; permissions: string[] }[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -95,6 +108,9 @@ export function PortalsManager({
   const [staffEditId, setStaffEditId] = useState<string | null>(null);
   const [staffDraft, setStaffDraft] = useState<Set<string>>(new Set());
 
+  const callerAll = callerPermissions.includes('*');
+  const grantable = useCallback((k: string) => callerAll || callerPermissions.includes(k), [callerAll, callerPermissions]);
+  const manageable = (p: Portal) => p.id !== selfPortalId && (callerAll || (!p.permissions.includes('*') && p.permissions.every(grantable)));
   const permByKey = useMemo(() => new Map(perms.map((p) => [p.key, p])), [perms]);
   const hasMeta = useMemo(() => perms.some((p) => p.type !== null), [perms]);
 
@@ -176,7 +192,7 @@ export function PortalsManager({
     });
   }
   function setVisible(on: boolean) {
-    const visible = filteredGroups.flatMap(([, rows]) => rows.map((r) => r.key));
+    const visible = filteredGroups.flatMap(([, rows]) => rows.map((r) => r.key)).filter(grantable);
     setSelected((s) => {
       const n = new Set(s);
       for (const k of visible) (on ? n.add(k) : n.delete(k));
@@ -199,6 +215,7 @@ export function PortalsManager({
   }
 
   function toggle(key: string) {
+    if (!grantable(key) && !selected.has(key)) return;
     setSelected((s) => {
       const n = new Set(s);
       n.has(key) ? n.delete(key) : n.add(key);
@@ -206,12 +223,18 @@ export function PortalsManager({
     });
   }
   function toggleGroup(rows: PermRow[]) {
-    const allOn = rows.every((r) => selected.has(r.key));
+    const own = rows.filter((r) => grantable(r.key));
+    const allOn = own.every((r) => selected.has(r.key));
     setSelected((s) => {
       const n = new Set(s);
-      for (const r of rows) (allOn ? n.delete(r.key) : n.add(r.key));
+      for (const r of own) (allOn ? n.delete(r.key) : n.add(r.key));
       return n;
     });
+  }
+  function startFromRole(key: string) {
+    const r = roles.find((x) => x.key === key);
+    if (!r) return;
+    setSelected(new Set(r.permissions.filter((k) => k !== '*' && grantable(k))));
   }
 
   async function createPortal(e: React.FormEvent) {
@@ -252,7 +275,7 @@ export function PortalsManager({
         // A password change is a separate call (POST /:id/password) — the
         // PATCH above only ever touches name/type/permissions/status/email.
         let passwordNotice = '';
-        if (loginPassword) {
+        if (loginPassword && caps.credentials) {
           const pwRes = await fetch(`${API}/api/portals/${editId}/password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
@@ -457,9 +480,11 @@ export function PortalsManager({
             <span className="font-bold text-ok text-sm">{activeCount}</span> active
           </span>
         </div>
-        <Button onClick={openCreate} className="inline-flex items-center gap-1.5">
-          <Plus size={14} /> Create Custom Portal
-        </Button>
+        {caps.create && (
+          <Button onClick={openCreate} className="inline-flex items-center gap-1.5">
+            <Plus size={14} /> Create Custom Portal
+          </Button>
+        )}
       </div>
 
       {formOpen && (
@@ -490,6 +515,7 @@ export function PortalsManager({
                   placeholder={editId ? 'Unchanged' : 'Auto-generated if left blank'}
                 />
               </Field>
+              {(!editId || caps.credentials) && (
               <Field label={editId ? 'New password' : 'Password'}>
                 <Input
                   type="text"
@@ -498,6 +524,7 @@ export function PortalsManager({
                   placeholder={editId ? 'Leave blank to keep current' : 'Auto-generated if left blank'}
                 />
               </Field>
+              )}
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr] items-start">
@@ -544,6 +571,27 @@ export function PortalsManager({
                     </button>
                   ))}
                 </div>
+                {!editId && roles.length > 0 && (
+                  <div className="mb-2">
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        startFromRole(e.target.value);
+                        e.target.value = '';
+                      }}
+                      className="rounded border border-border bg-surface px-2 py-1 text-[11px] outline-none focus:border-primary"
+                    >
+                      <option value="">Start from a role…</option>
+                      {roles
+                        .filter((r) => r.key !== 'owner')
+                        .map((r) => (
+                          <option key={r.key} value={r.key}>
+                            {r.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
                 <div className="flex gap-3 mb-2 text-[10px]">
                   <button type="button" onClick={() => setVisible(true)} className="font-semibold text-primary hover:underline">
                     Select visible
@@ -584,9 +632,18 @@ export function PortalsManager({
                           {open && (
                             <div className="px-2 pb-1.5 space-y-0.5">
                               {rows.map((r) => (
-                                <label key={r.key} className="flex items-center justify-between gap-2 text-xs py-0.5 cursor-pointer">
+                                <label
+                                  key={r.key}
+                                  title={grantable(r.key) ? undefined : "You don't hold this permission, so you can't grant it."}
+                                  className={`flex items-center justify-between gap-2 text-xs py-0.5 ${grantable(r.key) ? 'cursor-pointer' : 'opacity-40'}`}
+                                >
                                   <span className="flex items-center gap-2 min-w-0">
-                                    <input type="checkbox" checked={selected.has(r.key)} onChange={() => toggle(r.key)} />
+                                    <input
+                                      type="checkbox"
+                                      disabled={!grantable(r.key) && !selected.has(r.key)}
+                                      checked={selected.has(r.key)}
+                                      onChange={() => toggle(r.key)}
+                                    />
                                     <span className="truncate">{r.label}</span>
                                   </span>
                                   <PermBadges p={r} />
@@ -731,27 +788,43 @@ export function PortalsManager({
                     <div className="text-[10px] text-muted">Last sign-out {formatDateTime(p.last_logout_at)}</div>
                   )}
 
+                  {manageable(p) ? (
                   <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-1.5">
-                    <Button variant="ghost" disabled={busy} onClick={() => startEditAccess(p)}>
-                      Edit access
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
-                    >
-                      {staffEditId === p.id ? 'Cancel' : 'Assign staff'}
-                    </Button>
-                    <Button variant="ghost" disabled={busy} onClick={() => patch(p.id, { status: p.status === 'active' ? 'disabled' : 'active' })}>
-                      {p.status === 'active' ? 'Disable' : 'Enable'}
-                    </Button>
-                    <Button variant="ghost" disabled={busy} onClick={() => resetPassword(p.id, p.name)}>
-                      Reset password
-                    </Button>
-                    <Button variant="danger" disabled={busy} onClick={() => remove(p.id)}>
-                      Delete
-                    </Button>
+                    {caps.update && (
+                      <Button variant="ghost" disabled={busy} onClick={() => startEditAccess(p)}>
+                        Edit access
+                      </Button>
+                    )}
+                    {caps.update && (
+                      <Button
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
+                      >
+                        {staffEditId === p.id ? 'Cancel' : 'Assign staff'}
+                      </Button>
+                    )}
+                    {(caps.disable || caps.update) && (
+                      <Button variant="ghost" disabled={busy} onClick={() => patch(p.id, { status: p.status === 'active' ? 'disabled' : 'active' })}>
+                        {p.status === 'active' ? 'Disable' : 'Enable'}
+                      </Button>
+                    )}
+                    {caps.credentials && (
+                      <Button variant="ghost" disabled={busy} onClick={() => resetPassword(p.id, p.name)}>
+                        Reset password
+                      </Button>
+                    )}
+                    {caps.update && (
+                      <Button variant="danger" disabled={busy} onClick={() => remove(p.id)}>
+                        Delete
+                      </Button>
+                    )}
                   </div>
+                  ) : (
+                    <p className="mt-3 pt-3 border-t border-border text-[10px] text-muted">
+                      {p.id === selfPortalId ? 'This is your portal.' : 'Has access you don’t hold — view only.'}
+                    </p>
+                  )}
 
                   {staffEditId === p.id && (
                     <div className="mt-3 pt-3 border-t border-border">

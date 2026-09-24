@@ -18,6 +18,7 @@ export default async function PurchasingPage({
   const { role, perms } = await gatePortalPage(t.client, slug, 'purchases.view');
   const canInvoice = can(perms, role, 'invoices.create');
   const canMatch = can(perms, role, 'invoices.match');
+  const canViewInvoices = canInvoice || canMatch || can(perms, role, 'invoices.view');
   const canPay = can(perms, role, 'payables.record_payment');
   const canManagePayables = can(perms, role, 'payables.manage');
   const canViewPayables = can(perms, role, 'payables.view') || can(perms, role, 'finance.view');
@@ -34,7 +35,7 @@ export default async function PurchasingPage({
         'id, po_number, status, expected_at, notes, created_at, received_at, approved_at, sent_at, supplier_id, subtotal_cents, suppliers(name), purchase_order_lines(id, description, qty, unit_cost_cents, received_qty, rejected_qty, reject_reason, inventory_item_id)',
       )
       .order('created_at', { ascending: false }),
-    canInvoice || canMatch
+    canViewInvoices
       ? t.client
           .from('supplier_invoices')
           .select(
@@ -93,6 +94,9 @@ export default async function PurchasingPage({
           canManagePO={canManagePO}
           canApprovePO={canApprovePO}
           canReceive={canReceive}
+          canCreatePO={canManagePO || can(perms, role, 'purchases.create')}
+          canDeletePO={can(perms, role, 'purchases.delete')}
+          canViewInvoices={canViewInvoices}
         />
       )}
     </div>

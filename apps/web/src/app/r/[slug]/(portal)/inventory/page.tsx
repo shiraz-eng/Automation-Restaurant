@@ -30,11 +30,13 @@ export default async function InventoryPage({
           'id, name, unit, stock_qty, min_threshold, target_stock_qty, auto_reorder_email, supplier_name, cost_cents_per_base_unit',
         )
         .order('name'),
-      t.client
-        .from('stock_ledger')
-        .select('id, delta_qty, reason, created_at, inventory_items(name)')
-        .order('created_at', { ascending: false })
-        .limit(15),
+      can(perms, role, 'stock.history')
+        ? t.client
+            .from('stock_ledger')
+            .select('id, delta_qty, reason, created_at, inventory_items(name)')
+            .order('created_at', { ascending: false })
+            .limit(15)
+        : Promise.resolve({ data: [] }),
       canManageAutomation
         ? t.client.from('suppliers').select('id, name, email').eq('is_active', true).order('name')
         : Promise.resolve({ data: [] }),
@@ -93,6 +95,7 @@ export default async function InventoryPage({
         />
       )}
 
+      {can(perms, role, 'stock.history') && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">Recent stock movements</h2>
         {ledger.length === 0 ? (
@@ -117,6 +120,7 @@ export default async function InventoryPage({
           </table>
         )}
       </Card>
+      )}
     </div>
   );
 }

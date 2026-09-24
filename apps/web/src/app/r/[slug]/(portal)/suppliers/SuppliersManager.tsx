@@ -37,10 +37,17 @@ const EMPTY = {
 export function SuppliersManager({
   suppliers,
   canManage,
+  canCreate = canManage,
+  canEdit = canManage,
 }: {
   suppliers: Supplier[];
-  /** supplier.manage — matches the suppliers table's mgr_write RLS policy. */
+  /** supplier.manage — matches the suppliers table's mgr_write RLS policy
+   *  (everything, including activate/deactivate and delete). */
   canManage: boolean;
+  /** supplier.create — the supplier_create insert policy (0058). */
+  canCreate?: boolean;
+  /** supplier.update — the supplier_update update policy (0058). */
+  canEdit?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -121,7 +128,7 @@ export function SuppliersManager({
         </div>
       )}
 
-      {canManage && (
+      {(editId ? canEdit : canCreate) && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">{editId ? 'Edit supplier' : 'Add supplier'}</h2>
         <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
@@ -194,13 +201,13 @@ export function SuppliersManager({
               <th className="p-3 font-semibold">Contact</th>
               <th className="p-3 font-semibold">Terms</th>
               <th className="p-3 font-semibold">Status</th>
-              {canManage && <th className="p-3" />}
+              {(canManage || canEdit) && <th className="p-3" />}
             </tr>
           </thead>
           <tbody>
             {suppliers.length === 0 ? (
               <tr>
-                <td colSpan={canManage ? 5 : 4} className="p-3 text-muted">
+                <td colSpan={canManage || canEdit ? 5 : 4} className="p-3 text-muted">
                   No suppliers yet.
                 </td>
               </tr>
@@ -222,14 +229,19 @@ export function SuppliersManager({
                   <td className={`p-3 ${s.is_active ? 'text-ok' : 'text-muted'}`}>
                     {s.is_active ? 'Active' : 'Inactive'}
                   </td>
-                  {canManage && (
+                  {(canManage || canEdit) && (
                     <td className="p-3 text-right whitespace-nowrap">
-                      <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
-                        Edit
-                      </Button>
-                      <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
-                        {s.is_active ? 'Deactivate' : 'Reactivate'}
-                      </Button>
+                      {canEdit && (
+                        <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
+                          Edit
+                        </Button>
+                      )}
+                      {canEdit && (
+                        <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
+                          {s.is_active ? 'Deactivate' : 'Reactivate'}
+                        </Button>
+                      )}
+                      {canManage && (
                       <Button
                         variant="danger"
                         className="ml-1.5"
@@ -240,6 +252,7 @@ export function SuppliersManager({
                       >
                         Delete
                       </Button>
+                      )}
                     </td>
                   )}
                 </tr>

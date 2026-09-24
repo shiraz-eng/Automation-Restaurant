@@ -2,25 +2,46 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { isAllowedOrigin, env } from '../env';
-import { requirePortalPerm } from '../middleware/portalAuth';
+import { requirePortalPerm, permits, holdsAll } from '../middleware/portalAuth';
 import { tempPassword } from '../lib/tempPassword';
 
 export const portalsRouter = express.Router();
 
 /**
- * Portal configuration (create/edit/delete/assign staff) is Owner-only —
- * defense-in-depth beyond the portals.* permission check: nothing in the
- * permission_catalog stops an Owner from granting portals.update to a
- * portal's own bundle (e.g. under "Portal Management" individual
- * permissions), and a staff member linked to that portal via portal_staff
- * would otherwise inherit portals.update and could call these routes
- * directly even though the /portals page itself is role-gated.
+ * Portal Management can be delegated: anyone holding the matching portals.*
+ * key may use these routes, but only within their own access. For routes on
+ * an existing portal (:id) this loads the target and refuses when:
+ *   - it is the Super Admin portal (never editable),
+ *   - it is the caller's OWN portal (a portal can't change itself),
+ *   - it holds any permission the caller doesn't (no managing up).
+ * Every write here goes through the service-role client, which bypasses
+ * RLS and the guard_portal_write trigger, so these checks are the gate.
  */
-function requireOwner(req: Request, res: Response, next: NextFunction) {
-  if (req.tenant!.role !== 'owner') {
-    return res.status(403).json({ error: 'forbidden', message: 'Owner only.' });
+async function requireManageablePortal(req: Request, res: Response, next: NextFunction) {
+  const { admin, permissions, role, portalId } = req.tenant!;
+  const { data: target } = await admin
+    .from('portals')
+    .select('id, type, permissions')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!target) return res.status(404).json({ error: 'not_found' });
+  if (target.type === 'super_admin') {
+    return res.status(409).json({ error: 'immutable', message: 'The Super Admin portal cannot be changed.' });
+  }
+  if (portalId && target.id === portalId) {
+    return res.status(403).json({ error: 'forbidden', message: "A portal can't change its own access." });
+  }
+  if (!holdsAll(permissions, role, (target.permissions as string[] | null) ?? [])) {
+    return res
+      .status(403)
+      .json({ error: 'forbidden', message: 'That portal has access you do not hold, so you cannot manage it.' });
   }
   next();
+}
+
+function overreach(callerPerms: string[], role: string | null, requested: string[]): string[] {
+  if (holdsAll(callerPerms, role, requested)) return [];
+  return requested.filter((k) => k === '*' || !callerPerms.includes(k));
 }
 
 /** Push freshly computed effective permissions onto each linked Auth user. */
@@ -85,7 +106,6 @@ portalsRouter.post(
   '/',
   express.json(),
   requirePortalPerm('portals.create'),
-  requireOwner,
   async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -96,7 +116,14 @@ portalsRouter.post(
     });
   }
   const { slug, name, type, permissions } = parsed.data;
-  const { admin } = req.tenant!;
+  const { admin, permissions: callerPerms, role } = req.tenant!;
+  if (type === 'super_admin') {
+    return res.status(409).json({ error: 'immutable', message: 'Only one Super Admin portal exists.' });
+  }
+  const tooMuch = overreach(callerPerms, role, permissions);
+  if (tooMuch.length) {
+    return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${tooMuch.join(', ')}` });
+  }
 
   // Unique route_key.
   let key = routeKey(name);
@@ -152,8 +179,8 @@ const patchSchema = z.object({
 portalsRouter.patch(
   '/:id',
   express.json(),
-  requirePortalPerm('portals.update'),
-  requireOwner,
+  requirePortalPerm(['portals.update', 'portals.disable']),
+  requireManageablePortal,
   async (req: Request, res: Response) => {
   const parsed = patchSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -165,7 +192,14 @@ portalsRouter.patch(
   }
   const { slug: _slug, ...changes } = parsed.data;
   void _slug;
-  const { admin, permissions } = req.tenant!;
+  const { admin, permissions, role } = req.tenant!;
+
+  // portals.disable alone covers enable/disable; any other change needs
+  // portals.update.
+  const nonStatusChange = Object.keys(changes).some((k) => k !== 'status');
+  if (nonStatusChange && !permits(permissions, role, 'portals.update')) {
+    return res.status(403).json({ error: 'forbidden', message: 'You can only enable or disable portals.' });
+  }
 
   const { data: portal } = await admin
     .from('portals')
@@ -173,18 +207,12 @@ portalsRouter.patch(
     .eq('id', req.params.id)
     .maybeSingle();
   if (!portal) return res.status(404).json({ error: 'not_found' });
-  if (portal.type === 'super_admin') {
-    return res.status(409).json({ error: 'immutable', message: 'The Super Admin portal cannot be changed.' });
-  }
 
-  // Same anti-escalation rule set_portal_staff enforces for linking staff:
-  // an Owner without '*' (shouldn't happen in practice, but this route has
-  // no other gate on the permission array itself) can't hand out a key they
-  // don't hold via a portal's own bundle either.
-  if (changes.permissions && !permissions.includes('*')) {
-    const overreach = changes.permissions.filter((k) => !permissions.includes(k));
-    if (overreach.length) {
-      return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${overreach.join(', ')}` });
+  // Anti-escalation: nobody hands out a key they don't hold themselves.
+  if (changes.permissions) {
+    const tooMuch = overreach(permissions, role, changes.permissions);
+    if (tooMuch.length) {
+      return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${tooMuch.join(', ')}` });
     }
   }
 
@@ -239,7 +267,7 @@ portalsRouter.post(
   '/:id/password',
   express.json(),
   requirePortalPerm('portals.credentials'),
-  requireOwner,
+  requireManageablePortal,
   async (req: Request, res: Response) => {
   const newPw = typeof req.body?.password === 'string' ? req.body.password : undefined;
   if (newPw && (newPw.length < 8 || newPw.length > 200)) {
@@ -271,7 +299,7 @@ portalsRouter.delete(
   '/:id',
   express.json(),
   requirePortalPerm('portals.update'),
-  requireOwner,
+  requireManageablePortal,
   async (req: Request, res: Response) => {
   const { admin } = req.tenant!;
 
@@ -323,7 +351,7 @@ portalsRouter.put(
   '/:id/staff',
   express.json(),
   requirePortalPerm('portals.update'),
-  requireOwner,
+  requireManageablePortal,
   async (req: Request, res: Response) => {
   const parsed = staffSchema.safeParse(req.body);
   if (!parsed.success) {

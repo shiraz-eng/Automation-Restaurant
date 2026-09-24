@@ -44,7 +44,7 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
           <OrdersClient
             orders={orders ?? []}
             canCancel={can(perms, role, 'orders.cancel')}
-            canUpdateStatus={can(perms, role, 'orders.update')}
+            canUpdateStatus={can(perms, role, 'orders.update')} canReopen={can(perms, role, 'orders.reopen')}
           />
         </>
       )}

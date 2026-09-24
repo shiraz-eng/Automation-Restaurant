@@ -41,6 +41,8 @@ export default async function DealsPage({ params }: { params: Promise<{ slug: st
           deals={(deals ?? []) as Deal[]}
           menu={(items ?? []) as unknown as MenuOption[]}
           canEdit={can(perms, role, 'deals.update')}
+          canCreate={can(perms, role, 'deals.update') || can(perms, role, 'deals.create')}
+          canArchive={can(perms, role, 'deals.update') || can(perms, role, 'deals.archive')}
         />
       )}
     </div>

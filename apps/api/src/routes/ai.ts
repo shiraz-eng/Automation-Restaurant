@@ -121,7 +121,7 @@ function exceptionFingerprint(item: { category: string; message: string }): stri
   return `${item.category}::${item.message}`;
 }
 
-aiRouter.get('/attention', requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
+aiRouter.get('/attention', requirePortalPerm(['orders.view', 'notifications.view', 'notifications.manage']), async (req: Request, res: Response) => {
   const { admin, permissions, role } = req.tenant!;
   try {
     const items = await computeAttentionItems(admin, { includeFinancial: permits(permissions, role, 'finance.view') });
@@ -155,7 +155,7 @@ const attentionStateSchema = z.object({
  * so it doesn't need a stricter bar than seeing the exception in the
  * first place.
  */
-aiRouter.post('/attention/state', express.json(), requirePortalPerm('orders.view'), async (req: Request, res: Response) => {
+aiRouter.post('/attention/state', express.json(), requirePortalPerm(['orders.view', 'notifications.manage']), async (req: Request, res: Response) => {
   const parsed = attentionStateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
   const { admin, userId, email, role } = req.tenant!;

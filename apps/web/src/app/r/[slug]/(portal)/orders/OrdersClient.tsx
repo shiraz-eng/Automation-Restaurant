@@ -34,11 +34,14 @@ export function OrdersClient({
   orders,
   canCancel,
   canUpdateStatus,
+  canReopen = false,
 }: {
   orders: Order[];
   canCancel: boolean;
   /** orders.update — matches the orders table's staff_update RLS policy. */
   canUpdateStatus: boolean;
+  /** orders.reopen — reopen_order() moves a served/paid order back to ready. */
+  canReopen?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -71,6 +74,20 @@ export function OrdersClient({
     setSavingId(order.id);
     setError(null);
     const { error } = await supabase.rpc('cancel_order', { p_order_id: order.id, p_reason: reason });
+    setSavingId(null);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function reopen(order: Order) {
+    const reason = window.prompt(`Reopen order #${order.order_number}. Reason:`);
+    if (!reason) return;
+    setSavingId(order.id);
+    setError(null);
+    const { error } = await supabase.rpc('reopen_order', { p_order_id: order.id, p_reason: reason });
     setSavingId(null);
     if (error) {
       setError(error.message);
@@ -113,13 +130,24 @@ export function OrdersClient({
                 <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
                 <td className="p-3" onClick={(e) => e.stopPropagation()}>
                   {isTerminal ? (
-                    <span
-                      className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
-                        o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
-                      }`}
-                    >
-                      {TERMINAL_LABEL[o.status] ?? o.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
+                          o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+                        }`}
+                      >
+                        {TERMINAL_LABEL[o.status] ?? o.status}
+                      </span>
+                      {canReopen && o.status === 'paid' && (
+                        <button
+                          onClick={() => reopen(o)}
+                          disabled={savingId === o.id}
+                          className="text-primary text-xs underline shrink-0 disabled:opacity-50"
+                        >
+                          reopen
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       {canUpdateStatus ? (
@@ -138,6 +166,15 @@ export function OrdersClient({
                         <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
                           {o.status.replace('_', ' ')}
                         </span>
+                      )}
+                      {canReopen && o.status === 'served' && (
+                        <button
+                          onClick={() => reopen(o)}
+                          disabled={savingId === o.id}
+                          className="text-primary text-xs underline shrink-0 disabled:opacity-50"
+                        >
+                          reopen
+                        </button>
                       )}
                       {canCancel && (
                         <button

@@ -43,7 +43,12 @@ export default async function SuppliersPage({
           {error.message}
         </div>
       ) : (
-        <SuppliersManager suppliers={(data ?? []) as Supplier[]} canManage={can(perms, role, 'supplier.manage')} />
+        <SuppliersManager
+          suppliers={(data ?? []) as Supplier[]}
+          canManage={can(perms, role, 'supplier.manage')}
+          canCreate={can(perms, role, 'supplier.manage') || can(perms, role, 'supplier.create')}
+          canEdit={can(perms, role, 'supplier.manage') || can(perms, role, 'supplier.update')}
+        />
       )}
     </div>
   );

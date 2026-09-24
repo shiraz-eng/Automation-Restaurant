@@ -45,10 +45,13 @@ export function AttendancePortalBoard({
   initialRoster,
   canMark,
   canCheckIn,
+  canCheckOut = canCheckIn,
 }: {
   initialRoster: RosterRow[];
   canMark: boolean;
   canCheckIn: boolean;
+  /** attendance.check_out — attendance_check_out() checks it separately from check_in. */
+  canCheckOut?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -169,7 +172,7 @@ export function AttendancePortalBoard({
                     Check in
                   </button>
                 )}
-                {canCheckIn && r.clock_in && !r.clock_out && (
+                {canCheckOut && r.clock_in && !r.clock_out && (
                   <button
                     disabled={busy === r.membership_id}
                     onClick={() =>

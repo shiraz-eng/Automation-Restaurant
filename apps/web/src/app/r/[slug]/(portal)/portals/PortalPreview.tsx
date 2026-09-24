@@ -1,5 +1,5 @@
 import { Check, Lock } from 'lucide-react';
-import { portalActionBreakdown } from '@/lib/portalCapabilities';
+import { portalActionBreakdown, PERMISSION_REQUIRES } from '@/lib/portalCapabilities';
 import type { PermRow } from './PortalsManager';
 
 /**
@@ -80,15 +80,23 @@ export function PortalPreview({
         {unused.length > 0 && (
           <div className="mt-3 rounded-md border border-warn/40 bg-warn/5 p-2">
             <div className="text-[10px] font-bold text-warn uppercase tracking-wide mb-1">
-              Selected but no effect in a portal
+              Selected but not doing anything yet
             </div>
             <p className="text-[10px] text-muted mb-1">
-              These areas don&rsquo;t have a portal view yet, so granting them changes nothing here.
+              Each of these needs another permission to work — usually the matching &ldquo;View&rdquo; one.
             </p>
             <ul className="text-[11px] text-muted space-y-0.5">
-              {unused.map((k) => (
-                <li key={k}>{label(k)}</li>
-              ))}
+              {unused.map((k) => {
+                const missing = (PERMISSION_REQUIRES[k] ?? [])
+                  .filter((req) => !req.split('|').some((d) => permissions.has(d)))
+                  .map((req) => req.split('|').map(label).join(' or '));
+                return (
+                  <li key={k}>
+                    {label(k)}
+                    {missing.length > 0 && <span className="text-muted/80"> — needs {missing.join(' and ')}</span>}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

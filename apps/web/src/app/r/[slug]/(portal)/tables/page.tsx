@@ -40,7 +40,11 @@ export default async function TablesPage({ params }: { params: Promise<{ slug: s
           {error.message}
         </div>
       ) : (
-        <TablesManager rows={rows} canEdit={can(perms, role, 'tables.update')} />
+        <TablesManager
+          rows={rows}
+          canEdit={can(perms, role, 'tables.update')}
+          canCreate={can(perms, role, 'tables.update') || can(perms, role, 'tables.create')}
+        />
       )}
     </div>
   );

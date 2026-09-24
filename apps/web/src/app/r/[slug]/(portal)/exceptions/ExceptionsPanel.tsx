@@ -31,7 +31,17 @@ const SEVERITY_STYLE: Record<Severity, string> = {
 
 const STATE_LABEL: Record<StateStatus, string> = { acknowledged: 'Acknowledged', resolved: 'Resolved', ignored: 'Ignored' };
 
-export function ExceptionsPanel({ slug }: { slug: string }) {
+export function ExceptionsPanel({
+  slug,
+  canManage = true,
+  showLinks = true,
+}: {
+  slug: string;
+  /** notifications.manage (or orders.view) — acknowledge / resolve / ignore. */
+  canManage?: boolean;
+  /** Links into the Operations app; off inside a custom portal, which can't open those pages. */
+  showLinks?: boolean;
+}) {
   const supabase = usePortalSupabase();
   const [items, setItems] = useState<AttentionItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +153,7 @@ export function ExceptionsPanel({ slug }: { slug: string }) {
                     </div>
                     <p>{item.message}</p>
                   </div>
-                  {route ? (
+                  {route && showLinks ? (
                     <Link href={`/r/${slug}/${route}`} className="shrink-0 text-xs font-bold rounded bg-primary text-primary-fg px-2.5 py-1.5 whitespace-nowrap">
                       Open {item.open_in}
                     </Link>
@@ -151,6 +161,7 @@ export function ExceptionsPanel({ slug }: { slug: string }) {
                     <span className="shrink-0 text-xs text-muted whitespace-nowrap">{item.open_in}</span>
                   )}
                 </div>
+                {canManage && (
                 <div className="flex gap-2">
                   <button
                     onClick={() => setState(item, 'acknowledged')}
@@ -174,6 +185,7 @@ export function ExceptionsPanel({ slug }: { slug: string }) {
                     Ignore
                   </button>
                 </div>
+                )}
               </div>
             );
           })}

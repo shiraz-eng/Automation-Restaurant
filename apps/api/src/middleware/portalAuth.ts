@@ -14,6 +14,8 @@ export type TenantContext = {
   email: string | null;
   role: string | null;
   permissions: string[];
+  /** Set when the caller is a custom-portal login (app_metadata.kind = 'portal'). */
+  portalId: string | null;
 };
 
 declare global {
@@ -38,12 +40,26 @@ export function permits(perms: string[], role: string | null, need: string): boo
 }
 
 /**
+ * Does the caller hold EVERY key in `perms`? Used to stop a caller managing
+ * a portal/role/member that has access they don't. '*' (or a legacy owner JWT
+ * with no permissions array) holds everything; nobody but '*' can hand out '*'.
+ */
+export function holdsAll(callerPerms: string[], role: string | null, perms: string[]): boolean {
+  if (callerPerms.includes('*')) return true;
+  if (callerPerms.length === 0 && role === 'owner') return true;
+  if (perms.includes('*')) return false;
+  return perms.every((k) => callerPerms.includes(k));
+}
+
+/**
  * Express middleware: resolve the restaurant from :slug (params, body or query),
  * verify the caller's tenant-project JWT (Authorization: Bearer …) and require
- * the `need` permission. On success attaches req.tenant. Enforced server-side —
+ * the `need` permission (any one of them, when given a list). On success
+ * attaches req.tenant. Enforced server-side —
  * the UI hiding a control is never the check (spec §28).
  */
-export function requirePortalPerm(need: string) {
+export function requirePortalPerm(need: string | string[]) {
+  const needs = Array.isArray(need) ? need : [need];
   return async function portalPermGuard(req: Request, res: Response, next: NextFunction) {
     const slug = String(
       req.params.slug ?? (req.body as { slug?: unknown })?.slug ?? req.query.slug ?? '',
@@ -66,11 +82,16 @@ export function requirePortalPerm(need: string) {
         .json({ error: 'session_expired', message: 'Your session has expired. Please sign in again.' });
     }
 
-    const meta = (data.user.app_metadata ?? {}) as { role?: string; permissions?: string[] };
+    const meta = (data.user.app_metadata ?? {}) as {
+      role?: string;
+      permissions?: string[];
+      kind?: string;
+      portal_id?: string;
+    };
     const permissions = Array.isArray(meta.permissions) ? meta.permissions : [];
     const role = meta.role ?? null;
 
-    if (!permits(permissions, role, need)) {
+    if (!needs.some((k) => permits(permissions, role, k))) {
       return res
         .status(403)
         .json({ error: 'forbidden', message: "You don't have permission to perform this action." });
@@ -84,6 +105,7 @@ export function requirePortalPerm(need: string) {
       email: data.user.email ?? null,
       role,
       permissions,
+      portalId: meta.kind === 'portal' && typeof meta.portal_id === 'string' ? meta.portal_id : null,
     };
     next();
   };

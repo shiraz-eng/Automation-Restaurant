@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { AttendanceInsights } from './AttendanceInsights';
 import { SchedulingClient, type Shift, type Attendance } from './SchedulingClient';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,10 @@ export default async function SchedulingPage({
   const end = new Date(start);
   end.setDate(end.getDate() + 7);
 
-  const [{ data: members }, { data: shifts, error }, { data: attendance }] = await Promise.all([
+  const {
+    data: { user },
+  } = await t.client.auth.getUser();
+  const [{ data: members }, { data: shifts, error }, { data: attendance }, { data: me }] = await Promise.all([
     t.client.from('memberships').select('id, full_name, email, role').order('full_name'),
     t.client
       .from('shifts')
@@ -46,7 +50,9 @@ export default async function SchedulingPage({
       .select('id, membership_id, clock_in, clock_out, note')
       .order('clock_in', { ascending: false })
       .limit(40),
+    user ? t.client.from('memberships').select('id').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
+  const a = (k: string) => can(perms, role, k);
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -71,6 +77,20 @@ export default async function SchedulingPage({
           canManage={can(perms, role, 'attendance.mark')}
         />
       )}
+      <AttendanceInsights
+        myMembershipId={(me as { id: string } | null)?.id ?? null}
+        caps={{
+          dashboard: a('attendance.view_dashboard'),
+          reports: a('attendance.view_reports'),
+          employeeReports: a('attendance.view_employee_reports'),
+          history: a('attendance.view_history'),
+          exportCsv: a('attendance.export'),
+          requestCorrection: a('attendance.request_correction'),
+          correct: a('attendance.correct'),
+          approveCorrection: a('attendance.approve_correction'),
+          viewOwn: a('attendance.view_own') && role !== 'owner',
+        }}
+      />
     </div>
   );
 }

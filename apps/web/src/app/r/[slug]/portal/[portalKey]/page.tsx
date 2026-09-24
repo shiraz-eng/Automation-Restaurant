@@ -36,7 +36,33 @@ import { PromotionsManager, type Promo, type PromoPerformance } from '../../(por
 import { TablesManager, type TableRow } from '../../(portal)/tables/TablesManager';
 import { ReservationsClient } from '../../(portal)/reservations/ReservationsClient';
 import { ExportHistoryPanel } from '../../(portal)/exports/ExportHistoryPanel';
-import { resolvePortalCapabilities, portalSections } from '@/lib/portalCapabilities';
+import { resolvePortalCapabilities, portalSections, effectiveHas } from '@/lib/portalCapabilities';
+import { FoodStockPanel } from '../../(portal)/kds/FoodStockPanel';
+import { VariantsPanel } from '../../(portal)/menu/VariantsPanel';
+import { AvailabilityHistory, type AvailabilityHistoryRow } from '../../(portal)/menu/availability/AvailabilityHistory';
+import {
+  PriorityManager,
+  type PriorityRow,
+  type MenuItemOption as PriorityMenuItemOption,
+  type AvailabilityRow as PriorityAvailabilityRow,
+} from '../../(portal)/menu/priority/PriorityManager';
+import { IngredientCostPanel } from '../../(portal)/inventory/IngredientCostPanel';
+import { PaymentReconciliationPanel, CashCountPanel } from '../../(portal)/close/ReconciliationPanels';
+import { AttendanceInsights } from '../../(portal)/scheduling/AttendanceInsights';
+import { ReviewsManager } from '../../(portal)/reviews/ReviewsManager';
+import { CustomersManager } from '../../(portal)/customers/CustomersManager';
+import { RolesManager, AccessList } from '../../(portal)/roles/RolesManager';
+import { ExceptionsPanel } from '../../(portal)/exceptions/ExceptionsPanel';
+import { ApprovalsPanel } from '../../(portal)/approvals/ApprovalsPanel';
+import { BrandKitSection } from '../../(portal)/settings/theme/BrandKitSection';
+import { PoliciesManager } from '../../(portal)/settings/policies/PoliciesManager';
+import {
+  PortalsManager,
+  type Portal as ManagedPortal,
+  type PermRow,
+  type StaffMember as PortalStaffMember,
+  type PortalStaffLink,
+} from '../../(portal)/portals/PortalsManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,14 +107,16 @@ export default async function PortalHome({
 
   const { data: portal } = await t.client
     .from('portals')
-    .select('name, type, route_key, status, permissions')
+    .select('id, name, type, route_key, status, permissions')
     .eq('route_key', portalKey)
     .maybeSingle();
   if (!portal) notFound();
   if (portal.type === 'super_admin') redirect(`/r/${slug}`);
 
   const perms: string[] = portal.permissions ?? [];
-  const has = (k: string) => perms.includes('*') || perms.includes(k);
+  // Same dependency-aware check the Create Portal preview uses
+  // (PERMISSION_REQUIRES), so an action only renders when it can work.
+  const has = effectiveHas(perms);
   const hasAny = (keys: string[]) => keys.some(has);
 
   // ── Generated portal — a composition of the SAME real module
@@ -129,6 +157,20 @@ export default async function PortalHome({
     menu: includeMenu,
     tables: includeTables,
     reportHistory: includeReportHistory,
+    kitchenStock: includeKitchenStock,
+    ingredientCosts: includeIngredientCosts,
+    paymentReconcile: includePaymentReconcile,
+    cashCount: includeCashCount,
+    attendanceInsights: includeAttendanceInsights,
+    aiApprovals: includeAiApprovals,
+    variants: includeVariants,
+    availability: includeAvailability,
+    reviews: includeReviews,
+    customers: includeCustomers,
+    notifications: includeNotifications,
+    roles: includeRoles,
+    settings: includeSettings,
+    portals: includePortals,
   } = caps;
 
   const canCreateOrderCashier = has('orders.create');
@@ -227,7 +269,7 @@ export default async function PortalHome({
     includeCashier
       ? t.client
           .from('business_settings')
-          .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
+          .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, max_refund_without_approval_cents')
           .eq('id', true)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -284,7 +326,7 @@ export default async function PortalHome({
           )
           .order('name')
       : Promise.resolve({ data: null }),
-    includeInventory
+    includeInventory && has('stock.history')
       ? t.client
           .from('stock_ledger')
           .select('id, delta_qty, reason, created_at, inventory_items(name)')
@@ -320,7 +362,7 @@ export default async function PortalHome({
           )
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: null }),
-    includePurchasing && (has('invoices.create') || has('invoices.match'))
+    includePurchasing && hasAny(['invoices.create', 'invoices.match', 'invoices.view'])
       ? t.client
           .from('supplier_invoices')
           .select(
@@ -467,6 +509,68 @@ export default async function PortalHome({
           .limit(200)
       : Promise.resolve({ data: null }),
   ]);
+  // Availability / Portal Management / Settings policies / own membership.
+  const {
+    data: { user: viewer },
+  } = await t.client.auth.getUser();
+  const [
+    availabilityLogRes,
+    priorityRes,
+    priorityMenuRes,
+    priorityAvailRes,
+    managedPortalsRes,
+    catalogRes,
+    managedStaffRes,
+    managedLinksRes,
+    rolesRes,
+    policiesRes,
+    myMembershipRes,
+  ] = await Promise.all([
+    includeAvailability
+      ? t.client
+          .from('availability_audit_log')
+          .select(
+            'id, menu_item_id, variant_id, previous_status, new_status, previous_producible_qty, new_producible_qty, ' +
+              'bottleneck_inventory_item_id, reason, trigger_type, trigger_reference, actor, created_at, ' +
+              'menu_items(name), menu_variants(name), inventory_items(name)',
+          )
+          .order('created_at', { ascending: false })
+          .limit(200)
+      : Promise.resolve({ data: null }),
+    includeAvailability
+      ? t.client
+          .from('product_priority')
+          .select('id, menu_item_id, priority_level, priority_rank, updated_at, menu_items(name, category_id)')
+          .order('priority_level')
+          .order('priority_rank')
+      : Promise.resolve({ data: null }),
+    includeAvailability ? t.client.from('menu_items').select('id, name, category_id').order('name') : Promise.resolve({ data: null }),
+    includeAvailability
+      ? t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, reason')
+      : Promise.resolve({ data: null }),
+    includePortals
+      ? t.client
+          .from('portals')
+          .select('id, name, type, route_key, status, permissions, email, last_login_at, last_logout_at, created_at')
+          .order('created_at')
+      : Promise.resolve({ data: null }),
+    includePortals
+      ? t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp')
+      : Promise.resolve({ data: null }),
+    includePortals && has('staff.view')
+      ? t.client.from('memberships').select('id, email, full_name, role, status').order('email')
+      : Promise.resolve({ data: null }),
+    includePortals ? t.client.from('portal_staff').select('portal_id, membership_id') : Promise.resolve({ data: null }),
+    includePortals ? t.client.from('roles').select('key, name, permissions').order('name') : Promise.resolve({ data: null }),
+    includeSettings
+      ? t.client.from('business_settings').select('max_refund_without_approval_cents').eq('id', true).maybeSingle()
+      : Promise.resolve({ data: null }),
+    includeAttendanceInsights && viewer
+      ? t.client.from('memberships').select('id').eq('user_id', viewer.id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const myMembershipId = (myMembershipRes.data as { id: string } | null)?.id ?? null;
+
   const tableRows: TableRow[] = await Promise.all(
     ((tablesRes.data ?? []) as { id: string; label: string; seats: number; sort_order: number }[]).map(async (r) => {
       const url = `${SITE}/order/${slug}?table=${encodeURIComponent(r.label)}`;
@@ -568,6 +672,13 @@ export default async function PortalHome({
             </div>
           )}
 
+          {includeNotifications && (
+            <section id="notifications" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Notifications</h2>
+              <ExceptionsPanel slug={slug} canManage={hasAny(['notifications.manage', 'orders.view'])} showLinks={false} />
+            </section>
+          )}
+
           {includeOperations && (
             <section id="operations" className="scroll-mt-16">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
@@ -577,13 +688,14 @@ export default async function PortalHome({
                 <h2 className="font-bold text-sm">Operations</h2>
                 <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="orders" label="Orders" />
               </div>
-              <OrdersClient orders={orders} canCancel={has('orders.cancel')} canUpdateStatus={has('orders.update')} />
+              <OrdersClient orders={orders} canCancel={has('orders.cancel')} canUpdateStatus={has('orders.update')} canReopen={has('orders.reopen')} />
             </section>
           )}
 
-          {includeKitchen && (
-            <section id="kitchen" className="scroll-mt-16">
+          {(includeKitchen || includeKitchenStock) && (
+            <section id="kitchen" className="scroll-mt-16 space-y-4">
               <h2 className="font-bold text-sm mb-3">Kitchen</h2>
+              {includeKitchen && (
               <KdsBoard
                 slug={slug}
                 restaurantName={t.config.restaurantName}
@@ -596,6 +708,10 @@ export default async function PortalHome({
                   ((kdsEntitlementsRes.data?.plan_features as string[] | undefined) ?? []).includes('kds.station_routing')
                 }
               />
+              )}
+              {includeKitchenStock && (
+                <FoodStockPanel canManage={has('kitchen.manage_availability')} canWaste={has('kitchen.record_waste')} />
+              )}
             </section>
           )}
 
@@ -628,6 +744,12 @@ export default async function PortalHome({
                 taxRateBps={800}
                 menuCategories={(cashierMenuCatRes.data as NewOrderCategory[] | null) ?? []}
                 menuItems={cashierMenuItemsWithAvailability as unknown as NewOrderItem[]}
+                canViewReceipt={has('receipts.view')}
+                canPrintReceipt={has('receipts.print')}
+                canOverridePrice={has('orders.override_price')}
+                canAdjustPayment={has('payments.adjust')}
+                canApproveRefund={has('payments.approve_refund')}
+                refundThresholdCents={((settingsRes.data as { max_refund_without_approval_cents?: number | null } | null)?.max_refund_without_approval_cents) ?? null}
               />
             </section>
           )}
@@ -635,7 +757,7 @@ export default async function PortalHome({
           {includeTables && (
             <section id="tables" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Tables &amp; Reservations</h2>
-              <TablesManager rows={tableRows} canEdit={has('tables.update')} />
+              <TablesManager rows={tableRows} canEdit={has('tables.update')} canCreate={hasAny(['tables.update', 'tables.create'])} />
               <div className="space-y-3">
                 <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Reservations</h3>
                 <ReservationsClient
@@ -646,9 +768,17 @@ export default async function PortalHome({
             </section>
           )}
 
-          {includeMenu && (
+          {includeCustomers && (
+            <section id="customers" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Customers</h2>
+              <CustomersManager canCreate={has('customers.create')} canUpdate={has('customers.update')} />
+            </section>
+          )}
+
+          {(includeMenu || includeVariants) && (
             <section id="menu" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Menu &amp; Promotions</h2>
+              {includeMenu && (
               <MenuManager
                 slug={slug}
                 categories={(menuCategoriesRes.data ?? []) as MenuCategory[]}
@@ -662,6 +792,18 @@ export default async function PortalHome({
                 canDelete={has('menu.delete') && has('menu.update')}
                 canViewCost={canViewMenuCost}
               />
+              )}
+              {includeVariants && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Variants</h3>
+                  <VariantsPanel
+                    canCreate={has('variants.create')}
+                    canUpdate={has('variants.update')}
+                    canArchive={has('variants.archive')}
+                  />
+                </div>
+              )}
+              {includeMenu && (
               <div className="space-y-3">
                 <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Promotions</h3>
                 <PromotionsManager
@@ -671,12 +813,31 @@ export default async function PortalHome({
                   canEdit={has('menu.update')}
                 />
               </div>
+              )}
             </section>
           )}
 
-          {includeRecipes && (
-            <section id="recipes" className="scroll-mt-16">
+          {includeAvailability && (
+            <section id="availability" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Availability</h2>
+              <PriorityManager
+                slug={slug}
+                priorities={(priorityRes.data ?? []) as unknown as PriorityRow[]}
+                menuItems={(priorityMenuRes.data ?? []) as PriorityMenuItemOption[]}
+                availability={(priorityAvailRes.data ?? []) as PriorityAvailabilityRow[]}
+                canManage={has('availability.update')}
+              />
+              <div className="space-y-3">
+                <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Availability history</h3>
+                <AvailabilityHistory rows={(availabilityLogRes.data ?? []) as unknown as AvailabilityHistoryRow[]} />
+              </div>
+            </section>
+          )}
+
+          {(includeRecipes || includeIngredientCosts) && (
+            <section id="recipes" className="scroll-mt-16 space-y-4">
               <h2 className="font-bold text-sm mb-3">Recipes &amp; Food Cost</h2>
+              {includeRecipes && (
               <RecipesManager
                 recipes={(recipesRes.data ?? []) as unknown as Recipe[]}
                 menuItems={(recipesMenuRes.data ?? []) as unknown as MenuItemOption[]}
@@ -686,6 +847,8 @@ export default async function PortalHome({
                 canManage={has('inventory.manage_recipes') || has('finance.manage_recipes')}
                 canViewCost={has('inventory.view_cost')}
               />
+              )}
+              {includeIngredientCosts && <IngredientCostPanel />}
             </section>
           )}
 
@@ -707,6 +870,7 @@ export default async function PortalHome({
                 preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
                 lowStockEmailEnabled={(purchasingSettingsRes.data as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}
               />
+              {has('stock.history') && (
               <Card>
                 <h3 className="font-bold text-sm mb-3">Recent stock movements</h3>
                 {stockLedger.length === 0 ? (
@@ -728,6 +892,7 @@ export default async function PortalHome({
                   </table>
                 )}
               </Card>
+              )}
             </section>
           )}
 
@@ -740,7 +905,12 @@ export default async function PortalHome({
                     <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Suppliers</h3>
                     <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="suppliers" label="Suppliers" />
                   </div>
-                  <SuppliersManager suppliers={suppliers} canManage={has('supplier.manage')} />
+                  <SuppliersManager
+                    suppliers={suppliers}
+                    canManage={has('supplier.manage')}
+                    canCreate={hasAny(['supplier.manage', 'supplier.create'])}
+                    canEdit={hasAny(['supplier.manage', 'supplier.update'])}
+                  />
                 </div>
               )}
               {includePurchasing && (
@@ -764,13 +934,16 @@ export default async function PortalHome({
                   canManagePO={has('purchases.update')}
                   canApprovePO={has('purchases.approve')}
                   canReceive={has('purchases.receive') || has('inventory.manage_purchases')}
+                  canCreatePO={hasAny(['purchases.update', 'purchases.create'])}
+                  canDeletePO={has('purchases.delete')}
+                  canViewInvoices={hasAny(['invoices.create', 'invoices.match', 'invoices.view'])}
                 />
                 </div>
               )}
             </section>
           )}
 
-          {(canFinance || includeDayClose) && (
+          {(canFinance || includeDayClose || includePaymentReconcile || includeCashCount) && (
             <section id="finance" className="scroll-mt-16 space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <h2 className="font-bold text-sm">Finance</h2>
@@ -798,6 +971,8 @@ export default async function PortalHome({
                   canReopen={has('finance.reopen_day')}
                 />
               )}
+              {includeCashCount && <CashCountPanel />}
+              {includePaymentReconcile && <PaymentReconciliationPanel />}
             </section>
           )}
 
@@ -815,6 +990,17 @@ export default async function PortalHome({
             </section>
           )}
 
+          {includeReviews && (
+            <section id="reviews" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Reviews</h2>
+              <ReviewsManager
+                canAnalytics={has('reviews.analytics')}
+                canRespond={has('reviews.respond')}
+                canModerate={has('reviews.moderate')}
+              />
+            </section>
+          )}
+
           {(includeDeals || includeSocial) && (
             <section id="marketing" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Marketing &amp; Social</h2>
@@ -823,6 +1009,8 @@ export default async function PortalHome({
                   deals={(dealsRes.data ?? []) as Deal[]}
                   menu={(dealsMenuRes.data ?? []) as unknown as MenuOption[]}
                   canEdit={has('deals.update')}
+                  canCreate={hasAny(['deals.update', 'deals.create'])}
+                  canArchive={hasAny(['deals.update', 'deals.archive'])}
                 />
               )}
               {includeSocial && (
@@ -836,14 +1024,33 @@ export default async function PortalHome({
             </section>
           )}
 
-          {includeAttendanceKiosk && (
-            <section id="attendance" className="scroll-mt-16">
+          {(includeAttendanceKiosk || includeAttendanceInsights) && (
+            <section id="attendance" className="scroll-mt-16 space-y-4">
               <h2 className="font-bold text-sm mb-3">Attendance</h2>
-              <AttendancePortalBoard
-                initialRoster={(attendanceRosterRes.data ?? []) as RosterRow[]}
-                canMark={canAttendanceMark}
-                canCheckIn={canAttendanceCheckIn}
-              />
+              {includeAttendanceKiosk && (
+                <AttendancePortalBoard
+                  initialRoster={(attendanceRosterRes.data ?? []) as RosterRow[]}
+                  canMark={canAttendanceMark}
+                  canCheckIn={canAttendanceCheckIn}
+                  canCheckOut={has('attendance.check_out')}
+                />
+              )}
+              {includeAttendanceInsights && (
+                <AttendanceInsights
+                  myMembershipId={myMembershipId}
+                  caps={{
+                    dashboard: has('attendance.view_dashboard'),
+                    reports: has('attendance.view_reports'),
+                    employeeReports: has('attendance.view_employee_reports'),
+                    history: has('attendance.view_history'),
+                    exportCsv: has('attendance.export'),
+                    requestCorrection: has('attendance.request_correction'),
+                    correct: has('attendance.correct'),
+                    approveCorrection: has('attendance.approve_correction'),
+                    viewOwn: has('attendance.view_own'),
+                  }}
+                />
+              )}
             </section>
           )}
 
@@ -856,6 +1063,7 @@ export default async function PortalHome({
                   canAdd={has('staff.create')}
                   canChangeRole={has('permissions.assign')}
                   canEditShift={has('staff.update')}
+                  canRemove={has('staff.delete')}
                 />
               )}
               {includeScheduling && (
@@ -872,10 +1080,79 @@ export default async function PortalHome({
             </section>
           )}
 
-          {includeAi && (
-            <section id="ai" className="scroll-mt-16">
+          {includeRoles && (
+            <section id="roles" className="scroll-mt-16 space-y-4">
+              <h2 className="font-bold text-sm mb-3">Roles &amp; Access</h2>
+              {has('roles.view') && (
+                <RolesManager
+                  canCreate={has('roles.create')}
+                  canUpdate={has('roles.update')}
+                  canDelete={has('roles.delete')}
+                  callerPermissions={perms}
+                />
+              )}
+              {has('permissions.view') && <AccessList />}
+            </section>
+          )}
+
+          {includePortals && (
+            <section id="portals" className="scroll-mt-16">
+              <h2 className="font-bold text-sm mb-3">Portal Management</h2>
+              <PortalsManager
+                slug={slug}
+                restaurantName={t.config.restaurantName}
+                logoUrl={null}
+                portals={(managedPortalsRes.data ?? []) as ManagedPortal[]}
+                perms={((catalogRes.data ?? []) as PermRow[])}
+                staff={(managedStaffRes.data ?? []) as PortalStaffMember[]}
+                links={(managedLinksRes.data ?? []) as PortalStaffLink[]}
+                caps={{
+                  create: has('portals.create'),
+                  update: has('portals.update'),
+                  disable: has('portals.disable'),
+                  credentials: has('portals.credentials'),
+                }}
+                callerPermissions={perms}
+                selfPortalId={portal.id}
+                roles={(rolesRes.data ?? []) as { key: string; name: string; permissions: string[] }[]}
+              />
+            </section>
+          )}
+
+          {includeSettings && (
+            <section id="settings" className="scroll-mt-16 space-y-6">
+              <h2 className="font-bold text-sm mb-3">Settings</h2>
+              <PoliciesManager
+                slug={slug}
+                maxRefundWithoutApprovalCents={
+                  (policiesRes.data as { max_refund_without_approval_cents?: number | null } | null)
+                    ?.max_refund_without_approval_cents ?? null
+                }
+                canEdit={has('settings.update')}
+              />
+              <BrandKitSection client={t.client} slug={slug} restaurantName={t.config.restaurantName} canEdit={has('settings.update')} />
+            </section>
+          )}
+
+          {(includeAi || includeAiApprovals) && (
+            <section id="ai" className="scroll-mt-16 space-y-4">
               <h2 className="font-bold text-sm mb-3">Assistant</h2>
-              <AiChat slug={slug} />
+              {includeAi &&
+                (has('ai.execute_read') ? (
+                  <AiChat slug={slug} />
+                ) : (
+                  <Card>
+                    <p className="text-muted text-xs">
+                      The assistant needs &ldquo;AI read actions&rdquo; as well to answer questions for this portal.
+                    </p>
+                  </Card>
+                ))}
+              {includeAiApprovals && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Waiting for approval</h3>
+                  <ApprovalsPanel slug={slug} />
+                </div>
+              )}
             </section>
           )}
         </>

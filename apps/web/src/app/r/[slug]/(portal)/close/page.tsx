@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { CashCountPanel, PaymentReconciliationPanel } from './ReconciliationPanels';
 import { DayCloseClient, type Closing } from './DayCloseClient';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +39,8 @@ export default async function DayClosePage({ params }: { params: Promise<{ slug:
           canReopen={can(perms, role, 'finance.reopen_day')}
         />
       )}
+      {can(perms, role, 'finance.reconcile') && <CashCountPanel />}
+      {can(perms, role, 'payments.reconcile') && <PaymentReconciliationPanel />}
     </div>
   );
 }

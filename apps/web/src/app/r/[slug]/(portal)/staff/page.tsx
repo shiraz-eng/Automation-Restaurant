@@ -30,6 +30,7 @@ export default async function StaffPage({ params }: { params: Promise<{ slug: st
           canAdd={can(perms, role, 'staff.create')}
           canChangeRole={can(perms, role, 'permissions.assign')}
           canEditShift={can(perms, role, 'staff.update')}
+          canRemove={can(perms, role, 'staff.delete')}
         />
       )}
     </div>

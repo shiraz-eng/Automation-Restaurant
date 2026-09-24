@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { IngredientCostPanel } from '../inventory/IngredientCostPanel';
 import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from './RecipesManager';
 
 export const dynamic = 'force-dynamic';
@@ -70,6 +71,7 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
           canViewCost={canViewCost}
         />
       )}
+      {can(perms, role, 'finance.manage_costs') && <IngredientCostPanel />}
     </div>
   );
 }

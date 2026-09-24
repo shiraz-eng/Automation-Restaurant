@@ -26,7 +26,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
       .order('created_at', { ascending: true }),
     t.client
       .from('business_settings')
-      .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number')
+      .select('brand_logo_url, brand_primary, receipt_footer_text, receipt_template_html, receipt_config, address, phone, contact_email, website, tax_registration_number, max_refund_without_approval_cents')
       .eq('id', true)
       .maybeSingle(),
     canCreateOrder
@@ -99,6 +99,12 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
           taxRateBps={TAX_RATE_BPS}
           menuCategories={(menuCategories as NewOrderCategory[] | null) ?? []}
           menuItems={menuItemsWithAvailability as unknown as NewOrderItem[]}
+          canViewReceipt={can(perms, role, 'receipts.view')}
+          canPrintReceipt={can(perms, role, 'receipts.print')}
+          canOverridePrice={can(perms, role, 'orders.override_price')}
+          canAdjustPayment={can(perms, role, 'payments.adjust')}
+          canApproveRefund={can(perms, role, 'payments.approve_refund')}
+          refundThresholdCents={((settings as { max_refund_without_approval_cents?: number | null } | null)?.max_refund_without_approval_cents) ?? null}
         />
       )}
     </div>

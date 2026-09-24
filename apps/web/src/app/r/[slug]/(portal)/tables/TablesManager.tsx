@@ -18,7 +18,16 @@ export type TableRow = {
  *  restaurant_tables' RLS write policy checks, so the UI never offers a
  *  write the database would reject. Viewing and printing QR codes only
  *  needs tables.view. */
-export function TablesManager({ rows, canEdit = true }: { rows: TableRow[]; canEdit?: boolean }) {
+export function TablesManager({
+  rows,
+  canEdit = true,
+  canCreate = canEdit,
+}: {
+  rows: TableRow[];
+  canEdit?: boolean;
+  /** tables.create — the tables_create insert policy (0058). */
+  canCreate?: boolean;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [label, setLabel] = useState('');
@@ -58,12 +67,12 @@ export function TablesManager({ rows, canEdit = true }: { rows: TableRow[]; canE
 
       <Card className="print:hidden">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-sm">{canEdit ? 'Add table' : 'Tables'}</h2>
+          <h2 className="font-bold text-sm">{canCreate ? 'Add table' : 'Tables'}</h2>
           <Button variant="ghost" onClick={() => window.print()}>
             Print all QR codes
           </Button>
         </div>
-        {canEdit && (
+        {canCreate && (
         <form onSubmit={add} className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
           <Field label="Label">
             <Input

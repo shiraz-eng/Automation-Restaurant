@@ -55,10 +55,17 @@ export function DealsManager({
   deals,
   menu,
   canEdit,
+  canCreate = canEdit,
+  canArchive = canEdit,
 }: {
   deals: Deal[];
   menu: MenuOption[];
+  /** deals.update — edit a deal's contents (components, option groups). */
   canEdit: boolean;
+  /** deals.create — the deals_create insert policy (0058). */
+  canCreate?: boolean;
+  /** deals.archive — take a deal off sale (set_deal_available) or delete it. */
+  canArchive?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -109,7 +116,7 @@ export function DealsManager({
 
   return (
     <div className="space-y-5">
-      {canEdit && (
+      {canCreate && (
         <Card>
           <h2 className="font-bold text-sm mb-3">New deal</h2>
           <form onSubmit={createDeal} className="flex gap-3 items-end flex-wrap">
@@ -451,17 +458,12 @@ export function DealsManager({
                 )}
               </div>
 
-              {canEdit && (
+              {canArchive && (
                 <>
                   <div className="mt-3 flex gap-2 text-xs">
                     <button
                       onClick={() =>
-                        run(() =>
-                          supabase
-                            .from('deals')
-                            .update({ is_available: !d.is_available })
-                            .eq('id', d.id),
-                        )
+                        run(() => supabase.rpc('set_deal_available', { p_deal_id: d.id, p_available: !d.is_available }))
                       }
                       className="rounded border border-border px-2 py-1 font-semibold"
                     >

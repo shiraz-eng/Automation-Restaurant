@@ -39,6 +39,7 @@ export function StaffManager({
   canAdd,
   canChangeRole,
   canEditShift,
+  canRemove = false,
 }: {
   staff: Member[];
   /** staff.create — matches POST /api/staff's requirePortalPerm. */
@@ -47,6 +48,8 @@ export function StaffManager({
   canChangeRole: boolean;
   /** staff.update — matches PATCH /api/staff/:id's requirePortalPerm. */
   canEditShift: boolean;
+  /** staff.delete — matches DELETE /api/staff/:id's requirePortalPerm. */
+  canRemove?: boolean;
 }) {
   const router = useRouter();
   const { slug } = usePortal();
@@ -170,6 +173,34 @@ export function StaffManager({
     }
   }
 
+  async function removeMember(m: Member) {
+    if (!window.confirm(`Remove ${m.full_name || m.email}? Their login stops working; attendance history is kept.`)) return;
+    setSavingId(m.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/staff/${m.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ slug }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.message ?? body.error ?? 'Could not remove this staff member.');
+        return;
+      }
+      setNotice(`Removed ${m.full_name || m.email}.`);
+      router.refresh();
+    } catch {
+      setError('Network error — try again.');
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {canAdd && (
@@ -225,12 +256,13 @@ export function StaffManager({
               <th className="p-3 font-semibold">Role</th>
               <th className="p-3 font-semibold">Shift start</th>
               <th className="p-3 font-semibold">Status</th>
+              {canRemove && <th className="p-3" />}
             </tr>
           </thead>
           <tbody>
             {staff.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-3 text-muted">
+                <td colSpan={canRemove ? 6 : 5} className="p-3 text-muted">
                   No staff yet.
                 </td>
               </tr>
@@ -287,6 +319,20 @@ export function StaffManager({
                       {m.status}
                     </span>
                   </td>
+                  {canRemove && (
+                    <td className="p-3 text-right">
+                      {m.role !== 'owner' && m.status !== 'disabled' && (
+                        <button
+                          type="button"
+                          disabled={savingId === m.id}
+                          onClick={() => removeMember(m)}
+                          className="text-danger font-semibold hover:underline disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))
             )}

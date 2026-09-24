@@ -266,7 +266,13 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       permission summary, plus the two keys already enforced server-side
 //       but missing from the catalog (inventory.manage,
 //       inventory.manage_purchases).
-const SCHEMA_VERSION = 57;
+//   v58 Every Create Portal permission option enforced server-side: per-
+//       operation RLS (tables/deals/variants/purchases/suppliers/roles/
+//       portals), payment adjust + reconciliation, cash counts, ingredient
+//       cost RPC, attendance dashboard/history/corrections, review
+//       response/moderation/analytics, customers, member access list, and
+//       anti-escalation triggers on portals and roles.
+const SCHEMA_VERSION = 58;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

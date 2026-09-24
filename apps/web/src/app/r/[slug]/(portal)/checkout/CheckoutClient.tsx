@@ -141,6 +141,8 @@ function effectiveReceiptConfig(receipt: ReceiptSettings): ReceiptTemplateConfig
 
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const METHODS = ['cash', 'card', 'mobile'] as const;
+/** Methods adjust_payment() accepts. */
+const ADJUST_METHODS = ['cash', 'card', 'mobile', 'online', 'wallet', 'other'] as const;
 
 function netPaid(b: Bill): number {
   return b.payments
@@ -238,6 +240,12 @@ export function CheckoutClient({
   taxRateBps,
   menuCategories,
   menuItems,
+  canViewReceipt = true,
+  canPrintReceipt = true,
+  canOverridePrice = false,
+  canAdjustPayment = false,
+  canApproveRefund = false,
+  refundThresholdCents = null,
 }: {
   restaurantName: string;
   initial: Bill[];
@@ -253,6 +261,18 @@ export function CheckoutClient({
   taxRateBps: number;
   menuCategories: NewOrderCategory[];
   menuItems: NewOrderItem[];
+  /** receipts.view — the Download PDF receipt. */
+  canViewReceipt?: boolean;
+  /** receipts.print — Print invoice, and the automatic print after a payment. */
+  canPrintReceipt?: boolean;
+  /** orders.override_price — override_line_price(). */
+  canOverridePrice?: boolean;
+  /** payments.adjust — adjust_payment() (method/reference correction). */
+  canAdjustPayment?: boolean;
+  /** payments.approve_refund — refund_payment() lifts the approval threshold. */
+  canApproveRefund?: boolean;
+  /** business_settings.max_refund_without_approval_cents (null = no limit). */
+  refundThresholdCents?: number | null;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -312,7 +332,11 @@ export function CheckoutClient({
     const { error: e } = await fn();
     setBusy(false);
     if (e) {
-      setError(e.message);
+      setError(
+        /refund_needs_approval/.test(e.message)
+          ? `Refunds above ${formatCents(refundThresholdCents ?? 0)} need someone with refund approval.`
+          : e.message,
+      );
       return false;
     }
     if (ok) setNote(ok);
@@ -331,7 +355,7 @@ export function CheckoutClient({
     // Must open synchronously, still inside this click's user gesture —
     // opening it AFTER the awaited RPC below gets silently blocked as a
     // popup by most browsers. Written into (or closed) once the RPC settles.
-    const printWindow = window.open('', '_blank', 'width=380,height=640');
+    const printWindow = canPrintReceipt ? window.open('', '_blank', 'width=380,height=640') : null;
     const ok = await run(
       () =>
         supabase.rpc('record_payment', {
@@ -347,7 +371,7 @@ export function CheckoutClient({
     // change from taking a payment, so the pre-payment bill plus what was
     // just taken is already the accurate receipt; no need to wait on the
     // refetch to know what to print.
-    if (ok) {
+    if (ok && canPrintReceipt) {
       printInvoice(paidBill, restaurantName, receipt, { method: paidMethod, amountCents: paidAmount }, printWindow);
     } else {
       printWindow?.close();
@@ -390,6 +414,39 @@ export function CheckoutClient({
           p_method: null,
         }),
       'Refund recorded.',
+    );
+  }
+
+  async function overridePrice(line: Bill['order_lines'][number]) {
+    const v = window.prompt(`New unit price for ${line.name_snapshot}:`, (line.unit_price_cents / 100).toFixed(2));
+    if (v == null) return;
+    const cents = Math.round(parseFloat(v) * 100);
+    if (!Number.isFinite(cents) || cents < 0) {
+      setError('Enter a valid price.');
+      return;
+    }
+    const reason = window.prompt('Reason for the price override:');
+    if (!reason) return;
+    await run(
+      () => supabase.rpc('override_line_price', { p_line_id: line.id, p_unit_price_cents: cents, p_reason: reason }),
+      'Price updated.',
+    );
+  }
+
+  async function adjustPayment(p: Pay) {
+    const m = window.prompt(`Correct the payment method (${ADJUST_METHODS.join(', ')}):`, p.method);
+    if (m == null) return;
+    const method = m.trim().toLowerCase();
+    if (!(ADJUST_METHODS as readonly string[]).includes(method)) {
+      setError(`Method must be one of: ${ADJUST_METHODS.join(', ')}.`);
+      return;
+    }
+    const ref = window.prompt('Reference (card slip / transaction id, optional):', p.reference ?? '') ?? '';
+    const reason = window.prompt('Reason for the correction:');
+    if (!reason) return;
+    await run(
+      () => supabase.rpc('adjust_payment', { p_payment_id: p.id, p_method: method, p_reference: ref, p_reason: reason }),
+      'Payment corrected.',
     );
   }
 
@@ -463,28 +520,39 @@ export function CheckoutClient({
             </h2>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
-              <button
-                onClick={() => printInvoice(bill, restaurantName, receipt)}
-                className="text-primary text-xs font-semibold underline"
-              >
-                Print invoice
-              </button>
-              <button
-                onClick={() => downloadReceiptPdf(effectiveReceiptConfig(receipt), toReceiptContext(bill, restaurantName, receipt))}
-                className="text-primary text-xs font-semibold underline"
-              >
-                Download PDF
-              </button>
+              {canPrintReceipt && (
+                <button
+                  onClick={() => printInvoice(bill, restaurantName, receipt)}
+                  className="text-primary text-xs font-semibold underline"
+                >
+                  Print invoice
+                </button>
+              )}
+              {canViewReceipt && (
+                <button
+                  onClick={() => downloadReceiptPdf(effectiveReceiptConfig(receipt), toReceiptContext(bill, restaurantName, receipt))}
+                  className="text-primary text-xs font-semibold underline"
+                >
+                  Download PDF
+                </button>
+              )}
             </div>
           </div>
 
           <div className="space-y-1 text-xs mb-3">
             {bill.order_lines.map((l) => (
-              <div key={l.id} className="flex justify-between">
+              <div key={l.id} className="flex justify-between gap-2">
                 <span>
                   {l.qty}× {l.name_snapshot}
                 </span>
-                <span>{formatCents(l.line_total_cents)}</span>
+                <span className="flex items-center gap-2">
+                  {canOverridePrice && (
+                    <button onClick={() => overridePrice(l)} disabled={busy} className="text-primary underline text-[11px]">
+                      change price
+                    </button>
+                  )}
+                  {formatCents(l.line_total_cents)}
+                </span>
               </div>
             ))}
           </div>
@@ -578,6 +646,11 @@ export function CheckoutClient({
                         refund
                       </button>
                     )}
+                    {canAdjustPayment && p.status !== 'voided' && (
+                      <button onClick={() => adjustPayment(p)} className="text-primary underline">
+                        correct
+                      </button>
+                    )}
                     {canVoid && p.status === 'captured' && p.refunded_cents === 0 && (
                       <button onClick={() => voidPay(p)} className="text-danger underline">
                         void
@@ -587,6 +660,14 @@ export function CheckoutClient({
                 </div>
               ))}
             </div>
+          )}
+
+          {canRefund && refundThresholdCents != null && (
+            <p className="mt-2 text-[11px] text-muted">
+              {canApproveRefund
+                ? `You can approve refunds above the ${formatCents(refundThresholdCents)} limit.`
+                : `Refunds above ${formatCents(refundThresholdCents)} need someone with refund approval.`}
+            </p>
           )}
 
           <div className="mt-4 flex gap-2 flex-wrap">
