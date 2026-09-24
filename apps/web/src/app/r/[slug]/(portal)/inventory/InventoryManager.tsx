@@ -46,6 +46,10 @@ export function InventoryManager({
   items,
   canViewCost,
   canManageAutomation,
+  canAddItem,
+  canRestock,
+  canWaste,
+  canCount,
   suppliers,
   preferredBySupplierItem,
   lowStockEmailEnabled,
@@ -53,6 +57,14 @@ export function InventoryManager({
   items: Item[];
   canViewCost: boolean;
   canManageAutomation: boolean;
+  /** stock.update — matches inventory_items' mgr_write RLS policy (creating a new item row). */
+  canAddItem: boolean;
+  /** stock.adjust or inventory.manage — matches adjust_stock()'s has_perm check. */
+  canRestock: boolean;
+  /** inventory.manage_waste or stock.adjust — matches record_ingredient_waste()'s has_perm check. */
+  canWaste: boolean;
+  /** stock.count or stock.adjust — matches submit_stock_count()'s has_perm check. */
+  canCount: boolean;
   suppliers: Supplier[];
   preferredBySupplierItem: Record<string, { supplierItemId: string; supplierId: string }>;
   lowStockEmailEnabled: boolean;
@@ -299,6 +311,7 @@ export function InventoryManager({
         </Card>
       )}
 
+      {canAddItem && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">Add ingredient</h2>
         <p className="text-[11px] text-muted mb-3">
@@ -326,6 +339,7 @@ export function InventoryManager({
           </Button>
         </form>
       </Card>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
@@ -411,40 +425,50 @@ export function InventoryManager({
                       </td>
                     )}
                     <td className="p-3">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          placeholder="qty"
-                          className="w-20"
-                          value={deltas[it.id] ?? ''}
-                          onChange={(e) =>
-                            setDeltas((d) => ({ ...d, [it.id]: e.target.value }))
-                          }
-                        />
-                        <Button
-                          variant="ghost"
-                          disabled={busyId === it.id}
-                          onClick={() => adjust(it, 1)}
-                        >
-                          + restock
-                        </Button>
-                        <Button
-                          variant="danger"
-                          disabled={busyId === it.id}
-                          onClick={() => waste(it)}
-                        >
-                          − waste
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={busyId === it.id}
-                          onClick={() => count(it)}
-                        >
-                          Stock count
-                        </Button>
-                      </div>
+                      {canRestock || canWaste || canCount ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            placeholder="qty"
+                            className="w-20"
+                            value={deltas[it.id] ?? ''}
+                            onChange={(e) =>
+                              setDeltas((d) => ({ ...d, [it.id]: e.target.value }))
+                            }
+                          />
+                          {canRestock && (
+                            <Button
+                              variant="ghost"
+                              disabled={busyId === it.id}
+                              onClick={() => adjust(it, 1)}
+                            >
+                              + restock
+                            </Button>
+                          )}
+                          {canWaste && (
+                            <Button
+                              variant="danger"
+                              disabled={busyId === it.id}
+                              onClick={() => waste(it)}
+                            >
+                              − waste
+                            </Button>
+                          )}
+                          {canCount && (
+                            <Button
+                              variant="ghost"
+                              disabled={busyId === it.id}
+                              onClick={() => count(it)}
+                            >
+                              Stock count
+                            </Button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                   </tr>
                 );

@@ -34,7 +34,20 @@ const INVITABLE: StaffRole[] = [
 const ALL_ROLES: StaffRole[] = ['owner', ...INVITABLE];
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export function StaffManager({ staff }: { staff: Member[] }) {
+export function StaffManager({
+  staff,
+  canAdd,
+  canChangeRole,
+  canEditShift,
+}: {
+  staff: Member[];
+  /** staff.create — matches POST /api/staff's requirePortalPerm. */
+  canAdd: boolean;
+  /** permissions.assign — matches POST /api/staff/access's requirePortalPerm. */
+  canChangeRole: boolean;
+  /** staff.update — matches PATCH /api/staff/:id's requirePortalPerm. */
+  canEditShift: boolean;
+}) {
   const router = useRouter();
   const { slug } = usePortal();
   const supabase = usePortalSupabase();
@@ -159,6 +172,7 @@ export function StaffManager({ staff }: { staff: Member[] }) {
 
   return (
     <div className="space-y-6">
+      {canAdd && (
       <Card>
         <h2 className="font-bold text-sm mb-3">Add staff</h2>
         <p className="text-muted text-xs mb-3">
@@ -194,6 +208,13 @@ export function StaffManager({ staff }: { staff: Member[] }) {
         {error && <p className="text-danger text-xs mt-2">{error}</p>}
         {notice && <p className="text-ok text-xs mt-2 font-mono whitespace-pre-wrap">{notice}</p>}
       </Card>
+      )}
+      {!canAdd && (error || notice) && (
+        <div className="space-y-1">
+          {error && <p className="text-danger text-xs">{error}</p>}
+          {notice && <p className="text-ok text-xs font-mono whitespace-pre-wrap">{notice}</p>}
+        </div>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-left text-xs">
@@ -219,39 +240,47 @@ export function StaffManager({ staff }: { staff: Member[] }) {
                   <td className="p-3 font-semibold">{m.full_name ?? '—'}</td>
                   <td className="p-3 text-muted">{m.email}</td>
                   <td className="p-3">
-                    <Select
-                      value={m.role}
-                      disabled={savingId === m.id}
-                      onChange={(e) => changeRole(m, e.target.value as StaffRole)}
-                      className="text-xs py-1"
-                    >
-                      {ALL_ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {ROLE_LABELS[r]}
-                        </option>
-                      ))}
-                    </Select>
+                    {canChangeRole ? (
+                      <Select
+                        value={m.role}
+                        disabled={savingId === m.id}
+                        onChange={(e) => changeRole(m, e.target.value as StaffRole)}
+                        className="text-xs py-1"
+                      >
+                        {ALL_ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {ROLE_LABELS[r]}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      ROLE_LABELS[m.role as StaffRole] ?? m.role
+                    )}
                   </td>
                   <td className="p-3">
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="time"
-                        value={shiftDrafts[m.id] ?? hhmm(m.shift_start_time)}
-                        disabled={savingId === m.id}
-                        onChange={(e) => setShiftDrafts((d) => ({ ...d, [m.id]: e.target.value }))}
-                        className="rounded border border-border bg-surface px-1.5 py-1 text-xs outline-none focus:border-primary"
-                      />
-                      {shiftDrafts[m.id] !== undefined && shiftDrafts[m.id] !== hhmm(m.shift_start_time) && (
-                        <button
-                          type="button"
+                    {canEditShift ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="time"
+                          value={shiftDrafts[m.id] ?? hhmm(m.shift_start_time)}
                           disabled={savingId === m.id}
-                          onClick={() => saveShiftStart(m)}
-                          className="text-primary font-semibold hover:underline shrink-0"
-                        >
-                          Save
-                        </button>
-                      )}
-                    </div>
+                          onChange={(e) => setShiftDrafts((d) => ({ ...d, [m.id]: e.target.value }))}
+                          className="rounded border border-border bg-surface px-1.5 py-1 text-xs outline-none focus:border-primary"
+                        />
+                        {shiftDrafts[m.id] !== undefined && shiftDrafts[m.id] !== hhmm(m.shift_start_time) && (
+                          <button
+                            type="button"
+                            disabled={savingId === m.id}
+                            onClick={() => saveShiftStart(m)}
+                            className="text-primary font-semibold hover:underline shrink-0"
+                          >
+                            Save
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-muted">{hhmm(m.shift_start_time) || '—'}</span>
+                    )}
                   </td>
                   <td className="p-3">
                     <span className={m.status === 'active' ? 'text-ok' : 'text-muted'}>

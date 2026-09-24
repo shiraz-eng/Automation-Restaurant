@@ -83,6 +83,10 @@ export default async function InventoryPage({
           items={items ?? []}
           canViewCost={can(perms, role, 'inventory.view_cost')}
           canManageAutomation={canManageAutomation}
+          canAddItem={can(perms, role, 'stock.update')}
+          canRestock={can(perms, role, 'stock.adjust') || can(perms, role, 'inventory.manage')}
+          canWaste={can(perms, role, 'inventory.manage_waste') || can(perms, role, 'stock.adjust')}
+          canCount={can(perms, role, 'stock.count') || can(perms, role, 'stock.adjust')}
           suppliers={suppliers}
           preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
           lowStockEmailEnabled={(settingsRow as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}

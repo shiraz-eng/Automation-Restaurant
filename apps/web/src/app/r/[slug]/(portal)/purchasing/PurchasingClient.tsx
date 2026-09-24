@@ -107,6 +107,9 @@ export function PurchasingClient({
   canPay,
   canManagePayables,
   canViewPayables,
+  canManagePO,
+  canApprovePO,
+  canReceive,
 }: {
   suppliers: Supplier[];
   items: Item[];
@@ -119,6 +122,12 @@ export function PurchasingClient({
   canPay: boolean;
   canManagePayables: boolean;
   canViewPayables: boolean;
+  /** purchases.update — matches create/cancel/send_purchase_order()'s has_perm check. */
+  canManagePO: boolean;
+  /** purchases.approve — matches approve_purchase_order()'s has_perm check. */
+  canApprovePO: boolean;
+  /** purchases.receive or inventory.manage_purchases — matches receive_purchase_order[_line]()'s has_perm check. */
+  canReceive: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -480,6 +489,7 @@ export function PurchasingClient({
       {/* Purchase orders */}
       <section>
         <h2 className="font-bold text-sm mb-3">Purchase orders</h2>
+        {canManagePO && (
         <Card>
           <h3 className="font-bold mb-3 text-sm">New purchase order</h3>
           {suppliers.length === 0 ? (
@@ -555,6 +565,7 @@ export function PurchasingClient({
             </form>
           )}
         </Card>
+        )}
 
         <div className="space-y-3 mt-3">
           {orders.length === 0 ? (
@@ -594,7 +605,7 @@ export function PurchasingClient({
                             <td className="px-4 py-2 text-right text-muted">{formatCents(l.unit_cost_cents)}</td>
                             <td className="px-4 py-2 text-right font-mono">{formatCents(Math.round(Number(l.qty) * l.unit_cost_cents))}</td>
                             <td className="px-4 py-2 text-right">
-                              {['sent', 'partial'].includes(o.status) && outstanding > 0 && (
+                              {canReceive && ['sent', 'partial'].includes(o.status) && outstanding > 0 && (
                                 <button
                                   onClick={() => receiveLine(l)}
                                   disabled={busy}
@@ -615,7 +626,7 @@ export function PurchasingClient({
                     </span>
                     {open && (
                       <div className="flex gap-1.5">
-                        {o.status === 'draft' && (
+                        {canManagePO && o.status === 'draft' && (
                           <Button
                             variant="ghost"
                             disabled={busy}
@@ -624,17 +635,17 @@ export function PurchasingClient({
                             Cancel
                           </Button>
                         )}
-                        {o.status === 'draft' && !o.approved_at && (
+                        {canApprovePO && o.status === 'draft' && !o.approved_at && (
                           <Button disabled={busy} onClick={() => act(() => supabase.rpc('approve_purchase_order', { p_po_id: o.id }))}>
                             Approve
                           </Button>
                         )}
-                        {o.status === 'draft' && o.approved_at && (
+                        {canManagePO && o.status === 'draft' && o.approved_at && (
                           <Button disabled={busy} onClick={() => act(() => supabase.rpc('send_purchase_order', { p_po_id: o.id }))}>
                             Send
                           </Button>
                         )}
-                        {['sent', 'partial'].includes(o.status) && (
+                        {canReceive && ['sent', 'partial'].includes(o.status) && (
                           <Button
                             variant="ghost"
                             disabled={busy}

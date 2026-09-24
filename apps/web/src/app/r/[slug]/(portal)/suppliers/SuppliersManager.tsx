@@ -34,7 +34,14 @@ const EMPTY = {
   preferred_payment_method: '',
 };
 
-export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
+export function SuppliersManager({
+  suppliers,
+  canManage,
+}: {
+  suppliers: Supplier[];
+  /** supplier.manage — matches the suppliers table's mgr_write RLS policy. */
+  canManage: boolean;
+}) {
   const router = useRouter();
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +121,7 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
         </div>
       )}
 
+      {canManage && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">{editId ? 'Edit supplier' : 'Add supplier'}</h2>
         <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
@@ -176,6 +184,7 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
           </div>
         </form>
       </Card>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-left text-xs">
@@ -185,13 +194,13 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
               <th className="p-3 font-semibold">Contact</th>
               <th className="p-3 font-semibold">Terms</th>
               <th className="p-3 font-semibold">Status</th>
-              <th className="p-3" />
+              {canManage && <th className="p-3" />}
             </tr>
           </thead>
           <tbody>
             {suppliers.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-3 text-muted">
+                <td colSpan={canManage ? 5 : 4} className="p-3 text-muted">
                   No suppliers yet.
                 </td>
               </tr>
@@ -213,24 +222,26 @@ export function SuppliersManager({ suppliers }: { suppliers: Supplier[] }) {
                   <td className={`p-3 ${s.is_active ? 'text-ok' : 'text-muted'}`}>
                     {s.is_active ? 'Active' : 'Inactive'}
                   </td>
-                  <td className="p-3 text-right whitespace-nowrap">
-                    <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
-                      Edit
-                    </Button>
-                    <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
-                      {s.is_active ? 'Deactivate' : 'Reactivate'}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      className="ml-1.5"
-                      disabled={busy}
-                      onClick={() =>
-                        run(() => supabase.from('suppliers').delete().eq('id', s.id))
-                      }
-                    >
-                      Delete
-                    </Button>
-                  </td>
+                  {canManage && (
+                    <td className="p-3 text-right whitespace-nowrap">
+                      <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
+                        Edit
+                      </Button>
+                      <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
+                        {s.is_active ? 'Deactivate' : 'Reactivate'}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        className="ml-1.5"
+                        disabled={busy}
+                        onClick={() =>
+                          run(() => supabase.from('suppliers').delete().eq('id', s.id))
+                        }
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

@@ -529,6 +529,10 @@ export default async function PortalHome({
                 items={stockRes.data ?? []}
                 canViewCost={has('inventory.view_cost')}
                 canManageAutomation={canManageAutomation}
+                canAddItem={has('stock.update')}
+                canRestock={has('stock.adjust') || has('inventory.manage')}
+                canWaste={has('inventory.manage_waste') || has('stock.adjust')}
+                canCount={has('stock.count') || has('stock.adjust')}
                 suppliers={invSuppliers}
                 preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
                 lowStockEmailEnabled={(purchasingSettingsRes.data as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}
@@ -560,7 +564,7 @@ export default async function PortalHome({
           {(includeSuppliers || includePurchasing) && (
             <section id="suppliers" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Suppliers &amp; Purchasing</h2>
-              {includeSuppliers && <SuppliersManager suppliers={suppliers} />}
+              {includeSuppliers && <SuppliersManager suppliers={suppliers} canManage={has('supplier.manage')} />}
               {includePurchasing && (
                 <PurchasingClient
                   suppliers={purchSuppliersRes.data ?? []}
@@ -574,6 +578,9 @@ export default async function PortalHome({
                   canPay={has('payables.record_payment')}
                   canManagePayables={has('payables.manage')}
                   canViewPayables={has('payables.view') || has('finance.view')}
+                  canManagePO={has('purchases.update')}
+                  canApprovePO={has('purchases.approve')}
+                  canReceive={has('purchases.receive') || has('inventory.manage_purchases')}
                 />
               )}
             </section>
@@ -647,7 +654,14 @@ export default async function PortalHome({
           {(includeStaff || includeScheduling) && (
             <section id="staff" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Staff</h2>
-              {includeStaff && <StaffManager staff={staffRes.data ?? []} />}
+              {includeStaff && (
+                <StaffManager
+                  staff={staffRes.data ?? []}
+                  canAdd={has('staff.create')}
+                  canChangeRole={has('permissions.assign')}
+                  canEditShift={has('staff.update')}
+                />
+              )}
               {includeScheduling && (
                 <SchedulingClient
                   slug={slug}
@@ -656,6 +670,7 @@ export default async function PortalHome({
                   members={membersRes.data ?? []}
                   shifts={(shiftsRes.data ?? []) as Shift[]}
                   attendance={(attendanceRes.data ?? []) as Attendance[]}
+                  canManage={has('attendance.mark')}
                 />
               )}
             </section>

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { SchedulingClient, type Shift, type Attendance } from './SchedulingClient';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,7 @@ export default async function SchedulingPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'attendance.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'attendance.view');
 
   const offset = Number.parseInt(w ?? '0', 10) || 0;
   const start = weekStart();
@@ -68,6 +68,7 @@ export default async function SchedulingPage({
           members={members ?? []}
           shifts={(shifts ?? []) as Shift[]}
           attendance={(attendance ?? []) as Attendance[]}
+          canManage={can(perms, role, 'attendance.mark')}
         />
       )}
     </div>

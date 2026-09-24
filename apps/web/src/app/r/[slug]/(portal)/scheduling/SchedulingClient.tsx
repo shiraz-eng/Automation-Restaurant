@@ -42,6 +42,7 @@ export function SchedulingClient({
   members,
   shifts,
   attendance,
+  canManage,
 }: {
   slug: string;
   weekOffset: number;
@@ -49,6 +50,8 @@ export function SchedulingClient({
   members: Member[];
   shifts: Shift[];
   attendance: Attendance[];
+  /** attendance.mark — matches the shifts/attendance tables' mgr_write RLS policy. */
+  canManage: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -179,13 +182,15 @@ export function SchedulingClient({
                           {hhmm(s.starts_at)}–{hhmm(s.ends_at)}
                         </div>
                         {s.role_label && <div className="text-muted truncate">{s.role_label}</div>}
-                        <button
-                          className="text-danger opacity-0 group-hover:opacity-100 transition-opacity"
-                          disabled={busy}
-                          onClick={() => run(() => supabase.from('shifts').delete().eq('id', s.id))}
-                        >
-                          remove
-                        </button>
+                        {canManage && (
+                          <button
+                            className="text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                            disabled={busy}
+                            onClick={() => run(() => supabase.from('shifts').delete().eq('id', s.id))}
+                          >
+                            remove
+                          </button>
+                        )}
                       </div>
                     ))
                   )}
@@ -195,76 +200,80 @@ export function SchedulingClient({
           })}
         </div>
 
-        <Card>
-          <h3 className="font-bold text-sm mb-3">Add a shift</h3>
-          <form onSubmit={addShift} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-            <Field label="Staff">
-              <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
-                <option value="">— pick —</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.full_name ?? m.email}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Day">
-              <Select value={day} onChange={(e) => setDay(e.target.value)}>
-                {DAYS.map((d, i) => (
-                  <option key={d} value={i}>
-                    {d}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="From">
-              <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
-            </Field>
-            <Field label="To">
-              <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
-            </Field>
-            <Field label="Role (optional)">
-              <Input value={roleLabel} onChange={(e) => setRoleLabel(e.target.value)} placeholder="Line cook" />
-            </Field>
-            <Button type="submit" disabled={busy}>
-              Add
-            </Button>
-          </form>
-        </Card>
+        {canManage && (
+          <Card>
+            <h3 className="font-bold text-sm mb-3">Add a shift</h3>
+            <form onSubmit={addShift} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+              <Field label="Staff">
+                <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+                  <option value="">— pick —</option>
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.full_name ?? m.email}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Day">
+                <Select value={day} onChange={(e) => setDay(e.target.value)}>
+                  {DAYS.map((d, i) => (
+                    <option key={d} value={i}>
+                      {d}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="From">
+                <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </Field>
+              <Field label="To">
+                <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+              </Field>
+              <Field label="Role (optional)">
+                <Input value={roleLabel} onChange={(e) => setRoleLabel(e.target.value)} placeholder="Line cook" />
+              </Field>
+              <Button type="submit" disabled={busy}>
+                Add
+              </Button>
+            </form>
+          </Card>
+        )}
       </section>
 
       {/* ── Attendance ── */}
       <section className="space-y-3">
         <h2 className="font-bold text-sm">Attendance log</h2>
 
-        <Card>
-          <h3 className="font-bold text-sm mb-3">Record clock in / out</h3>
-          <div className="flex flex-wrap gap-2">
-            {members.map((m) => {
-              const isIn = openClock.has(m.id);
-              return (
-                <Button
-                  key={m.id}
-                  variant={isIn ? 'danger' : 'ghost'}
-                  disabled={busy}
-                  onClick={() =>
-                    isIn
-                      ? run(() =>
-                          supabase
-                            .from('attendance')
-                            .update({ clock_out: new Date().toISOString() })
-                            .eq('membership_id', m.id)
-                            .is('clock_out', null),
-                        )
-                      : run(() => supabase.from('attendance').insert({ membership_id: m.id }))
-                  }
-                >
-                  {m.full_name ?? m.email} · {isIn ? 'clock out' : 'clock in'}
-                </Button>
-              );
-            })}
-          </div>
-        </Card>
+        {canManage && (
+          <Card>
+            <h3 className="font-bold text-sm mb-3">Record clock in / out</h3>
+            <div className="flex flex-wrap gap-2">
+              {members.map((m) => {
+                const isIn = openClock.has(m.id);
+                return (
+                  <Button
+                    key={m.id}
+                    variant={isIn ? 'danger' : 'ghost'}
+                    disabled={busy}
+                    onClick={() =>
+                      isIn
+                        ? run(() =>
+                            supabase
+                              .from('attendance')
+                              .update({ clock_out: new Date().toISOString() })
+                              .eq('membership_id', m.id)
+                              .is('clock_out', null),
+                          )
+                        : run(() => supabase.from('attendance').insert({ membership_id: m.id }))
+                    }
+                  >
+                    {m.full_name ?? m.email} · {isIn ? 'clock out' : 'clock in'}
+                  </Button>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         <Card className="p-0 overflow-hidden">
           <table className="w-full text-left text-xs">

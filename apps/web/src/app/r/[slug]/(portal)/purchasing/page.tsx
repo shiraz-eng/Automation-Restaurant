@@ -21,6 +21,9 @@ export default async function PurchasingPage({
   const canPay = can(perms, role, 'payables.record_payment');
   const canManagePayables = can(perms, role, 'payables.manage');
   const canViewPayables = can(perms, role, 'payables.view') || can(perms, role, 'finance.view');
+  const canManagePO = can(perms, role, 'purchases.update');
+  const canApprovePO = can(perms, role, 'purchases.approve');
+  const canReceive = can(perms, role, 'purchases.receive') || can(perms, role, 'inventory.manage_purchases');
 
   const [{ data: suppliers }, { data: items }, { data: orders, error }, invRes, holdRes, payableRes] = await Promise.all([
     t.client.from('suppliers').select('id, name').eq('is_active', true).order('name'),
@@ -87,6 +90,9 @@ export default async function PurchasingPage({
           canPay={canPay}
           canManagePayables={canManagePayables}
           canViewPayables={canViewPayables}
+          canManagePO={canManagePO}
+          canApprovePO={canApprovePO}
+          canReceive={canReceive}
         />
       )}
     </div>

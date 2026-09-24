@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage } from '@/lib/permissions';
+import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { SuppliersManager, type Supplier } from './SuppliersManager';
 
@@ -17,7 +17,7 @@ export default async function SuppliersPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'supplier.view');
+  const { role, perms } = await gatePortalPage(t.client, slug, 'supplier.view');
 
   const { data, error } = await t.client
     .from('suppliers')
@@ -43,7 +43,7 @@ export default async function SuppliersPage({
           {error.message}
         </div>
       ) : (
-        <SuppliersManager suppliers={(data ?? []) as Supplier[]} />
+        <SuppliersManager suppliers={(data ?? []) as Supplier[]} canManage={can(perms, role, 'supplier.manage')} />
       )}
     </div>
   );
