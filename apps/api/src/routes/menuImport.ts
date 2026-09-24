@@ -11,6 +11,7 @@ import {
   type ParsedMenu,
   type MenuDiff,
 } from '../lib/menuImport';
+import { extractionDetail } from '../lib/aiDocumentEngine';
 
 /**
  * AI menu import (spec: "PDF -> AI -> Structured JSON -> Schema Validation
@@ -75,7 +76,7 @@ menuImportRouter.post('/menu-import', express.json(), requirePortalPerm('menu.cr
     rawText = await extractPdfText(buffer);
   } catch (err) {
     console.error('[menu-import] pdf extraction failed:', err);
-    return res.status(422).json({ error: 'pdf_extraction_failed', message: 'Could not read this PDF — it may be image-only or corrupted.' });
+    return res.status(422).json({ error: 'pdf_extraction_failed', message: `Could not read this PDF (${extractionDetail(err)}).`, detail: extractionDetail(err) });
   }
   if (!rawText.trim()) {
     return res.status(422).json({ error: 'pdf_empty', message: 'No readable text found in this PDF (it may be a scanned image).' });

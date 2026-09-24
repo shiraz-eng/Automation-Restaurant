@@ -18,10 +18,25 @@ import { env, aiProvider } from '../env';
  * already earned for menu import — it does not reimplement any of this.
  */
 
+/** A short, safe reason for a failed extraction, shown after the import
+ *  error so a failure can be diagnosed from a screenshot. Provider error
+ *  texts never include keys; they're still trimmed and stripped of URLs. */
+export function extractionDetail(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+// The local parser has been seen to fail or stall on serverless hosts; it
+// gets a short window, then the AI reader takes over.
+const LOCAL_PDF_TIMEOUT_MS = 8000;
+
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   let text = '';
   try {
-    text = await extractPdfTextLocally(buffer);
+    text = await Promise.race([
+      extractPdfTextLocally(buffer),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error('local pdf parse timed out')), LOCAL_PDF_TIMEOUT_MS)),
+    ]);
   } catch (err) {
     console.warn('[pdf] local text extraction failed, asking the AI to read the PDF:', (err as Error).message);
   }

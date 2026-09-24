@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { isAllowedOrigin, aiEnabled, env } from '../env';
-import { extractPdfText } from '../lib/aiDocumentEngine';
+import { extractPdfText, extractionDetail } from '../lib/aiDocumentEngine';
 import {
   extractPlainText,
   structureInventoryFromText,
@@ -80,7 +80,7 @@ inventoryImportRouter.post('/inventory-import', express.json(), requirePortalPer
     rawText = isPdf(filename) ? await extractPdfText(buffer) : extractPlainText(buffer);
   } catch (err) {
     console.error('[inventory-import] extraction failed:', err);
-    return res.status(422).json({ error: 'file_extraction_failed', message: 'Could not read this file — it may be corrupted, or a binary format (e.g. .xlsx) that isn\'t supported yet. Export as CSV and try again.' });
+    return res.status(422).json({ error: 'file_extraction_failed', message: 'Could not read this file — it may be corrupted, or a binary format (e.g. .xlsx) that isn\'t supported yet. Export as CSV and try again.', detail: extractionDetail(err) });
   }
   if (!rawText.trim()) {
     return res.status(422).json({ error: 'file_empty', message: 'No readable text found in this file.' });

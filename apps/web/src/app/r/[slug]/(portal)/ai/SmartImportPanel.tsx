@@ -98,7 +98,14 @@ export function SmartImportPanel({
         headers: await authHeader(),
         body: JSON.stringify({ slug, storagePath: path, filename: f.name }),
       });
-      const body = await res.json();
+      // A timeout or crash on the host comes back as an HTML/plain error
+      // page, not JSON — report the status instead of a vague network error.
+      const body = await res.json().catch(() => ({
+        message:
+          res.status === 504
+            ? 'Reading the document took too long. Try a smaller file or a CSV export.'
+            : `The import service returned an error (HTTP ${res.status}). Please try again.`,
+      }));
       if (!res.ok) {
         setError(body.message ?? body.error ?? 'Could not read this document.');
         setStage('idle');

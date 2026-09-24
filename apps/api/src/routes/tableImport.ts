@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { isAllowedOrigin, aiEnabled, env } from '../env';
-import { extractPdfText } from '../lib/aiDocumentEngine';
+import { extractPdfText, extractionDetail } from '../lib/aiDocumentEngine';
 import {
   extractPlainText,
   structureTablesFromText,
@@ -62,7 +62,7 @@ tableImportRouter.post('/table-import', express.json(), requirePortalPerm('table
     rawText = isPdf(filename) ? await extractPdfText(buffer) : extractPlainText(buffer);
   } catch (err) {
     console.error('[table-import] extraction failed:', err);
-    return res.status(422).json({ error: 'file_extraction_failed', message: 'Could not read this file.' });
+    return res.status(422).json({ error: 'file_extraction_failed', message: `Could not read this file (${extractionDetail(err)}).`, detail: extractionDetail(err) });
   }
   if (!rawText.trim()) {
     return res.status(422).json({ error: 'file_empty', message: 'No readable text found in this file.' });
