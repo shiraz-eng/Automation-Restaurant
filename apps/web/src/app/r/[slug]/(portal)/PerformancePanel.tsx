@@ -386,7 +386,18 @@ export function PerformancePanel({
               : typeof e === 'object' && e !== null && 'message' in e
                 ? String((e as { message: unknown }).message)
                 : String(e);
-          setError(message);
+          // "forbidden" is sales_by_day/revenue_by_category/payment_mix/
+          // feedback_summary's own raw Postgres exception (raise exception
+          // 'forbidden' — all require orders.view) — translate it instead
+          // of showing that literal word, since portalCapabilities.ts's
+          // gate is what's SUPPOSED to keep this from being reachable
+          // without orders.view, and a raw RPC error name is never a
+          // useful message for whoever ends up seeing it anyway.
+          setError(
+            message === 'forbidden'
+              ? "You don't have permission to view sales figures for this period."
+              : message,
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);

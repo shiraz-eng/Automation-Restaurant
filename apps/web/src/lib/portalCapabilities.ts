@@ -56,7 +56,16 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     purchasing: has('purchases.view'),
     finance: hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit']),
     dayClose: has('finance.view'),
-    analytics: hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
+    // AnalyticsSection reuses the Dashboard's own PerformancePanel verbatim
+    // (sales_by_day/revenue_by_category/payment_mix/feedback_summary), and
+    // every one of those RPCs requires orders.view server-side — the
+    // Dashboard never has to think about this because Owner/Manager always
+    // have it, but a custom portal can hold analytics.view/reports.* WITHOUT
+    // orders.view, which crashed the whole section with a raw "forbidden"
+    // RPC error instead of rendering anything. orders.view is the real
+    // floor; the analytics/reports keys on top of it are what actually
+    // signal "wants the aggregate view", not a substitute for it.
+    analytics: has('orders.view') && hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
     deals: has('deals.view'),
     social: has('social.view'),
     staff: has('staff.view'),
