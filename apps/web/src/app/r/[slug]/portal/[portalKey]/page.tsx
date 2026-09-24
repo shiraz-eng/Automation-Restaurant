@@ -34,7 +34,6 @@ import type {
 } from '../../(portal)/menu/menuTypes';
 import { PromotionsManager, type Promo, type PromoPerformance } from '../../(portal)/promotions/PromotionsManager';
 import { TablesManager, type TableRow } from '../../(portal)/tables/TablesManager';
-import { ReservationsClient } from '../../(portal)/reservations/ReservationsClient';
 import { ExportHistoryPanel } from '../../(portal)/exports/ExportHistoryPanel';
 import { resolvePortalCapabilities, portalSections, effectiveHas } from '@/lib/portalCapabilities';
 import { FoodStockPanel } from '../../(portal)/kds/FoodStockPanel';
@@ -50,8 +49,6 @@ import { IngredientCostPanel } from '../../(portal)/inventory/IngredientCostPane
 import { PaymentReconciliationPanel, CashCountPanel } from '../../(portal)/close/ReconciliationPanels';
 import { AttendanceInsights } from '../../(portal)/scheduling/AttendanceInsights';
 import { ReviewsManager } from '../../(portal)/reviews/ReviewsManager';
-import { CustomersManager } from '../../(portal)/customers/CustomersManager';
-import { RolesManager, AccessList } from '../../(portal)/roles/RolesManager';
 import { ExceptionsPanel } from '../../(portal)/exceptions/ExceptionsPanel';
 import { ApprovalsPanel } from '../../(portal)/approvals/ApprovalsPanel';
 import { BrandKitSection } from '../../(portal)/settings/theme/BrandKitSection';
@@ -60,8 +57,6 @@ import {
   PortalsManager,
   type Portal as ManagedPortal,
   type PermRow,
-  type StaffMember as PortalStaffMember,
-  type PortalStaffLink,
 } from '../../(portal)/portals/PortalsManager';
 
 export const dynamic = 'force-dynamic';
@@ -166,9 +161,7 @@ export default async function PortalHome({
     variants: includeVariants,
     availability: includeAvailability,
     reviews: includeReviews,
-    customers: includeCustomers,
     notifications: includeNotifications,
-    roles: includeRoles,
     settings: includeSettings,
     portals: includePortals,
   } = caps;
@@ -431,8 +424,8 @@ export default async function PortalHome({
     includeAttendanceKiosk ? t.client.rpc('attendance_roster', {}) : Promise.resolve({ data: null }),
   ]);
 
-  // Menu & Promotions / Tables & Reservations — the same queries the
-  // standalone /menu, /promotions, /tables and /reservations pages run.
+  // Menu & Promotions / Tables — the same queries the
+  // standalone /menu, /promotions and /tables pages run.
   const canViewMenuCost = has('inventory.view_cost');
   const [
     menuCategoriesRes,
@@ -445,7 +438,6 @@ export default async function PortalHome({
     promoPerfRes,
     promoMenuRes,
     tablesRes,
-    reservationsRes,
   ] = await Promise.all([
     includeMenu
       ? t.client.from('menu_categories').select('id, name, sort_order').order('sort_order')
@@ -500,14 +492,6 @@ export default async function PortalHome({
     includeTables
       ? t.client.from('restaurant_tables').select('id, label, seats, sort_order').order('sort_order')
       : Promise.resolve({ data: null }),
-    includeTables
-      ? t.client
-          .from('reservations')
-          .select('id, customer_name, phone, party_size, reserved_at, table_label, occasion, notes, status')
-          .gte('reserved_at', todayStart.toISOString())
-          .order('reserved_at', { ascending: true })
-          .limit(200)
-      : Promise.resolve({ data: null }),
   ]);
   // Availability / Portal Management / Settings policies / own membership.
   const {
@@ -520,8 +504,6 @@ export default async function PortalHome({
     priorityAvailRes,
     managedPortalsRes,
     catalogRes,
-    managedStaffRes,
-    managedLinksRes,
     rolesRes,
     policiesRes,
     myMembershipRes,
@@ -557,10 +539,6 @@ export default async function PortalHome({
     includePortals
       ? t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp')
       : Promise.resolve({ data: null }),
-    includePortals && has('staff.view')
-      ? t.client.from('memberships').select('id, email, full_name, role, status').order('email')
-      : Promise.resolve({ data: null }),
-    includePortals ? t.client.from('portal_staff').select('portal_id, membership_id') : Promise.resolve({ data: null }),
     includePortals ? t.client.from('roles').select('key, name, permissions').order('name') : Promise.resolve({ data: null }),
     includeSettings
       ? t.client.from('business_settings').select('max_refund_without_approval_cents').eq('id', true).maybeSingle()
@@ -756,22 +734,8 @@ export default async function PortalHome({
 
           {includeTables && (
             <section id="tables" className="scroll-mt-16 space-y-6">
-              <h2 className="font-bold text-sm mb-3">Tables &amp; Reservations</h2>
+              <h2 className="font-bold text-sm mb-3">Tables &amp; QR codes</h2>
               <TablesManager rows={tableRows} canEdit={has('tables.update')} canCreate={hasAny(['tables.update', 'tables.create'])} />
-              <div className="space-y-3">
-                <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Reservations</h3>
-                <ReservationsClient
-                  reservations={(reservationsRes.data ?? []) as Parameters<typeof ReservationsClient>[0]['reservations']}
-                  canEdit={has('tables.update')}
-                />
-              </div>
-            </section>
-          )}
-
-          {includeCustomers && (
-            <section id="customers" className="scroll-mt-16">
-              <h2 className="font-bold text-sm mb-3">Customers</h2>
-              <CustomersManager canCreate={has('customers.create')} canUpdate={has('customers.update')} />
             </section>
           )}
 
@@ -1080,21 +1044,6 @@ export default async function PortalHome({
             </section>
           )}
 
-          {includeRoles && (
-            <section id="roles" className="scroll-mt-16 space-y-4">
-              <h2 className="font-bold text-sm mb-3">Roles &amp; Access</h2>
-              {has('roles.view') && (
-                <RolesManager
-                  canCreate={has('roles.create')}
-                  canUpdate={has('roles.update')}
-                  canDelete={has('roles.delete')}
-                  callerPermissions={perms}
-                />
-              )}
-              {has('permissions.view') && <AccessList />}
-            </section>
-          )}
-
           {includePortals && (
             <section id="portals" className="scroll-mt-16">
               <h2 className="font-bold text-sm mb-3">Portal Management</h2>
@@ -1104,8 +1053,6 @@ export default async function PortalHome({
                 logoUrl={null}
                 portals={(managedPortalsRes.data ?? []) as ManagedPortal[]}
                 perms={((catalogRes.data ?? []) as PermRow[])}
-                staff={(managedStaffRes.data ?? []) as PortalStaffMember[]}
-                links={(managedLinksRes.data ?? []) as PortalStaffLink[]}
                 caps={{
                   create: has('portals.create'),
                   update: has('portals.update'),

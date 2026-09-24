@@ -64,16 +64,13 @@ export type PortalCapabilities = {
   variants: boolean;
   /** AvailabilityHistory + PriorityManager. */
   availability: boolean;
-  /** TablesManager (QR codes) + ReservationsClient — both tables' RLS read key. */
+  /** TablesManager (tables + QR codes) — restaurant_tables' RLS read key. */
   tables: boolean;
   /** ExportHistoryPanel — GET /api/ai/export-history requires reports.view. */
   reportHistory: boolean;
   reviews: boolean;
-  customers: boolean;
   /** ExceptionsPanel — GET /api/ai/attention accepts notifications.*. */
   notifications: boolean;
-  /** RolesManager (roles.view) and/or AccessList (permissions.view). */
-  roles: boolean;
   /** BrandKitSection + PoliciesManager. */
   settings: boolean;
   /** PortalsManager — delegated Portal Management. */
@@ -133,9 +130,7 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     tables: has('tables.view'),
     reportHistory: has('reports.view'),
     reviews: has('reviews.view'),
-    customers: hasAny(['customers.view', 'customers.create']),
     notifications: hasAny(['notifications.view', 'notifications.manage']),
-    roles: hasAny(['roles.view', 'permissions.view']),
     settings: has('settings.view'),
     portals: has('portals.view'),
   };
@@ -152,8 +147,7 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       caps.operations && { id: 'operations', label: 'Operations' },
       (caps.kitchen || caps.kitchenStock) && { id: 'kitchen', label: 'Kitchen' },
       caps.cashier && { id: 'cashier', label: 'Cashier' },
-      caps.tables && { id: 'tables', label: 'Tables & Reservations' },
-      caps.customers && { id: 'customers', label: 'Customers' },
+      caps.tables && { id: 'tables', label: 'Tables & QR codes' },
       (caps.menu || caps.variants) && { id: 'menu', label: 'Menu & Promotions' },
       caps.availability && { id: 'availability', label: 'Availability' },
       (caps.recipes || caps.ingredientCosts) && { id: 'recipes', label: 'Recipes & Food Cost' },
@@ -166,7 +160,6 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       (caps.deals || caps.social) && { id: 'marketing', label: 'Marketing & Social' },
       (caps.attendanceKiosk || caps.attendanceInsights) && { id: 'attendance', label: 'Attendance' },
       (caps.staff || caps.scheduling) && { id: 'staff', label: 'Staff' },
-      caps.roles && { id: 'roles', label: 'Roles & Access' },
       caps.portals && { id: 'portals', label: 'Portal Management' },
       caps.settings && { id: 'settings', label: 'Settings' },
       (caps.ai || caps.aiApprovals) && { id: 'ai', label: 'Assistant' },
@@ -192,7 +185,6 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
     'receipts.view', 'receipts.print',
   ],
   tables: ['tables.view', 'tables.create', 'tables.update'],
-  customers: ['customers.view', 'customers.create', 'customers.update'],
   // Creating/deleting a product also needs menu.update: menu_items' RLS
   // write policy checks that one key for every write.
   menu: [
@@ -224,7 +216,6 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   marketing: ['deals.view', 'deals.create', 'deals.update', 'deals.archive', 'social.view', 'social.manage', 'social.propose_post', 'social.approve_post'],
   attendance: ['attendance.view', 'attendance.mark', 'attendance.check_in', 'attendance.check_out', ...ATTENDANCE_INSIGHT_KEYS],
   staff: ['staff.view', 'staff.create', 'staff.update', 'staff.delete', 'permissions.assign', 'attendance.view', 'attendance.mark'],
-  roles: ['roles.view', 'roles.create', 'roles.update', 'roles.delete', 'permissions.view'],
   portals: ['portals.view', 'portals.create', 'portals.update', 'portals.disable', 'portals.credentials'],
   settings: ['settings.view', 'settings.update'],
   ai: ['ai.view', 'ai.execute_read', 'ai.execute_write', 'ai.approve_sensitive_action'],
@@ -251,13 +242,9 @@ export const PERMISSION_REQUIRES: Record<string, string[]> = {
   'attendance.check_in': ['attendance.view'],
   'attendance.check_out': ['attendance.view'],
   'attendance.export': ['attendance.view_reports|attendance.view_employee_reports|attendance.view_history'],
-  'customers.update': ['customers.view'],
   'reviews.analytics': ['reviews.view'],
   'reviews.respond': ['reviews.view'],
   'reviews.moderate': ['reviews.view'],
-  'roles.create': ['roles.view'],
-  'roles.update': ['roles.view'],
-  'roles.delete': ['roles.view'],
   'portals.create': ['portals.view'],
   'portals.update': ['portals.view'],
   'portals.disable': ['portals.view'],

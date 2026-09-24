@@ -40,8 +40,6 @@ const NAV_GROUPS: [string, NavItem[]][] = [
       ['checkout', 'Checkout', 'payments.view'],
       ['close', 'Day close', 'finance.view'],
       ['tables', 'Tables & QR', 'tables.view'],
-      ['reservations', 'Reservations', 'tables.view'],
-      ['customers', 'Customers', 'customers.view'],
       ['orders', 'Orders', 'orders.view'],
     ],
   ],
@@ -85,7 +83,6 @@ const NAV_GROUPS: [string, NavItem[]][] = [
     [
       ['staff', 'Staff', 'staff.view'],
       ['scheduling', 'Shifts', 'attendance.view'],
-      ['roles', 'Roles & Access', 'roles.view'],
       ['portals', 'Kiosk Portals', 'portals.view', true],
     ],
   ],

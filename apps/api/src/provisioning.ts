@@ -272,7 +272,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       cost RPC, attendance dashboard/history/corrections, review
 //       response/moderation/analytics, customers, member access list, and
 //       anti-escalation triggers on portals and roles.
-const SCHEMA_VERSION = 58;
+//   v59 Customers, Roles & Access and permissions.view retired from the
+//       permission catalog (sections removed from the product).
+const SCHEMA_VERSION = 59;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

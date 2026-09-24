@@ -5,8 +5,6 @@ import {
   PortalsManager,
   type Portal,
   type PermRow,
-  type StaffMember,
-  type PortalStaffLink,
 } from './PortalsManager';
 
 export const dynamic = 'force-dynamic';
@@ -22,14 +20,12 @@ export default async function PortalsPage({
 
   await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
 
-  const [{ data: portals, error }, permsRes, { data: staff }, { data: links }, { data: brandKitRows }, { data: roles }] = await Promise.all([
+  const [{ data: portals, error }, permsRes, { data: brandKitRows }, { data: roles }] = await Promise.all([
     t.client
       .from('portals')
       .select('id, name, type, route_key, status, permissions, email, last_login_at, last_logout_at, created_at')
       .order('created_at'),
     t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp'),
-    t.client.from('memberships').select('id, email, full_name, role, status').order('email'),
-    t.client.from('portal_staff').select('portal_id, membership_id'),
     t.client.rpc('get_brand_kit'),
     t.client.from('roles').select('key, name, permissions').order('name'),
   ]);
@@ -65,8 +61,6 @@ export default async function PortalsPage({
           logoUrl={logoUrl}
           portals={(portals ?? []) as Portal[]}
           perms={perms ?? []}
-          staff={(staff ?? []) as StaffMember[]}
-          links={(links ?? []) as PortalStaffLink[]}
           roles={(roles ?? []) as { key: string; name: string; permissions: string[] }[]}
         />
       )}

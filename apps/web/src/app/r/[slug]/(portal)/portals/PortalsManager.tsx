@@ -6,7 +6,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { PortalPreview } from './PortalPreview';
-import { ChevronDown, ChevronRight, Plus, Search, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Search, X } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -48,8 +48,6 @@ function PermBadges({ p }: { p: PermRow }) {
     </span>
   );
 }
-export type StaffMember = { id: string; email: string; full_name: string | null; role: string; status: string };
-export type PortalStaffLink = { portal_id: string; membership_id: string };
 
 // Every portal is built from scratch — a name plus whichever permissions
 // are picked in the grid below, nothing preset. `type` is no longer
@@ -64,8 +62,6 @@ export function PortalsManager({
   logoUrl,
   portals,
   perms,
-  staff,
-  links,
   caps = { create: true, update: true, disable: true, credentials: true },
   callerPermissions = ['*'],
   selfPortalId = null,
@@ -76,8 +72,6 @@ export function PortalsManager({
   logoUrl: string | null;
   portals: Portal[];
   perms: PermRow[];
-  staff: StaffMember[];
-  links: PortalStaffLink[];
   /** portals.create / portals.update / portals.disable / portals.credentials. */
   caps?: { create: boolean; update: boolean; disable: boolean; credentials: boolean };
   /** The caller's own keys: only these can be granted, and only portals
@@ -105,8 +99,6 @@ export function PortalsManager({
   const [permFilter, setPermFilter] = useState<PermFilter>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
-  const [staffEditId, setStaffEditId] = useState<string | null>(null);
-  const [staffDraft, setStaffDraft] = useState<Set<string>>(new Set());
 
   const callerAll = callerPermissions.includes('*');
   const grantable = useCallback((k: string) => callerAll || callerPermissions.includes(k), [callerAll, callerPermissions]);
@@ -200,12 +192,6 @@ export function PortalsManager({
     });
   }
 
-  const staffByPortal = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const l of links) m.set(l.portal_id, [...(m.get(l.portal_id) ?? []), l.membership_id]);
-    return m;
-  }, [links]);
-  const staffById = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
 
   async function token() {
     const {
@@ -412,41 +398,6 @@ export function PortalsManager({
         setError(b.message ?? b.error ?? 'Delete failed.');
         return;
       }
-      router.refresh();
-    } catch {
-      setError('Network error — try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function startStaffEdit(portalId: string) {
-    setError(null);
-    setStaffEditId(portalId);
-    setStaffDraft(new Set(staffByPortal.get(portalId) ?? []));
-  }
-  function toggleStaff(membershipId: string) {
-    setStaffDraft((s) => {
-      const n = new Set(s);
-      n.has(membershipId) ? n.delete(membershipId) : n.add(membershipId);
-      return n;
-    });
-  }
-  async function saveStaff(portalId: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API}/api/portals/${portalId}/staff`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ slug, membership_ids: [...staffDraft] }),
-      });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        setError(b.message ?? b.error ?? 'Could not update assigned staff.');
-        return;
-      }
-      setStaffEditId(null);
       router.refresh();
     } catch {
       setError('Network error — try again.');
@@ -752,7 +703,6 @@ export function PortalsManager({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {customPortals.map((p) => {
-              const assigned = staffByPortal.get(p.id) ?? [];
               return (
                 <Card key={p.id} className="flex flex-col">
                   <div className="flex items-start justify-between gap-2">
@@ -774,10 +724,6 @@ export function PortalsManager({
                       <span className="font-bold text-body">{p.permissions.includes('*') ? 'All' : p.permissions.length}</span>{' '}
                       permissions
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Users size={11} />
-                      {assigned.length}
-                    </span>
                   </div>
                   <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slug}/portal/{p.route_key}</div>
                   {p.email && <div className="text-[10px] text-muted truncate">{p.email}</div>}
@@ -793,15 +739,6 @@ export function PortalsManager({
                     {caps.update && (
                       <Button variant="ghost" disabled={busy} onClick={() => startEditAccess(p)}>
                         Edit access
-                      </Button>
-                    )}
-                    {caps.update && (
-                      <Button
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => (staffEditId === p.id ? setStaffEditId(null) : startStaffEdit(p.id))}
-                      >
-                        {staffEditId === p.id ? 'Cancel' : 'Assign staff'}
                       </Button>
                     )}
                     {(caps.disable || caps.update) && (
@@ -826,34 +763,6 @@ export function PortalsManager({
                     </p>
                   )}
 
-                  {staffEditId === p.id && (
-                    <div className="mt-3 pt-3 border-t border-border">
-                      <div className="text-[11px] font-semibold text-muted mb-1.5">
-                        Staff assigned this portal gain its permissions in addition to their own role.
-                      </div>
-                      {staff.length === 0 ? (
-                        <p className="text-muted text-xs">No staff accounts yet — add one on the Staff page.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto">
-                          {staff.map((m) => (
-                            <label key={m.id} className="flex items-center gap-2 text-xs">
-                              <input type="checkbox" checked={staffDraft.has(m.id)} onChange={() => toggleStaff(m.id)} />
-                              <span className="truncate">{m.full_name || m.email}</span>
-                              <span className="text-muted text-[10px] shrink-0">({m.role})</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex gap-2 mt-2.5">
-                        <Button disabled={busy} onClick={() => saveStaff(p.id)}>
-                          {busy ? 'Saving…' : 'Save'}
-                        </Button>
-                        <Button variant="ghost" disabled={busy} onClick={() => setStaffEditId(null)}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </Card>
               );
             })}
