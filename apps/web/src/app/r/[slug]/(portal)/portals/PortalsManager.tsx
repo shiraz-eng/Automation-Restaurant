@@ -559,10 +559,16 @@ export function PortalsManager({
       {(() => {
         const admin = portals.find((p) => p.type === 'super_admin');
         return admin ? (
-          <p className="text-muted text-[11px]">
-            <span className="font-semibold text-body">{admin.name}</span> (Super Admin) has full
-            control of this restaurant and can&rsquo;t be edited or removed here.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-border p-3">
+            <p className="text-muted text-[11px]">
+              <span className="font-semibold text-body">{admin.name}</span> (Super Admin) has full
+              control of this restaurant and can&rsquo;t be edited or removed here — only its
+              password can be changed.
+            </p>
+            <Button variant="ghost" disabled={busy} onClick={() => resetPassword(admin.id, admin.name)}>
+              Change password
+            </Button>
+          </div>
         ) : null;
       })()}
     </div>
