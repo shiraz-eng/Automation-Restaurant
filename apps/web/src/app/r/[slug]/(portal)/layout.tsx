@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
+import { ChangePasswordControl } from '@/components/ChangePasswordControl';
 import { NavLink } from '@/components/NavLink';
 import { roleHome } from '@/lib/portals';
 import { can } from '@/lib/permissions';
@@ -195,10 +196,11 @@ export default async function PortalLayout({
               </div>
             ))}
           </nav>
-          <div className="p-4 border-t border-border text-xs text-muted">
-            <div className="mb-2 truncate" title={user.email ?? undefined}>
+          <div className="p-4 border-t border-border text-xs text-muted space-y-2">
+            <div className="truncate" title={user.email ?? undefined}>
               {user.email}
             </div>
+            <ChangePasswordControl />
             <SignOutButton redirectTo={`/r/${slug}/login`} />
           </div>
         </aside>

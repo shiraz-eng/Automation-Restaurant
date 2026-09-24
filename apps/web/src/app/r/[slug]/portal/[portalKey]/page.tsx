@@ -4,12 +4,8 @@ import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
 import type { ReceiptConfig as PortalReceiptConfig } from '@/lib/receiptTemplate';
-import {
-  KitchenPortalBoard,
-  type KOrder,
-  type KVariant,
-  type Counter,
-} from './KitchenPortalBoard';
+import { KdsBoard } from '../../(portal)/kds/KdsBoard';
+import type { Kot, RecipeComponentRow } from '../../(portal)/kds/kitchenTypes';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { AnalyticsSection } from './AnalyticsSection';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from '../../(portal)/checkout/CheckoutClient';
@@ -25,6 +21,7 @@ import { SocialManager } from '../../(portal)/social/SocialManager';
 import { StaffManager } from '@/components/StaffManager';
 import { SchedulingClient, type Shift, type Attendance } from '../../(portal)/scheduling/SchedulingClient';
 import { DayCloseClient, type Closing } from '../../(portal)/close/DayCloseClient';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { resolvePortalCapabilities, portalSections } from '@/lib/portalCapabilities';
 
 export const dynamic = 'force-dynamic';
@@ -127,9 +124,10 @@ export default async function PortalHome({
 
   const [
     ordersRes,
-    kitchenBoardRes,
-    kitchenVariantsRes,
-    kitchenCountersRes,
+    kdsOrdersRes,
+    kdsCompletedTodayRes,
+    kdsRecipeComponentsRes,
+    kdsEntitlementsRes,
     cashierRes,
     settingsRes,
     cashierMenuCatRes,
@@ -176,19 +174,27 @@ export default async function PortalHome({
       ? t.client
           .from('orders')
           .select(
-            'id, order_number, table_label, channel, status, customer_note, created_at, pickup_counter_portal_id, order_lines(id, name_snapshot, qty, kds_status, modifiers, customer_note)',
+            'id, order_number, table_label, customer_name, channel, created_at, status, customer_note, ' +
+              'order_lines(id, name_snapshot, variant_name_snapshot, qty, kds_status, modifiers, customer_note, menu_item_id, menu_items(station))',
           )
           .in('status', ACTIVE)
           .order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
     includeKitchen
       ? t.client
-          .from('menu_variants')
-          .select('id, name, is_available, track_availability, available_qty, menu_items(name)')
-          .order('name')
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['served', 'paid'])
+          .gte('created_at', todayStart.toISOString())
+      : Promise.resolve({ count: 0 }),
+    includeKitchen
+      ? t.client
+          .from('recipe_components')
+          .select('inventory_item_id, qty_per_unit, variant_id, menu_item_id, inventory_items(name, unit)')
+          .is('variant_id', null)
       : Promise.resolve({ data: null }),
     includeKitchen
-      ? t.client.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name')
+      ? t.client.from('business_settings').select('plan_tier, plan_features').eq('id', true).maybeSingle()
       : Promise.resolve({ data: null }),
     includeCashier
       ? t.client
@@ -457,7 +463,10 @@ export default async function PortalHome({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
                 <StatCard label="Orders today" value={todayOrders.length} hint={`${formatCents(revenueToday)} paid`} />
               </div>
-              <h2 className="font-bold text-sm mb-3">Operations</h2>
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <h2 className="font-bold text-sm">Operations</h2>
+                <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="orders" label="Orders" />
+              </div>
               <OrdersClient orders={orders} canCancel={has('orders.cancel')} />
             </section>
           )}
@@ -465,12 +474,17 @@ export default async function PortalHome({
           {includeKitchen && (
             <section id="kitchen" className="scroll-mt-16">
               <h2 className="font-bold text-sm mb-3">Kitchen</h2>
-              <KitchenPortalBoard
-                initialOrders={(kitchenBoardRes.data ?? []) as unknown as KOrder[]}
-                initialVariants={(kitchenVariantsRes.data ?? []) as unknown as KVariant[]}
-                counters={(kitchenCountersRes.data ?? []) as Counter[]}
-                canAvailability={has('kitchen.manage_availability') || has('availability.update')}
-                canWaste={has('kitchen.record_waste')}
+              <KdsBoard
+                slug={slug}
+                restaurantName={t.config.restaurantName}
+                initial={(kdsOrdersRes.data ?? []) as unknown as Kot[]}
+                completedToday={kdsCompletedTodayRes.count ?? 0}
+                recipeComponents={(kdsRecipeComponentsRes.data ?? []) as unknown as RecipeComponentRow[]}
+                canEdit={has('kitchen.update_status')}
+                stationRoutingEntitled={
+                  !kdsEntitlementsRes.data?.plan_tier ||
+                  ((kdsEntitlementsRes.data?.plan_features as string[] | undefined) ?? []).includes('kds.station_routing')
+                }
               />
             </section>
           )}
@@ -524,7 +538,10 @@ export default async function PortalHome({
 
           {includeInventory && (
             <section id="inventory" className="scroll-mt-16 space-y-4">
-              <h2 className="font-bold text-sm mb-3">Inventory</h2>
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <h2 className="font-bold text-sm">Inventory</h2>
+                <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="inventory" label="Inventory" />
+              </div>
               <InventoryManager
                 items={stockRes.data ?? []}
                 canViewCost={has('inventory.view_cost')}
@@ -564,8 +581,21 @@ export default async function PortalHome({
           {(includeSuppliers || includePurchasing) && (
             <section id="suppliers" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Suppliers &amp; Purchasing</h2>
-              {includeSuppliers && <SuppliersManager suppliers={suppliers} canManage={has('supplier.manage')} />}
+              {includeSuppliers && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Suppliers</h3>
+                    <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="suppliers" label="Suppliers" />
+                  </div>
+                  <SuppliersManager suppliers={suppliers} canManage={has('supplier.manage')} />
+                </div>
+              )}
               {includePurchasing && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Purchasing</h3>
+                    <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="purchasing" label="Purchasing" />
+                  </div>
                 <PurchasingClient
                   suppliers={purchSuppliersRes.data ?? []}
                   items={purchItemsRes.data ?? []}
@@ -582,13 +612,19 @@ export default async function PortalHome({
                   canApprovePO={has('purchases.approve')}
                   canReceive={has('purchases.receive') || has('inventory.manage_purchases')}
                 />
+                </div>
               )}
             </section>
           )}
 
           {(canFinance || includeDayClose) && (
             <section id="finance" className="scroll-mt-16 space-y-6">
-              <h2 className="font-bold text-sm mb-3">Finance</h2>
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                <h2 className="font-bold text-sm">Finance</h2>
+                {canFinance && (
+                  <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="expenses" label="Expenses" />
+                )}
+              </div>
               {canFinance && (
                 <ExpensesManager
                   expenses={expenses}
