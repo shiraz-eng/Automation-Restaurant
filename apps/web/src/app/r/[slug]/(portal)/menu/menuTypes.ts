@@ -83,11 +83,13 @@ export type RecipeIngredientRow = {
   inventory_items: { cost_cents_per_base_unit: number } | { cost_cents_per_base_unit: number }[] | null;
 };
 export type RecipeVersionRow = {
+  yield_unit?: string | null;
   id: string;
   yield_qty: number;
   recipe_ingredients: RecipeIngredientRow[];
 };
 export type RecipeRow = {
+  recipe_type?: 'menu_item' | 'variant' | 'semi_finished' | 'preparation';
   id: string;
   name: string;
   status: 'draft' | 'active' | 'archived';

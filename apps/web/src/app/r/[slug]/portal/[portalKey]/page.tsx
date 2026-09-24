@@ -467,7 +467,7 @@ export default async function PortalHome({
       ? t.client
           .from('recipes')
           .select(
-            `id, name, status, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, recipe_ingredients(${
+            `id, name, status, recipe_type, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, yield_unit, recipe_ingredients(${
               canViewMenuCost
                 ? 'qty_base, inventory_item_id, sub_recipe_id, inventory_items(cost_cents_per_base_unit)'
                 : 'qty_base, inventory_item_id, sub_recipe_id'
@@ -763,6 +763,7 @@ export default async function PortalHome({
                 canCreate={has('menu.create') && has('menu.update')}
                 canDelete={has('menu.delete') && has('menu.update')}
                 canViewCost={canViewMenuCost}
+                canManageRecipes={has('inventory.manage_recipes') || has('finance.manage_recipes')}
               />
               )}
               {includeVariants && (

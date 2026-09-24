@@ -16,6 +16,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
   const canCreate = can(perms, role, 'menu.create');
   const canDelete = can(perms, role, 'menu.delete');
   const canViewCost = can(perms, role, 'inventory.view_cost');
+  const canManageRecipes = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');
 
   // Recipe cost figures are only fetched when the caller actually holds
   // inventory.view_cost — same gate the Recipes & Food Cost page itself
@@ -51,7 +52,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
     t.client
       .from('recipes')
       .select(
-        `id, name, status, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, recipe_ingredients(${recipeIngredientsSelect}))`,
+        `id, name, status, recipe_type, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, yield_unit, recipe_ingredients(${recipeIngredientsSelect}))`,
       )
       .eq('status', 'active'),
     t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, bottleneck_inventory_item_id, reason'),
@@ -76,6 +77,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
           canCreate={canCreate}
           canDelete={canDelete}
           canViewCost={canViewCost}
+          canManageRecipes={canManageRecipes}
         />
       )}
     </div>

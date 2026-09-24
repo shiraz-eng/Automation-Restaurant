@@ -38,6 +38,7 @@ export function MenuManager({
   canCreate,
   canDelete,
   canViewCost,
+  canManageRecipes = false,
 }: {
   slug: string;
   categories: Category[];
@@ -50,6 +51,9 @@ export function MenuManager({
   canCreate: boolean;
   canDelete: boolean;
   canViewCost: boolean;
+  /** inventory.manage_recipes / finance.manage_recipes — lets product
+   *  creation and the editor connect a recipe (the RPCs re-check it). */
+  canManageRecipes?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -206,6 +210,7 @@ export function MenuManager({
           canEdit={canEdit}
           canDelete={canDelete}
           canViewCost={canViewCost}
+          canManageRecipes={canManageRecipes}
           onClose={() => setEditingId(null)}
           onDeleted={() => setEditingId(null)}
           onDuplicated={(newId) => setEditingId(newId)}
@@ -215,6 +220,8 @@ export function MenuManager({
       {showCreate && (
         <CreateProductModal
           categories={sortedCategories}
+          recipes={recipes}
+          canManageRecipes={canManageRecipes}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => {
             setShowCreate(false);

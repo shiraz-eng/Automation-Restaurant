@@ -25,6 +25,7 @@ import {
   type RecipeRow,
 } from '../menuTypes';
 import { ImageFallback } from './ImageFallback';
+import { RecipeConnectField, connectRecipe, recipeChoiceError, type RecipeChoice } from './RecipeConnectField';
 import { StatusPill } from './StatusPill';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -52,6 +53,7 @@ export function ProductEditor({
   canEdit,
   canDelete,
   canViewCost,
+  canManageRecipes = false,
   onClose,
   onDeleted,
   onDuplicated,
@@ -70,6 +72,7 @@ export function ProductEditor({
   canEdit: boolean;
   canDelete: boolean;
   canViewCost: boolean;
+  canManageRecipes?: boolean;
   onClose: () => void;
   onDeleted: () => void;
   onDuplicated: (newItemId: string) => void;
@@ -78,6 +81,26 @@ export function ProductEditor({
   const supabase = usePortalSupabase();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recipeChoice, setRecipeChoice] = useState<RecipeChoice>({ mode: 'none' });
+  const [recipeError, setRecipeError] = useState<string | null>(null);
+
+  async function connectItemRecipe() {
+    const choiceErr = recipeChoiceError(recipeChoice);
+    if (choiceErr) {
+      setRecipeError(choiceErr);
+      return;
+    }
+    setBusy(true);
+    setRecipeError(null);
+    const err = await connectRecipe(supabase, recipes, item.id, item.name, recipeChoice);
+    setBusy(false);
+    if (err) {
+      setRecipeError(err);
+      return;
+    }
+    setRecipeChoice({ mode: 'none' });
+    router.refresh();
+  }
   const [uploading, setUploading] = useState(false);
 
   // Product Information — local draft, batched into one "Save Changes".
@@ -663,6 +686,17 @@ export function ProductEditor({
                       </div>
                     </>
                   )}
+                </div>
+              ) : canManageRecipes ? (
+                <div className="space-y-2">
+                  <p className="text-muted text-xs">No recipe linked yet.</p>
+                  <RecipeConnectField recipes={recipes.filter((r) => r.menu_item_id !== item.id)} value={recipeChoice} onChange={setRecipeChoice} />
+                  {recipeChoice.mode !== 'none' && (
+                    <Button onClick={connectItemRecipe} disabled={busy}>
+                      {busy ? 'Connecting…' : 'Connect Recipe'}
+                    </Button>
+                  )}
+                  {recipeError && <p className="text-danger text-xs">{recipeError}</p>}
                 </div>
               ) : (
                 <p className="text-muted text-xs">No recipe linked yet.</p>
