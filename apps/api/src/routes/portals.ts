@@ -1,7 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { env } from '../env';
+import { isAllowedOrigin, env } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { tempPassword } from '../lib/tempPassword';
 
@@ -40,7 +40,7 @@ async function backfillEffectivePermissions(
 
 portalsRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

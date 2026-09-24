@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase';
-import { env } from '../env';
+import { isAllowedOrigin, env } from '../env';
 import { getActivePlans } from '../lib/plans';
 import { billingConfigured } from '../stripe';
 import { getAllSiteSections } from '../lib/siteContent';
@@ -47,7 +47,7 @@ const TAX_RATE_BPS = 800;
 // Storefront is served cross-origin from the web app in dev.
 publicRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

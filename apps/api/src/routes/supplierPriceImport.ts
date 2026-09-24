@@ -1,7 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { requirePortalPerm } from '../middleware/portalAuth';
-import { aiEnabled, env } from '../env';
+import { isAllowedOrigin, aiEnabled, env } from '../env';
 import { extractPdfText } from '../lib/aiDocumentEngine';
 import {
   extractPlainText,
@@ -17,7 +17,7 @@ export const supplierPriceImportRouter = express.Router();
 
 supplierPriceImportRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

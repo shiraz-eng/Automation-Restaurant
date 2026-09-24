@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import { z } from 'zod';
-import { env, socialEnabled } from '../env';
+import { isAllowedOrigin, env, socialEnabled } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
 import {
@@ -24,7 +24,7 @@ export const socialRouter = express.Router();
 
 socialRouter.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

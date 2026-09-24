@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { env, aiEnabled, aiProvider } from '../env';
+import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
@@ -95,7 +95,7 @@ export const aiRouter = express.Router();
 
 aiRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

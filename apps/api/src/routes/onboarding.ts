@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
-import { env, oauthConnectEnabled } from '../env';
+import { isAllowedOrigin, env, oauthConnectEnabled } from '../env';
 import { slugify } from '../lib/slug';
 import { provisionTenant } from '../provisioning';
 import { hashClaimToken } from '../lib/tokens';
@@ -33,7 +33,7 @@ export const onboardingRouter = express.Router();
 // Called cross-origin from the checkout + provisioning-status pages in dev.
 onboardingRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

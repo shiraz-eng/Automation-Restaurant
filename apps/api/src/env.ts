@@ -14,6 +14,12 @@ config({
 const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   APP_URL: z.string().url(),
+  // Extra browser origins allowed to call this API beyond APP_URL and
+  // localhost (comma-separated, e.g. a Vercel project's other domain
+  // aliases — git-branch alias, a custom alias, etc.). Every one of those
+  // aliases serves the exact same app, so a request from any of them is
+  // just as legitimate as one from APP_URL itself.
+  ALLOWED_ORIGINS: z.string().trim().optional(),
 
   // Control-plane Supabase project (the registry).
   SUPABASE_URL: z.string().url(),
@@ -97,6 +103,21 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+const extraAllowedOrigins = new Set(
+  (env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+/** The single CORS origin check every router uses (see routes/*.ts's
+ *  `.use((req, res, next) => ...)` blocks) — APP_URL, any ALLOWED_ORIGINS
+ *  entry, or localhost during dev. */
+export function isAllowedOrigin(origin: string | undefined): origin is string {
+  if (!origin) return false;
+  return origin === env.APP_URL || extraAllowedOrigins.has(origin) || /^http:\/\/localhost:\d+$/.test(origin);
+}
 
 /** True when the "Connect your Supabase" OAuth flow is fully configured. */
 export const oauthConnectEnabled = Boolean(

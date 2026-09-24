@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { env, aiEnabled, aiProvider } from '../env';
+import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { supabaseAdmin } from '../supabase';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { SAAS_AI_TOOLS, SAAS_SYSTEM_PROMPT, type SaasAiTool } from '../lib/saasAiTools';
@@ -18,7 +18,7 @@ export const saasAiRouter = express.Router();
 
 saasAiRouter.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }

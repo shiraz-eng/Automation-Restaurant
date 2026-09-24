@@ -1,7 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import Anthropic from '@anthropic-ai/sdk';
-import { env, aiEnabled, aiProvider } from '../env';
+import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { supabaseAdmin } from '../supabase';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import {
@@ -265,7 +265,7 @@ async function runAnthropic(
 
 function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin;
-  if (origin && (origin === env.APP_URL || /^http:\/\/localhost:\d+$/.test(origin))) {
+  if (isAllowedOrigin(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
   }
