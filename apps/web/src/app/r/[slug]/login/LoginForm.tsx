@@ -19,18 +19,11 @@ export function LoginForm({
   logoUrl?: string | null;
 }) {
   const router = useRouter();
-  const isBbq = slug.toLowerCase().includes('bbq');
-  const defaultEmail = isBbq ? 'aneelahumayoon3@gmail.com' : '';
-  const [email, setEmail] = useState(defaultEmail);
-  const [password, setPassword] = useState(isBbq ? 'Password123!' : '');
+  // Never pre-fill or ship credentials in this form: it is public.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  function fillRole(u: string, p: string = 'Password123!') {
-    setEmail(u);
-    setPassword(p);
-    setError(null);
-  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,64 +101,6 @@ export function LoginForm({
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-border">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">
-            Quick demo sign-in
-          </p>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() =>
-                fillRole(
-                  isBbq ? 'aneelahumayoon3@gmail.com' : 'owner@example.com',
-                  'Password123!',
-                )
-              }
-              className="p-2 rounded border border-border bg-surface hover:bg-surface/80 text-left font-medium transition-colors"
-            >
-              <div className="text-primary font-bold">Owner</div>
-              <div className="text-[11px] text-muted truncate">
-                {isBbq ? 'aneelahumayoon3@gmail.com' : 'Owner portal'}
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                fillRole(
-                  isBbq ? 'test-manager@example.com' : 'manager@example.com',
-                  'Password123!',
-                )
-              }
-              className="p-2 rounded border border-border bg-surface hover:bg-surface/80 text-left font-medium transition-colors"
-            >
-              <div className="text-primary font-bold">Manager</div>
-              <div className="text-[11px] text-muted truncate">
-                {isBbq ? 'test-manager@example.com' : 'Management'}
-              </div>
-            </button>
-            {isBbq && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => fillRole('counter@bbq-tonight.portal', 'Password123!')}
-                  className="p-2 rounded border border-border bg-surface hover:bg-surface/80 text-left font-medium transition-colors"
-                >
-                  <div className="text-primary font-bold">Counter POS</div>
-                  <div className="text-[11px] text-muted truncate">counter@bbq-tonight</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillRole('staff@bbq-tonight.portal', 'Password123!')}
-                  className="p-2 rounded border border-border bg-surface hover:bg-surface/80 text-left font-medium transition-colors"
-                >
-                  <div className="text-primary font-bold">Staff / Attendance</div>
-                  <div className="text-[11px] text-muted truncate">staff@bbq-tonight</div>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

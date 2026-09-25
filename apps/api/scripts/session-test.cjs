@@ -1,8 +1,11 @@
 /* eslint-disable */
 const { createClient } = require('@supabase/supabase-js');
 const CP = 'https://ckxxpyzxsbhhynlboyid.supabase.co';
-const CP_SVC =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODk1NTQzNCwiZXhwIjoyMTA0NTMxNDM0fQ.8Pf3AAJ0MNn9LdcyWxvRARFx6EunjNWEBHj68JBKuP0';
+// Never hard-code this key: it bypasses every RLS policy on the control
+// plane. Read from apps/api/.env (not committed) or the environment.
+try { process.loadEnvFile(require('node:path').join(__dirname, '..', '.env')); } catch {}
+const CP_SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!CP_SVC) throw new Error('Set SUPABASE_SERVICE_ROLE_KEY (apps/api/.env) to run this script.');
 
 (async () => {
   const cp = createClient(CP, CP_SVC, { auth: { persistSession: false } });
