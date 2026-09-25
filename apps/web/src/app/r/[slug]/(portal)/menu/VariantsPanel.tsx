@@ -4,9 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
-import { linkRecipe, unlinkRecipe } from './components/RecipeLinkField';
+import { linkRecipe, recipeOptionLabel, unlinkRecipe } from './components/RecipeLinkField';
 
-type RecipeRow = { id: string; name: string; status: string; recipe_type: string; menu_item_id: string | null; variant_id: string | null };
+type RecipeRow = {
+  id: string;
+  name: string;
+  status: string;
+  recipe_type: string;
+  recipe_links: { menu_item_id: string; variant_id: string | null }[] | null;
+};
+
+function recipeAt(recipes: RecipeRow[], itemId: string, variantId: string | null): RecipeRow | undefined {
+  return recipes.find((x) => (x.recipe_links ?? []).some((l) => l.menu_item_id === itemId && l.variant_id === variantId));
+}
 
 type VariantRow = {
   id: string;
@@ -68,7 +78,7 @@ export function VariantsPanel({
         .order('sort_order'),
       canCreate ? supabase.from('menu_items').select('id, name').order('name') : Promise.resolve({ data: [], error: null }),
       canLinkRecipes
-        ? supabase.from('recipes').select('id, name, status, recipe_type, menu_item_id, variant_id').neq('status', 'archived').order('name')
+        ? supabase.from('recipes').select('id, name, status, recipe_type, recipe_links(menu_item_id, variant_id)').neq('status', 'archived').order('name')
         : Promise.resolve({ data: [], error: null }),
     ]);
     setRecipes((rc.data ?? []) as RecipeRow[]);
@@ -78,7 +88,14 @@ export function VariantsPanel({
     setLoading(false);
   }, [supabase, canCreate, canLinkRecipes]);
 
-  const linkable = useMemo(() => recipes.filter((r) => !r.menu_item_id && r.recipe_type === 'menu_item'), [recipes]);
+  // Any dish recipe can be picked, even one other dishes already use.
+  const linkable = useMemo(
+    () =>
+      recipes
+        .filter((r) => r.recipe_type === 'menu_item' || r.recipe_type === 'variant')
+        .map((r) => ({ id: r.id, name: r.name, status: r.status as 'draft' | 'active', uses: (r.recipe_links ?? []).length })),
+    [recipes],
+  );
 
   async function linkTo(recipeId: string, menuItemId: string, variantId: string) {
     if (!recipeId) return;
@@ -90,11 +107,11 @@ export function VariantsPanel({
     await load();
   }
 
-  async function unlink(r: RecipeRow) {
-    if (!confirm(`Unlink "${r.name}" from this size? It stops deducting stock; the recipe is kept.`)) return;
+  async function unlink(r: RecipeRow, menuItemId: string, variantId: string) {
+    if (!confirm(`Unlink "${r.name}" from this size? It stops deducting stock; the recipe (and any other dish using it) is unchanged.`)) return;
     setBusy(true);
     setError(null);
-    const err = await unlinkRecipe(supabase, r.id);
+    const err = await unlinkRecipe(supabase, r.id, menuItemId, variantId);
     setBusy(false);
     if (err) setError(err);
     await load();
@@ -208,8 +225,7 @@ export function VariantsPanel({
                   <option value="">No recipe</option>
                   {linkable.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.name}
-                      {r.status === 'draft' ? ' (draft)' : ''}
+                      {recipeOptionLabel(r)}
                     </option>
                   ))}
                 </Select>
@@ -280,18 +296,18 @@ export function VariantsPanel({
                       {canLinkRecipes && (
                         <td className="p-2.5">
                           {(() => {
-                            const own = recipes.find((x) => x.variant_id === r.id);
+                            const own = recipeAt(recipes, r.menu_item_id, r.id);
                             if (own) {
                               return (
                                 <span className="whitespace-nowrap">
                                   <span className="font-semibold">{own.name}</span>
-                                  <button onClick={() => unlink(own)} disabled={busy} className="text-danger text-[11px] underline ml-2">
+                                  <button onClick={() => unlink(own, r.menu_item_id, r.id)} disabled={busy} className="text-danger text-[11px] underline ml-2">
                                     Unlink
                                   </button>
                                 </span>
                               );
                             }
-                            const dish = recipes.find((x) => x.menu_item_id === r.menu_item_id && !x.variant_id);
+                            const dish = recipeAt(recipes, r.menu_item_id, null);
                             const fallback = dish ? `Uses ${dish.name}` : 'No recipe';
                             if (linkable.length === 0) return <span className="text-muted">{fallback}</span>;
                             return (
@@ -305,8 +321,7 @@ export function VariantsPanel({
                                 <option value="">{fallback}</option>
                                 {linkable.map((x) => (
                                   <option key={x.id} value={x.id}>
-                                    Link {x.name}
-                                    {x.status === 'draft' ? ' (draft)' : ''}
+                                    Link {recipeOptionLabel(x)}
                                   </option>
                                 ))}
                               </Select>

@@ -60,10 +60,10 @@ export function MenuImportPanel({
   canLinkRecipes?: boolean;
 }) {
   const supabase = usePortalSupabase();
-  const { unlinkedRecipes } = useRecipeLinkOptions(canLinkRecipes);
-  // Row key -> recipe id the reviewer picked. Nothing is pre-selected.
+  const { recipes } = useRecipeLinkOptions(canLinkRecipes);
+  // Row key -> recipe id the reviewer picked. Nothing is pre-selected; the
+  // same recipe may be picked for several dishes.
   const [recipeLinks, setRecipeLinks] = useState<Record<string, string>>({});
-  const pickedRecipeIds = new Set(Object.values(recipeLinks));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
@@ -306,10 +306,8 @@ export function MenuImportPanel({
                               {item.modifier_groups.map((g) => `${g.name}: ${g.modifiers.map((m) => m.name).join(', ')}`).join(' · ')}
                             </div>
                           )}
-                          {canLinkRecipes && approved.has(key) && unlinkedRecipes.length > 0 && (() => {
-                            const suggestion = unlinkedRecipes.find(
-                              (r) => normName(r.name) === normName(item.name) && !pickedRecipeIds.has(r.id),
-                            );
+                          {canLinkRecipes && approved.has(key) && recipes.length > 0 && (() => {
+                            const suggestion = recipes.find((r) => normName(r.name) === normName(item.name));
                             return (
                               <div className="flex flex-wrap items-center gap-2 mt-1">
                                 <span className="text-[11px] text-muted">Recipe:</span>
@@ -320,10 +318,11 @@ export function MenuImportPanel({
                                   className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
                                 >
                                   <option value="">No recipe</option>
-                                  {unlinkedRecipes.map((r) => (
-                                    <option key={r.id} value={r.id} disabled={pickedRecipeIds.has(r.id) && recipeLinks[key] !== r.id}>
+                                  {recipes.map((r) => (
+                                    <option key={r.id} value={r.id}>
                                       {r.name}
                                       {r.status === 'draft' ? ' (draft)' : ''}
+                                      {r.uses ? ` (used by ${r.uses})` : ''}
                                     </option>
                                   ))}
                                 </select>

@@ -13,9 +13,11 @@ export type DishOption = {
   /** '' = the whole dish; a size id = that size. Slots that already have a recipe. */
   takenSlots: Set<string>;
 };
-export type RecipeOption = { id: string; name: string; status: 'draft' | 'active' };
+/** Any dish recipe — one recipe can be shared by several dishes/sizes. */
+export type RecipeOption = { id: string; name: string; status: 'draft' | 'active'; uses: number };
 
-type RecipeRow = { id: string; name: string; status: string; recipe_type: string; menu_item_id: string | null; variant_id: string | null };
+type RecipeRow = { id: string; name: string; status: string; recipe_type: string };
+type LinkRow = { recipe_id: string; menu_item_id: string; variant_id: string | null };
 type DishRow = { id: string; name: string; menu_variants: { id: string; name: string; sort_order: number }[] | null };
 
 export function normName(s: string): string {
@@ -25,22 +27,25 @@ export function normName(s: string): string {
 export function useRecipeLinkOptions(enabled: boolean) {
   const supabase = usePortalSupabase();
   const [dishes, setDishes] = useState<DishOption[]>([]);
-  const [unlinkedRecipes, setUnlinkedRecipes] = useState<RecipeOption[]>([]);
+  const [recipes, setRecipes] = useState<RecipeOption[]>([]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     (async () => {
-      const [{ data: recipes }, { data: items }] = await Promise.all([
-        supabase.from('recipes').select('id, name, status, recipe_type, menu_item_id, variant_id').neq('status', 'archived'),
+      const [{ data: recipeRows }, { data: links }, { data: items }] = await Promise.all([
+        supabase.from('recipes').select('id, name, status, recipe_type').neq('status', 'archived'),
+        supabase.from('recipe_links').select('recipe_id, menu_item_id, variant_id'),
         supabase.from('menu_items').select('id, name, menu_variants(id, name, sort_order)').order('name'),
       ]);
       if (cancelled) return;
-      const rows = (recipes ?? []) as RecipeRow[];
-      setUnlinkedRecipes(
-        rows
-          .filter((r) => !r.menu_item_id && r.recipe_type === 'menu_item')
-          .map((r) => ({ id: r.id, name: r.name, status: r.status as RecipeOption['status'] }))
+      const linkRows = (links ?? []) as LinkRow[];
+      const uses = new Map<string, number>();
+      for (const l of linkRows) uses.set(l.recipe_id, (uses.get(l.recipe_id) ?? 0) + 1);
+      setRecipes(
+        ((recipeRows ?? []) as RecipeRow[])
+          .filter((r) => r.recipe_type === 'menu_item' || r.recipe_type === 'variant')
+          .map((r) => ({ id: r.id, name: r.name, status: r.status as RecipeOption['status'], uses: uses.get(r.id) ?? 0 }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
       setDishes(
@@ -48,7 +53,7 @@ export function useRecipeLinkOptions(enabled: boolean) {
           id: d.id,
           name: d.name,
           sizes: (d.menu_variants ?? []).slice().sort((a, b) => a.sort_order - b.sort_order).map((v) => ({ id: v.id, name: v.name })),
-          takenSlots: new Set(rows.filter((r) => r.menu_item_id === d.id).map((r) => r.variant_id ?? '')),
+          takenSlots: new Set(linkRows.filter((l) => l.menu_item_id === d.id).map((l) => l.variant_id ?? '')),
         })),
       );
     })();
@@ -57,5 +62,5 @@ export function useRecipeLinkOptions(enabled: boolean) {
     };
   }, [enabled, supabase]);
 
-  return { dishes, unlinkedRecipes };
+  return { dishes, recipes };
 }

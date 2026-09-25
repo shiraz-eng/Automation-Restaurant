@@ -15,6 +15,7 @@ import {
   ingredientRef,
   itemAvailabilityStatus,
   recipeFoodCost,
+  linksForItem,
   recipeForItem,
   type Category,
   type DealRow,
@@ -25,7 +26,7 @@ import {
   type RecipeRow,
 } from '../menuTypes';
 import { ImageFallback } from './ImageFallback';
-import { RecipeLinkField, linkRecipe, unlinkRecipe, type LinkableRecipe } from './RecipeLinkField';
+import { RecipeLinkField, linkRecipe, recipeOptionLabel, unlinkRecipe, type LinkableRecipe } from './RecipeLinkField';
 import { StatusPill } from './StatusPill';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -87,7 +88,8 @@ export function ProductEditor({
   const [linkRecipeId, setLinkRecipeId] = useState('');
   const [linkSizeId, setLinkSizeId] = useState('');
   const [recipeError, setRecipeError] = useState<string | null>(null);
-  const linkedRecipes = recipes.filter((r) => r.menu_item_id === item.id);
+  // Every (recipe, size) link on this dish; variant_id null = whole dish.
+  const itemLinks = linksForItem(recipes, item.id);
 
   async function linkItemRecipe() {
     if (!linkRecipeId) return;
@@ -104,11 +106,12 @@ export function ProductEditor({
     router.refresh();
   }
 
-  async function unlinkItemRecipe(r: RecipeRow) {
-    if (!confirm(`Unlink "${r.name}" from ${item.name}? The dish stops deducting stock; the recipe itself is kept.`)) return;
+  async function unlinkItemRecipe(link: { recipe: RecipeRow; variant_id: string | null }) {
+    const where = link.variant_id ? `the ${item.menu_variants.find((v) => v.id === link.variant_id)?.name ?? 'size'} size of ${item.name}` : item.name;
+    if (!confirm(`Unlink "${link.recipe.name}" from ${where}? It stops deducting stock; the recipe itself (and any other dish using it) is unchanged.`)) return;
     setBusy(true);
     setRecipeError(null);
-    const err = await unlinkRecipe(supabase, r.id);
+    const err = await unlinkRecipe(supabase, link.recipe.id, item.id, link.variant_id);
     setBusy(false);
     if (err) {
       setRecipeError(err);
@@ -327,7 +330,7 @@ export function ProductEditor({
   }
 
   async function deleteProduct() {
-    const keepsRecipe = linkedRecipes.length > 0 ? ' Its recipe is kept on the Recipes page, unlinked, so you can link it again.' : '';
+    const keepsRecipe = itemLinks.length > 0 ? ' Its recipe is kept on the Recipes page, unlinked, so you can link it again.' : '';
     if (!window.confirm(`Delete "${item.name}"? This can't be undone.${keepsRecipe}`)) return;
     const ok = await run(() => supabase.from('menu_items').delete().eq('id', item.id));
     if (ok) onDeleted();
@@ -533,14 +536,14 @@ export function ProductEditor({
                           <td className="p-2 font-mono text-muted">{v.sku ?? '—'}</td>
                           <td className="p-2">
                             {(() => {
-                              const sizeRecipe = linkedRecipes.find((r) => r.variant_id === v.id);
-                              const dishRecipe = linkedRecipes.find((r) => !r.variant_id);
-                              if (sizeRecipe) {
+                              const sizeLink = itemLinks.find((l) => l.variant_id === v.id);
+                              const dishRecipe = itemLinks.find((l) => !l.variant_id)?.recipe;
+                              if (sizeLink) {
                                 return (
                                   <span className="whitespace-nowrap">
-                                    <span className="font-semibold">{sizeRecipe.name}</span>
+                                    <span className="font-semibold">{sizeLink.recipe.name}</span>
                                     {canManageRecipes && (
-                                      <button onClick={() => unlinkItemRecipe(sizeRecipe)} disabled={busy} className="text-danger text-[11px] underline ml-2">
+                                      <button onClick={() => unlinkItemRecipe(sizeLink)} disabled={busy} className="text-danger text-[11px] underline ml-2">
                                         Unlink
                                       </button>
                                     )}
@@ -560,8 +563,7 @@ export function ProductEditor({
                                   <option value="">{fallback}</option>
                                   {linkableRecipes.map((r) => (
                                     <option key={r.id} value={r.id}>
-                                      Link {r.name}
-                                      {r.status === 'draft' ? ' (draft)' : ''}
+                                      Link {recipeOptionLabel(r)}
                                     </option>
                                   ))}
                                 </Select>
@@ -607,11 +609,10 @@ export function ProductEditor({
                   {canManageRecipes && linkableRecipes.length > 0 && (
                     <Field label="Recipe (optional)">
                       <Select className="w-44" value={vDraft.recipeId} onChange={(e) => setVDraft((s) => ({ ...s, recipeId: e.target.value }))}>
-                        <option value="">{linkedRecipes.some((r) => !r.variant_id) ? 'Use the dish recipe' : 'No recipe'}</option>
+                        <option value="">{itemLinks.some((l) => !l.variant_id) ? 'Use the dish recipe' : 'No recipe'}</option>
                         {linkableRecipes.map((r) => (
                           <option key={r.id} value={r.id}>
-                            {r.name}
-                            {r.status === 'draft' ? ' (draft)' : ''}
+                            {recipeOptionLabel(r)}
                           </option>
                         ))}
                       </Select>
@@ -748,21 +749,24 @@ export function ProductEditor({
 
             <section className="rounded-lg border border-border bg-surface p-4">
               <h3 className="font-bold text-xs uppercase tracking-wide text-muted mb-3">Recipe &amp; Food Cost</h3>
-              {linkedRecipes.length > 0 && (
+              {itemLinks.length > 0 && (
                 <div className="space-y-1.5 mb-3">
-                  {linkedRecipes.map((r) => {
-                    const size = r.variant_id ? item.menu_variants.find((v) => v.id === r.variant_id)?.name : null;
+                  {itemLinks.map((link) => {
+                    const r = link.recipe;
+                    const size = link.variant_id ? item.menu_variants.find((v) => v.id === link.variant_id)?.name : null;
+                    const others = (r.recipe_links ?? []).length - 1;
                     return (
-                      <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
+                      <div key={`${r.id}-${link.variant_id ?? ''}`} className="flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0">
                           <span className="font-semibold">{r.name}</span>
                           <span className="text-muted">
                             {size ? ` · ${size} only` : ' · whole dish'}
+                            {others > 0 ? ` · shared with ${others} other${others === 1 ? '' : 's'}` : ''}
                             {r.status === 'draft' ? ' · draft (activate on Recipes to use stock)' : ''}
                           </span>
                         </div>
                         {canManageRecipes && (
-                          <button onClick={() => unlinkItemRecipe(r)} disabled={busy} className="text-danger text-[11px] underline shrink-0">
+                          <button onClick={() => unlinkItemRecipe(link)} disabled={busy} className="text-danger text-[11px] underline shrink-0">
                             Unlink
                           </button>
                         )}
@@ -793,7 +797,7 @@ export function ProductEditor({
                   )}
                 </div>
               ) : (
-                linkedRecipes.length === 0 && <p className="text-muted text-xs">No recipe linked yet.</p>
+                itemLinks.length === 0 && <p className="text-muted text-xs">No recipe linked yet.</p>
               )}
               {canManageRecipes && (
                 <div className="space-y-2 mt-3">

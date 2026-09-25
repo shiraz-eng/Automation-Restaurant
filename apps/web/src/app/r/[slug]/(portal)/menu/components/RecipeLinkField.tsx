@@ -3,12 +3,20 @@
 import { Field, Select } from '@/components/ui';
 import type { usePortalSupabase } from '@/components/PortalProvider';
 
-/** A dish recipe that isn't linked to any menu item yet — created on the
- *  Recipes page or by AI recipe import. Linking is always a deliberate
- *  choice made here (link_recipe); nothing links itself. */
-export type LinkableRecipe = { id: string; name: string; status: 'draft' | 'active' };
+/** A dish recipe that can be linked — created on the Recipes page or by AI
+ *  import. Any recipe can be picked for any dish or size, even one already
+ *  used elsewhere (`uses` = how many dishes/sizes it's linked to). Linking
+ *  is always a deliberate choice (link_recipe); nothing links itself. */
+export type LinkableRecipe = { id: string; name: string; status: 'draft' | 'active'; uses?: number };
 
 type Supabase = ReturnType<typeof usePortalSupabase>;
+
+export function recipeOptionLabel(r: LinkableRecipe): string {
+  const parts: string[] = [];
+  if (r.status === 'draft') parts.push('draft');
+  if (r.uses) parts.push(`used by ${r.uses}`);
+  return parts.length ? `${r.name} (${parts.join(', ')})` : r.name;
+}
 
 export function RecipeLinkField({
   recipes,
@@ -26,11 +34,10 @@ export function RecipeLinkField({
     <div className="space-y-1.5">
       <Field label={label}>
         <Select value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">{recipes.length === 0 ? 'No unlinked recipes yet' : 'No recipe'}</option>
+          <option value="">{recipes.length === 0 ? 'No recipes yet' : 'No recipe'}</option>
           {recipes.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.name}
-              {r.status === 'draft' ? ' (draft)' : ''}
+              {recipeOptionLabel(r)}
             </option>
           ))}
         </Select>
@@ -41,7 +48,9 @@ export function RecipeLinkField({
           : selected?.status === 'draft'
             ? 'This draft recipe is activated when you link it: stock deduction, food cost and availability switch on.'
             : selected
-              ? 'Stock deduction, food cost and availability switch on for this dish as soon as it’s linked.'
+              ? selected.uses
+                ? 'Shared recipe: every dish it’s linked to uses the same ingredients, and a new version updates them all.'
+                : 'Stock deduction, food cost and availability switch on for this dish as soon as it’s linked.'
               : 'Linking switches on stock deduction, food cost and automatic availability for this dish.'}
       </p>
     </div>
@@ -58,7 +67,17 @@ export async function linkRecipe(supabase: Supabase, recipeId: string, menuItemI
   return error ? friendly(error.message) : null;
 }
 
-export async function unlinkRecipe(supabase: Supabase, recipeId: string): Promise<string | null> {
-  const { error } = await supabase.rpc('unlink_recipe', { p_recipe_id: recipeId });
+/** Unlinks the recipe from one dish/size (or, with no dish, from all). */
+export async function unlinkRecipe(
+  supabase: Supabase,
+  recipeId: string,
+  menuItemId?: string,
+  variantId?: string | null,
+): Promise<string | null> {
+  const { error } = await supabase.rpc('unlink_recipe', {
+    p_recipe_id: recipeId,
+    p_menu_item_id: menuItemId ?? null,
+    p_variant_id: variantId ?? null,
+  });
   return error ? friendly(error.message) : null;
 }

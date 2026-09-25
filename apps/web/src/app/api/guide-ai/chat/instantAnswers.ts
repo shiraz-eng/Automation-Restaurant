@@ -311,6 +311,8 @@ Dishes without a recipe don't touch stock.
    - **AI recipe import**: pick a dish for each recipe in the review
    - **AI menu import**: pick a recipe for each dish in the review
 
+You can pick **any** recipe, even one other dishes already use (e.g. one "Beef Patty" recipe for Single and Double). Each dish or size has one recipe, and a new version of a shared recipe updates every dish using it.
+
 Nothing links automatically. Linking turns the recipe on: you see the dish's cost and margin, each sale deducts stock, and availability is calculated for you. **Unlink** stops that without deleting the recipe, and deleting a dish keeps its recipe too.
 [[SUGGEST]] Why recipes matter | A dish shows 0 or Unavailable | How do the percentages work?`,
   },

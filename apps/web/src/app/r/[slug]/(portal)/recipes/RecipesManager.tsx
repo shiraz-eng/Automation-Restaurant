@@ -60,21 +60,36 @@ export type Recipe = {
   created_at: string;
   menu_item_id: string | null;
   variant_id: string | null;
-  // menu_items.price_cents is vestigial in this schema — the real price
-  // always lives on menu_variants, hence the nested variant list here.
-  menu_items: Ref<{ name: string; menu_variants: { name: string; price_cents: number; sort_order: number }[] }>;
-  menu_variants: Ref<{ name: string; price_cents: number }>;
+  /** Every dish / size this recipe is linked to (one recipe can be shared).
+   *  menu_items.price_cents is vestigial — the real price lives on
+   *  menu_variants, hence the nested variant list. */
+  recipe_links: RecipeLink[] | null;
   recipe_versions: VersionRow[];
 };
+type RecipeLink = {
+  menu_item_id: string;
+  variant_id: string | null;
+  menu_items: Ref<{ name: string; menu_variants: { name: string; price_cents: number; sort_order: number }[] }>;
+  menu_variants: Ref<{ name: string; price_cents: number }>;
+};
 
-/** The menu price this recipe should be measured against: its own linked
- *  variant's price for a variant-specific recipe, else the linked item's
- *  first (lowest sort_order) variant for a base menu_item recipe — the
- *  same "from $X" convention the storefront uses for a multi-variant item. */
+/** "Chicken Burger", or "Chicken Burger · Large" for a size link. */
+function linkLabel(l: RecipeLink): string {
+  const item = one(l.menu_items)?.name ?? 'Dish';
+  const size = one(l.menu_variants)?.name;
+  return size ? `${item} · ${size}` : item;
+}
+
+/** The menu price this recipe is measured against, from its first link:
+ *  that size's price, else the dish's first (lowest sort_order) size — the
+ *  same "from $X" convention the storefront uses. With several links the
+ *  first one stands in; each dish's own margin shows on the Menu. */
 function menuPriceFor(recipe: Recipe): number | null {
-  const ownVariant = one(recipe.menu_variants);
+  const link = (recipe.recipe_links ?? [])[0];
+  if (!link) return null;
+  const ownVariant = one(link.menu_variants);
   if (ownVariant) return ownVariant.price_cents;
-  const item = one(recipe.menu_items);
+  const item = one(link.menu_items);
   const variants = (item?.menu_variants ?? []).slice().sort((a, b) => a.sort_order - b.sort_order);
   return variants[0]?.price_cents ?? null;
 }
@@ -175,8 +190,7 @@ export function RecipesManager({
   const rows = useMemo(() => {
     return recipes
       .map((r) => {
-        const menuItem = one(r.menu_items);
-        const variant = one(r.menu_variants);
+        const links = r.recipe_links ?? [];
         const cost = costPerYieldUnit(r, byId);
         const price = menuPriceFor(r);
         const foodCostPct = price && cost != null && price > 0 ? Math.round((cost / price) * 1000) / 10 : null;
@@ -188,7 +202,7 @@ export function RecipesManager({
         const currentVersion =
           r.recipe_versions.find((v) => v.id === r.current_version_id) ??
           r.recipe_versions.slice().sort((a, b) => b.version - a.version)[0];
-        return { recipe: r, menuItem, variant, cost, price, foodCostPct, currentVersion };
+        return { recipe: r, links, cost, price, foodCostPct, currentVersion };
       })
       .filter((row) => {
         if (search.trim() && !row.recipe.name.toLowerCase().includes(search.trim().toLowerCase())) return false;
@@ -222,9 +236,9 @@ export function RecipesManager({
     await run(() => supabase.rpc('archive_recipe', { p_recipe_id: recipeId }));
   }
   async function remove(recipe: Recipe) {
-    const linked = recipe.status === 'active' && one(recipe.menu_items);
-    const warning = linked
-      ? `\n\n"${linked.name}" will stop using stock and no longer have a food cost until it gets a new recipe.`
+    const linked = recipe.status === 'active' ? (recipe.recipe_links ?? []).map(linkLabel) : [];
+    const warning = linked.length
+      ? `\n\n${linked.map((n) => `"${n}"`).join(', ')} will stop using stock and no longer have a food cost until given a new recipe.`
       : '';
     if (
       !confirm(
@@ -304,9 +318,9 @@ export function RecipesManager({
         <p className="text-muted text-xs">No recipes match.</p>
       ) : (
         <div className="space-y-2">
-          {rows.map(({ recipe: r, menuItem, variant, cost, price, foodCostPct, currentVersion }) => {
+          {rows.map(({ recipe: r, links, cost, price, foodCostPct, currentVersion }) => {
             const isOpen = expanded.has(r.id);
-            const label = `${r.name}${r.recipe_type === 'variant' && variant ? ` · ${variant.name}` : ''}`;
+            const label = r.name;
             return (
               <Card key={r.id} className="p-0 overflow-hidden">
                 <button
@@ -326,7 +340,7 @@ export function RecipesManager({
                       <span className="text-[10px] text-muted">{TYPE_LABELS[r.recipe_type]}</span>
                     </div>
                     <div className="text-[11px] text-muted mt-0.5">
-                      {menuItem ? `Linked to ${menuItem.name}` : 'Not linked — link it from Menu'} · {currentVersion?.recipe_ingredients.length ?? 0} ingredient
+                      {links.length === 0 ? 'Not linked — link it from Menu' : links.length <= 2 ? `Linked to ${links.map(linkLabel).join(', ')}` : `Linked to ${links.length} dishes`} · {currentVersion?.recipe_ingredients.length ?? 0} ingredient
                       {currentVersion?.recipe_ingredients.length === 1 ? '' : 's'} · v{currentVersion?.version ?? '—'} · updated {formatDate(r.created_at)}
                     </div>
                   </div>

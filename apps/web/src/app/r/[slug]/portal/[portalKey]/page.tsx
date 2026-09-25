@@ -287,7 +287,7 @@ export default async function PortalHome({
           .select(
             'id, name, description, notes, recipe_type, status, instructions, current_version_id, created_at, ' +
               'menu_item_id, variant_id, ' +
-              'menu_items(name, menu_variants(name, price_cents, sort_order)), menu_variants(name, price_cents), ' +
+              'recipe_links(menu_item_id, variant_id, menu_items(name, menu_variants(name, price_cents, sort_order)), menu_variants(name, price_cents)), ' +
               'recipe_versions!recipe_versions_recipe_id_fkey(id, version, status, yield_qty, yield_unit, effective_from, effective_to, ' +
               'recipe_ingredients(id, qty_base, sort_order, inventory_item_id, sub_recipe_id, inventory_items(name, unit, cost_cents_per_base_unit), recipes!recipe_ingredients_sub_recipe_id_fkey(name)), ' +
               'recipe_cost_log(cost_cents, recorded_at))',
@@ -467,7 +467,7 @@ export default async function PortalHome({
       ? t.client
           .from('recipes')
           .select(
-            `id, name, status, recipe_type, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, yield_unit, recipe_ingredients(${
+            `id, name, status, recipe_type, menu_item_id, variant_id, current_version_id, recipe_links(menu_item_id, variant_id), recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, yield_unit, recipe_ingredients(${
               canViewMenuCost
                 ? 'qty_base, inventory_item_id, sub_recipe_id, inventory_items(cost_cents_per_base_unit)'
                 : 'qty_base, inventory_item_id, sub_recipe_id'

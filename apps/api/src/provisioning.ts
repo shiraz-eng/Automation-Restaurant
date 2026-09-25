@@ -300,7 +300,12 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       menu item; link_recipe()/unlink_recipe() attach it from the Menu.
 //   v69 Deleting a dish or size unlinks its recipe instead of deleting it;
 //       linking a draft recipe activates it (stock + food cost switch on).
-const SCHEMA_VERSION = 69;
+//   v70 recipe_links: one recipe can be linked to many dishes/sizes (each
+//       dish/size still has at most one recipe); recipes.menu_item_id and
+//       variant_id are no longer used.
+//   v71 Availability recalculation skips a dish/size that was just deleted
+//       (deleting a size with its own recipe used to fail).
+const SCHEMA_VERSION = 71;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

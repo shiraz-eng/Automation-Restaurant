@@ -327,14 +327,19 @@ export function ItemLevel({ menuItemId, variantId }: { menuItemId: string; varia
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: recipes, error: rErr } = await supabase
-        .from('recipes')
-        .select('id, name, variant_id, current_version_id')
+      // A dish's recipe comes from its link (one recipe can serve many dishes).
+      const { data: links, error: rErr } = await supabase
+        .from('recipe_links')
+        .select('variant_id, recipes!inner(id, name, current_version_id, status)')
         .eq('menu_item_id', menuItemId)
-        .eq('status', 'active');
+        .eq('recipes.status', 'active');
       if (cancelled) return;
       if (rErr) return setState({ status: 'error', message: rErr.message });
-      const match = (recipes ?? []).find((r) => r.variant_id === variantId) ?? (recipes ?? []).find((r) => r.variant_id === null);
+      type LinkedRecipe = { id: string; name: string; current_version_id: string | null };
+      const recipes = ((links ?? []) as unknown as { variant_id: string | null; recipes: LinkedRecipe | LinkedRecipe[] | null }[])
+        .map((l) => ({ variant_id: l.variant_id, ...(Array.isArray(l.recipes) ? l.recipes[0] : l.recipes) }))
+        .filter((r): r is { variant_id: string | null } & LinkedRecipe => Boolean(r.id));
+      const match = recipes.find((r) => r.variant_id === variantId) ?? recipes.find((r) => r.variant_id === null);
       if (!match || !match.current_version_id) return setState({ status: 'no_recipe' });
 
       const { data: version, error: vErr } = await supabase

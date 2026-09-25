@@ -97,7 +97,23 @@ export type RecipeRow = {
   variant_id: string | null;
   current_version_id: string | null;
   recipe_versions: RecipeVersionRow[];
+  /** Every dish / size this recipe is linked to (migration 0070). One
+   *  recipe can be shared; each dish/size has at most one recipe. */
+  recipe_links?: RecipeLinkRow[];
 };
+export type RecipeLinkRow = { menu_item_id: string; variant_id: string | null };
+
+/** The recipe linked to exactly this dish (variantId null) or size. */
+export function recipeLinkedTo(recipes: RecipeRow[], itemId: string, variantId: string | null): RecipeRow | null {
+  return recipes.find((r) => (r.recipe_links ?? []).some((l) => l.menu_item_id === itemId && l.variant_id === variantId)) ?? null;
+}
+
+/** Every (recipe, size) link on this dish — the whole-dish link has variant_id null. */
+export function linksForItem(recipes: RecipeRow[], itemId: string): { recipe: RecipeRow; variant_id: string | null }[] {
+  const out: { recipe: RecipeRow; variant_id: string | null }[] = [];
+  for (const r of recipes) for (const l of r.recipe_links ?? []) if (l.menu_item_id === itemId) out.push({ recipe: r, variant_id: l.variant_id });
+  return out;
+}
 
 // ── Deals (same shape deals/page.tsx already queries — used here only to
 // read which deals this item participates in; Deals stays authoritative
@@ -148,10 +164,10 @@ export function recipeFoodCost(
  *  itself uses when resolving which recipe prices which line. */
 export function recipeForItem(recipes: RecipeRow[], itemId: string, variantId?: string): RecipeRow | null {
   if (variantId) {
-    const forVariant = recipes.find((r) => r.variant_id === variantId);
+    const forVariant = recipeLinkedTo(recipes, itemId, variantId);
     if (forVariant) return forVariant;
   }
-  return recipes.find((r) => r.menu_item_id === itemId && !r.variant_id) ?? null;
+  return recipeLinkedTo(recipes, itemId, null);
 }
 
 export type DealMembership = { deal: DealRow; qty: number };

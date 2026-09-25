@@ -27,7 +27,7 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
           // price always lives on menu_variants, so pull every variant of
           // the linked item and resolve which one prices this recipe
           // (its own variant, or the item's default) client-side.
-          'menu_items(name, menu_variants(name, price_cents, sort_order)), menu_variants(name, price_cents), ' +
+          'recipe_links(menu_item_id, variant_id, menu_items(name, menu_variants(name, price_cents, sort_order)), menu_variants(name, price_cents)), ' +
           'recipe_versions!recipe_versions_recipe_id_fkey(id, version, status, yield_qty, yield_unit, effective_from, effective_to, ' +
           'recipe_ingredients(id, qty_base, sort_order, inventory_item_id, sub_recipe_id, inventory_items(name, unit, cost_cents_per_base_unit), recipes!recipe_ingredients_sub_recipe_id_fkey(name)), ' +
           'recipe_cost_log(cost_cents, recorded_at))',

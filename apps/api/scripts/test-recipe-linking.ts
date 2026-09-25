@@ -1,4 +1,4 @@
-// Manual recipe linking tests (tenant migration 0068).
+// Recipe linking tests (tenant migrations 0068-0070).
 //
 // Same approach as test-deals.ts: one DO block against a real tenant that
 // builds a fixture, calls the real RPCs and ends by raising an exception so
@@ -15,8 +15,8 @@ const SQL = String.raw`
 do $$
 declare
   res text := ''; fails int := 0;
-  v_ing uuid; v_item uuid; v_item2 uuid; v_var uuid; v_r1 uuid; v_r2 uuid; v_r3 uuid; v_batch uuid; v_vid uuid;
-  v_n int; v_q numeric; v_t text; v_s text; v_m uuid; v_var2 uuid;
+  v_ing uuid; v_item uuid; v_item2 uuid; v_var uuid; v_r1 uuid; v_r2 uuid; v_batch uuid; v_vid uuid;
+  v_n int; v_q numeric; v_s text;
 begin
   perform set_config('request.jwt.claims',
     '{"role":"authenticated","sub":"00000000-0000-0000-0000-00000000f00d","app_metadata":{"role":"owner","permissions":["*"]}}', true);
@@ -25,52 +25,53 @@ begin
   insert into public.menu_items (name, price_cents, is_available) values ('ZZ Smash Burger', 0, true) returning id into v_item;
   insert into public.menu_variants (menu_item_id, name, price_cents, sort_order) values (v_item, 'Single', 700, 0);
   insert into public.menu_variants (menu_item_id, name, price_cents, sort_order) values (v_item, 'Double', 950, 1) returning id into v_var;
-  insert into public.menu_items (name, price_cents, is_available) values ('ZZ Other Burger', 0, true) returning id into v_item2;
+  insert into public.menu_items (name, price_cents, is_available) values ('ZZ Patty Melt', 0, true) returning id into v_item2;
   insert into public.menu_variants (menu_item_id, name, price_cents, sort_order) values (v_item2, 'Regular', 600, 0);
 
-  -- L1 a dish recipe is created and activated without any menu item
-  select recipe_id, recipe_version_id into v_r1, v_vid from public.create_recipe('ZZ Smash Patty', null, null, 'menu_item', null, null, null, 1, null,
+  -- L1 a dish recipe exists on its own and consumes nothing
+  select recipe_id, recipe_version_id into v_r1, v_vid from public.create_recipe('ZZ Beef Patty', null, null, 'menu_item', null, null, null, 1, null,
     jsonb_build_array(jsonb_build_object('inventory_item_id', v_ing, 'qty_base', 150)));
   perform public.activate_recipe_version(v_vid);
-  select menu_item_id into v_m from public.recipes where id = v_r1;
   select count(*) into v_n from public.recipe_components where inventory_item_id = v_ing;
-  if v_m is null and v_n = 0 then res := res || E'PASS L1 unlinked recipe created + activated, consumes nothing\n';
-  else fails := fails + 1; res := res || E'FAIL L1 linked/consuming without a link\n'; end if;
+  if v_n = 0 and not exists (select 1 from public.recipe_links where recipe_id = v_r1) then res := res || E'PASS L1 unlinked recipe consumes nothing\n';
+  else fails := fails + 1; res := res || E'FAIL L1 unlinked recipe consuming\n'; end if;
 
-  -- L2 linking it makes the dish consume stock
+  -- L2 the SAME recipe linked to two dishes: both consume it
   perform public.link_recipe(v_r1, v_item, null);
-  select sum(qty_per_unit) into v_q from public.recipe_components where menu_item_id = v_item and variant_id is null;
-  if v_q = 150 then res := res || E'PASS L2 linked dish consumes 150 g per serving\n';
-  else fails := fails + 1; res := res || 'FAIL L2 components ' || coalesce(v_q::text, 'none') || E'\n'; end if;
+  perform public.link_recipe(v_r1, v_item2, null);
+  select count(*) into v_n from public.recipe_components where inventory_item_id = v_ing and qty_per_unit = 150 and menu_item_id in (v_item, v_item2);
+  if v_n = 2 then res := res || E'PASS L2 one recipe shared by two dishes, both consume 150 g\n';
+  else fails := fails + 1; res := res || 'FAIL L2 components ' || v_n || E'\n'; end if;
 
-  -- L3 a linked recipe can't be linked to a second dish
-  begin
-    perform public.link_recipe(v_r1, v_item2, null);
-    fails := fails + 1; res := res || E'FAIL L3 recipe linked to two dishes\n';
-  exception when check_violation then res := res || 'PASS L3 refused: ' || sqlerrm || E'\n'; end;
-
-  -- L4 a dish that already has a recipe refuses a second one
-  select recipe_id into v_r2 from public.create_recipe('ZZ Alt Patty', null, null, 'menu_item', null, null, null, 1, null,
-    jsonb_build_array(jsonb_build_object('inventory_item_id', v_ing, 'qty_base', 120)));
+  -- L3 a dish already on a recipe refuses a different one
+  select recipe_id into v_r2 from public.create_recipe('ZZ Thin Patty', null, null, 'menu_item', null, null, null, 1, null,
+    jsonb_build_array(jsonb_build_object('inventory_item_id', v_ing, 'qty_base', 90)));
   begin
     perform public.link_recipe(v_r2, v_item, null);
-    fails := fails + 1; res := res || E'FAIL L4 dish got two recipes\n';
-  exception when unique_violation then res := res || 'PASS L4 refused: ' || sqlerrm || E'\n'; end;
+    fails := fails + 1; res := res || E'FAIL L3 dish got two recipes\n';
+  exception when unique_violation then res := res || 'PASS L3 refused: ' || sqlerrm || E'\n'; end;
 
-  -- L5 unlink: stock link removed, recipe kept
-  perform public.unlink_recipe(v_r1);
-  select count(*) into v_n from public.recipe_components where menu_item_id = v_item;
-  select menu_item_id into v_m from public.recipes where id = v_r1;
-  if v_n = 0 and v_m is null and exists (select 1 from public.recipes where id = v_r1 and status = 'active') then
-    res := res || E'PASS L5 unlinked: dish consumes nothing, recipe kept active\n';
-  else fails := fails + 1; res := res || E'FAIL L5 unlink\n'; end if;
-
-  -- L6 linking a DRAFT to one size activates it (0069): stock + cost switch on
+  -- L4 a draft linked to one size is activated and feeds only that size
   perform public.link_recipe(v_r2, v_item, v_var);
-  select recipe_type::text, status::text into v_t, v_s from public.recipes where id = v_r2;
+  select status::text into v_s from public.recipes where id = v_r2;
   select sum(qty_per_unit) into v_q from public.recipe_components where menu_item_id = v_item and variant_id = v_var;
-  if v_t = 'variant' and v_s = 'active' and v_q = 120 then res := res || E'PASS L6 draft linked to the Double size is activated and consumes 120 g\n';
-  else fails := fails + 1; res := res || 'FAIL L6 type ' || v_t || ' status ' || v_s || ' components ' || coalesce(v_q::text, 'none') || E'\n'; end if;
+  if v_s = 'active' and v_q = 90 then res := res || E'PASS L4 draft linked to the Double size: activated, 90 g\n';
+  else fails := fails + 1; res := res || 'FAIL L4 status ' || v_s || ' qty ' || coalesce(v_q::text, 'none') || E'\n'; end if;
+
+  -- L5 a new version of a shared recipe updates every dish it is linked to
+  select recipe_version_id into v_vid from public.create_recipe_version(v_r1,
+    jsonb_build_array(jsonb_build_object('inventory_item_id', v_ing, 'qty_base', 160)), null, null);
+  perform public.activate_recipe_version(v_vid);
+  select count(*) into v_n from public.recipe_components where inventory_item_id = v_ing and qty_per_unit = 160 and variant_id is null and menu_item_id in (v_item, v_item2);
+  if v_n = 2 then res := res || E'PASS L5 new version of the shared recipe reaches both dishes (160 g)\n';
+  else fails := fails + 1; res := res || 'FAIL L5 updated components ' || v_n || E'\n'; end if;
+
+  -- L6 unlink from ONE dish: the other dish keeps it
+  perform public.unlink_recipe(v_r1, v_item2, null);
+  if not exists (select 1 from public.recipe_components where menu_item_id = v_item2)
+     and exists (select 1 from public.recipe_components where menu_item_id = v_item and variant_id is null) then
+    res := res || E'PASS L6 unlinked from one dish only; the other keeps it\n';
+  else fails := fails + 1; res := res || E'FAIL L6 unlink scope\n'; end if;
 
   -- L7 a batch recipe can't be linked to a dish
   select recipe_id into v_batch from public.create_recipe('ZZ Burger Sauce', null, null, 'preparation', null, null, null, 1000, 'ml',
@@ -80,21 +81,26 @@ begin
     fails := fails + 1; res := res || E'FAIL L7 batch linked to a dish\n';
   exception when check_violation then res := res || 'PASS L7 refused: ' || sqlerrm || E'\n'; end;
 
-  -- L9 deleting a size keeps its recipe (unlinked) instead of deleting it
+  -- L9 deleting a size keeps its recipe
   delete from public.menu_variants where id = v_var;
-  select menu_item_id, variant_id, recipe_type::text into v_m, v_var2, v_t from public.recipes where id = v_r2;
-  if found and v_m is null and v_var2 is null and v_t = 'menu_item' then res := res || E'PASS L9 size deleted: its recipe survives, unlinked\n';
-  else fails := fails + 1; res := res || 'FAIL L9 recipe after size delete: item ' || coalesce(v_m::text, 'null') || E'\n'; end if;
+  if exists (select 1 from public.recipes where id = v_r2) and not exists (select 1 from public.recipe_links where recipe_id = v_r2) then
+    res := res || E'PASS L9 size deleted: its recipe survives, unlinked\n';
+  else fails := fails + 1; res := res || E'FAIL L9\n'; end if;
 
-  -- L10 deleting the dish keeps its recipe (unlinked) instead of deleting it
+  -- L10 deleting a dish keeps the (shared) recipe
+  delete from public.menu_items where id = v_item;
+  if exists (select 1 from public.recipes where id = v_r1) and not exists (select 1 from public.recipe_components where menu_item_id = v_item) then
+    res := res || E'PASS L10 dish deleted: the recipe survives, ready to link again\n';
+  else fails := fails + 1; res := res || E'FAIL L10\n'; end if;
+
+  -- L11 unlink with no dish removes every link of the recipe
   perform public.link_recipe(v_r1, v_item2, null);
-  delete from public.menu_items where id = v_item2;
-  select menu_item_id into v_m from public.recipes where id = v_r1;
-  if found and v_m is null and not exists (select 1 from public.recipe_components where menu_item_id = v_item2) then
-    res := res || E'PASS L10 dish deleted: its recipe survives, unlinked, ready to link again\n';
-  else fails := fails + 1; res := res || E'FAIL L10 recipe deleted with its dish\n'; end if;
+  perform public.unlink_recipe(v_r1);
+  if not exists (select 1 from public.recipe_links where recipe_id = v_r1) and not exists (select 1 from public.recipe_components where menu_item_id = v_item2) then
+    res := res || E'PASS L11 unlink from everywhere\n';
+  else fails := fails + 1; res := res || E'FAIL L11\n'; end if;
 
-  -- L8 a portal without recipe permission can't link or unlink
+  -- L8 a portal without recipe permission can't link
   perform set_config('request.jwt.claims',
     '{"role":"authenticated","sub":"00000000-0000-0000-0000-00000000beef","app_metadata":{"kind":"portal","portal_id":"11111111-1111-1111-1111-111111111111","permissions":["menu.view","menu.update"]}}', true);
   begin

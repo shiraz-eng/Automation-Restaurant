@@ -57,13 +57,13 @@ export function MenuManager({
   canManageRecipes?: boolean;
 }) {
   const router = useRouter();
-  // Dish recipes created on the Recipes page / by AI import that no menu
-  // item uses yet — what the "Link a recipe" pickers offer.
+  // Every dish recipe (not batches, not archived) — any of them can be
+  // picked for any dish or size, even one already used elsewhere.
   const linkableRecipes: LinkableRecipe[] = useMemo(
     () =>
       recipes
-        .filter((r) => !r.menu_item_id && r.recipe_type === 'menu_item' && r.status !== 'archived')
-        .map((r) => ({ id: r.id, name: r.name, status: r.status as LinkableRecipe['status'] }))
+        .filter((r) => (r.recipe_type === 'menu_item' || r.recipe_type === 'variant') && r.status !== 'archived')
+        .map((r) => ({ id: r.id, name: r.name, status: r.status as LinkableRecipe['status'], uses: (r.recipe_links ?? []).length }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [recipes],
   );
