@@ -178,6 +178,18 @@ export async function getFreshConnection(tenantId: string): Promise<SupabaseConn
   const msLeft = new Date(conn.token_expires_at).getTime() - Date.now();
   if (msLeft > REFRESH_SKEW_SECONDS * 1000) return conn;
 
+  // Refresh tokens are single-use: two concurrent refreshes in this
+  // instance would make the second fail. Share one in-flight refresh.
+  const pending = refreshInFlight.get(tenantId);
+  if (pending) return pending;
+  const run = refreshConnection(tenantId, conn).finally(() => refreshInFlight.delete(tenantId));
+  refreshInFlight.set(tenantId, run);
+  return run;
+}
+
+const refreshInFlight = new Map<string, Promise<SupabaseConnection>>();
+
+async function refreshConnection(tenantId: string, conn: SupabaseConnection): Promise<SupabaseConnection> {
   const tok = await postToken({
     grant_type: 'refresh_token',
     refresh_token: conn.refresh_token,
@@ -189,10 +201,17 @@ export async function getFreshConnection(tenantId: string): Promise<SupabaseConn
     scope: tok.scope ?? conn.scope,
     updated_at: new Date().toISOString(),
   };
-  const { error: upErr } = await supabaseAdmin
-    .from('supabase_connections')
-    .update(patch)
-    .eq('tenant_id', tenantId);
-  if (upErr) throw new Error(`token refresh persist failed: ${upErr.message}`);
+  // The old refresh token is already dead at this point — failing to save
+  // the new one would lock this restaurant out for good, so retry hard.
+  let upErr: { message: string } | null = null;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    ({ error: upErr } = await supabaseAdmin.from('supabase_connections').update(patch).eq('tenant_id', tenantId));
+    if (!upErr) break;
+    await new Promise((r) => setTimeout(r, 500 * attempt));
+  }
+  if (upErr) {
+    console.error(`[oauth] CRITICAL: rotated refresh token for tenant ${tenantId} could not be saved:`, upErr.message);
+    throw new Error(`token refresh persist failed: ${upErr.message}`);
+  }
   return { ...conn, ...patch };
 }

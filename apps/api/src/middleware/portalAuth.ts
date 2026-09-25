@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
+import { resolveTenantClient } from '../lib/tenantAdmin';
 
 /**
  * Tenant + caller context attached by requirePortalPerm(). Routes read
@@ -72,8 +72,13 @@ export function requirePortalPerm(need: string | string[]) {
     }
     const token = auth.slice(7);
 
-    const svc = await tenantServiceClientBySlug(slug);
-    if (!svc) return res.status(404).json({ error: 'restaurant_not_found' });
+    const resolved = await resolveTenantClient(slug);
+    if (!resolved.ok) {
+      return resolved.reason === 'not_found'
+        ? res.status(404).json({ error: 'restaurant_not_found', message: `Restaurant "${slug}" wasn't found${resolved.detail ? ` — ${resolved.detail}` : ''}.` })
+        : res.status(503).json({ error: 'service_unavailable', message: 'The restaurant service is temporarily unavailable. Please try again in a moment.' });
+    }
+    const svc = resolved.client;
 
     const { data, error } = await svc.admin.auth.getUser(token);
     if (error || !data?.user) {
