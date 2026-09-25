@@ -95,6 +95,10 @@ export const ATTENDANCE_INSIGHT_KEYS = [
   'attendance.approve_correction',
 ];
 
+/** Any one of these opens the Dashboard's aggregate performance reports
+ *  (tenant-migrations/0072). */
+const PERFORMANCE_DATA_KEYS = ['orders.view', 'analytics.view', 'finance.view', 'finance.view_profit', 'finance.view_cogs'];
+
 export function resolvePortalCapabilities(permissions: string[]): PortalCapabilities {
   const has = (k: string) => permissions.includes('*') || permissions.includes(k);
   const hasAny = (keys: string[]) => keys.some(has);
@@ -112,20 +116,20 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     dayClose: has('finance.view'),
     paymentReconcile: has('payments.reconcile'),
     cashCount: has('finance.reconcile'),
-    // AnalyticsSection reuses the Dashboard's own PerformancePanel verbatim
-    // (sales_by_day/revenue_by_category/payment_mix/feedback_summary), and
-    // every one of those RPCs requires orders.view server-side — the
-    // Dashboard never has to think about this because Owner/Manager always
-    // have it, but a custom portal can hold analytics.view/reports.* WITHOUT
-    // orders.view, which crashed the whole section with a raw "forbidden"
-    // RPC error instead of rendering anything. orders.view is the real
-    // floor; the analytics/reports keys on top of it are what actually
-    // signal "wants the aggregate view", not a substitute for it.
-    analytics: has('orders.view') && hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
+    // AnalyticsSection reuses the Dashboard's own PerformancePanel verbatim.
+    // Its aggregate reports (sales_by_day/revenue_by_category/payment_mix/
+    // feedback_summary) accept orders.view, analytics.view or any finance
+    // view key server-side (tenant-migrations/0072) — totals only, never
+    // individual orders. reports.* without one of those can't load them, so
+    // the section needs both an analytics/reports key and a data key.
+    analytics:
+      hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']) &&
+      hasAny(PERFORMANCE_DATA_KEYS),
+    // A finance portal without the Analytics section still gets Restaurant
+    // Performance at the top of Finance (no duplicate when it has both).
     financePerformance:
-      has('orders.view') &&
       hasAny(['finance.view', 'finance.view_profit', 'finance.view_cogs']) &&
-      !hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
+      !(hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']) && hasAny(PERFORMANCE_DATA_KEYS)),
     deals: has('deals.view'),
     social: has('social.view'),
     staff: has('staff.view'),
@@ -164,7 +168,7 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       caps.inventory && { id: 'inventory', label: 'Inventory' },
       (caps.suppliers || caps.purchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
       (caps.finance || caps.dayClose || caps.paymentReconcile || caps.cashCount || caps.financePerformance) && { id: 'finance', label: 'Finance' },
-      caps.analytics && { id: 'analytics', label: 'Analytics' },
+      caps.analytics && { id: 'analytics', label: 'Restaurant Performance' },
       caps.reportHistory && { id: 'reports', label: 'Report History' },
       caps.reviews && { id: 'reviews', label: 'Reviews' },
       (caps.deals || caps.social) && { id: 'marketing', label: 'Marketing & Social' },
@@ -217,9 +221,8 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   finance: [
     'finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit',
     'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile',
-    // Restaurant Performance at the top of Finance needs orders.view (sales);
-    // finance.view_cogs also unlocks its profit tiles.
-    'orders.view', 'finance.view_cogs',
+    // finance.view_cogs also unlocks Restaurant Performance's profit tiles.
+    'finance.view_cogs',
   ],
   // The three cost keys unlock PerformancePanel's profit tiles and Top
   // Products (period_profitability/item_profitability accept any of them).

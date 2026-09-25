@@ -305,7 +305,10 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       variant_id are no longer used.
 //   v71 Availability recalculation skips a dish/size that was just deleted
 //       (deleting a size with its own recipe used to fail).
-const SCHEMA_VERSION = 71;
+//   v72 The Dashboard's aggregate performance reports also accept
+//       analytics.view / finance view keys (totals only), so finance and
+//       analytics portals get Restaurant Performance without "View orders".
+const SCHEMA_VERSION = 72;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

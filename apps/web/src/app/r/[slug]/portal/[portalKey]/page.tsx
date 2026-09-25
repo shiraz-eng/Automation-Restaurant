@@ -961,8 +961,8 @@ export default async function PortalHome({
 
           {includeAnalytics && (
             <section id="analytics" className="scroll-mt-16">
-              <h2 className="font-bold text-sm mb-3">Analytics</h2>
-              <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} />
+              <h2 className="font-bold text-sm mb-3">Restaurant Performance</h2>
+              <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} showIntelligence={has('analytics.view')} />
             </section>
           )}
 
