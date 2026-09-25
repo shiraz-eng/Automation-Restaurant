@@ -149,6 +149,9 @@ const applySchema = z.object({
   links: z
     .record(z.string(), z.object({ menu_item_id: z.string().uuid(), variant_id: z.string().uuid().nullable() }))
     .optional(),
+  /** Save the imported recipes as ACTIVE instead of drafts (the reviewer's
+   *  choice). Linked recipes are always activated by link_recipe(). */
+  saveActive: z.boolean().optional(),
 });
 
 /**
@@ -169,7 +172,7 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
   const parsed = applySchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
   const { admin, userId, email, role: actorRole } = req.tenant!;
-  const { draftId, approvedItemKeys, links = {} } = parsed.data;
+  const { draftId, approvedItemKeys, links = {}, saveActive = false } = parsed.data;
 
   const { data: draft, error: fetchErr } = await admin.from('recipe_import_drafts').select('*').eq('id', draftId).maybeSingle();
   if (fetchErr || !draft) return res.status(404).json({ error: 'draft_not_found' });
@@ -179,7 +182,7 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
 
   const diff = draft.diff_json as RecipeImportDiff;
   const approvedSet = new Set(approvedItemKeys);
-  const result = { recipes_created: 0, recipes_linked: 0, skipped: [] as string[], not_linked: [] as string[] };
+  const result = { recipes_created: 0, recipes_active: 0, recipes_linked: 0, skipped: [] as string[], not_linked: [] as string[] };
   const ctx = await fetchRecipeImportContext(admin);
 
   try {
@@ -240,27 +243,37 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
       // same batch with the same name.
       ctx.existingRecipeNames.add(recipeNameKey(row.recipe_name));
 
+      const createdRow = (Array.isArray(created) ? created[0] : created) as { recipe_id?: string; recipe_version_id?: string } | null;
+
       // Link only where the reviewer picked a dish. link_recipe() re-checks
       // everything (dish exists, size belongs to it, dish has no recipe yet)
       // and activates the new draft, so the dish's stock deduction and food
-      // cost switch on. Unlinked recipes stay drafts.
+      // cost switch on.
+      let active = false;
       const link = links[key];
-      if (!link) continue;
-      const createdRow = (Array.isArray(created) ? created[0] : created) as { recipe_id?: string } | null;
-      if (!createdRow?.recipe_id) {
-        result.not_linked.push(`${row.recipe_name} — created, but could not be linked`);
-        continue;
+      if (link) {
+        if (!createdRow?.recipe_id) {
+          result.not_linked.push(`${row.recipe_name} — created, but could not be linked`);
+        } else {
+          const { error: linkErr } = await admin.rpc('link_recipe', {
+            p_recipe_id: createdRow.recipe_id,
+            p_menu_item_id: link.menu_item_id,
+            p_variant_id: link.variant_id,
+          });
+          if (linkErr) result.not_linked.push(`${row.recipe_name} — ${linkErr.message}`);
+          else {
+            result.recipes_linked += 1;
+            active = true;
+          }
+        }
       }
-      const { error: linkErr } = await admin.rpc('link_recipe', {
-        p_recipe_id: createdRow.recipe_id,
-        p_menu_item_id: link.menu_item_id,
-        p_variant_id: link.variant_id,
-      });
-      if (linkErr) {
-        result.not_linked.push(`${row.recipe_name} — ${linkErr.message}`);
-        continue;
+      // Unlinked recipes stay drafts unless the reviewer chose "Active".
+      if (saveActive && !active && createdRow?.recipe_version_id) {
+        const { error: actErr } = await admin.rpc('activate_recipe_version', { p_recipe_version_id: createdRow.recipe_version_id });
+        if (actErr) result.not_linked.push(`${row.recipe_name} — saved as a draft; activating failed: ${actErr.message}`);
+        else active = true;
       }
-      result.recipes_linked += 1;
+      if (active) result.recipes_active += 1;
     }
   } catch (err) {
     console.error('[recipe-import] apply failed partway:', err);

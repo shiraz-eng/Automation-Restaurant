@@ -21,7 +21,7 @@ type DiffRecipeRow = {
   issues: string[];
 };
 type RecipeImportDiff = { summary: { recipes: number; ready: number; exists: number; blocked: number }; recipes: DiffRecipeRow[] };
-type ApplyResult = { recipes_created: number; recipes_linked?: number; skipped: string[]; not_linked?: string[] };
+type ApplyResult = { recipes_created: number; recipes_active?: number; recipes_linked?: number; skipped: string[]; not_linked?: string[] };
 type DishLink = { menu_item_id: string; variant_id: string | null };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -35,7 +35,7 @@ const STATUS_STYLE: Record<string, string> = {
  * upload -> draft -> review -> approve flow, against apps/api's
  * /api/ai/recipe-import* routes. Every recipe is created through the same
  * create_recipe() RPC the manual Recipes page and the AI chat use, as a
- * DRAFT. Only "ready" rows (every ingredient matched to inventory with a
+ * draft, or active when the reviewer chooses "Active". Only "ready" rows (every ingredient matched to inventory with a
  * convertible quantity, and no recipe of that name yet) can be checked.
  * Each approved recipe can be linked to a dish (or one size) the reviewer
  * picks; link_recipe() activates it so the dish starts deducting stock.
@@ -63,6 +63,7 @@ export function RecipeImportPanel({
   const { dishes } = useRecipeLinkOptions(true);
   // Row key -> the dish (and size) the reviewer picked. Nothing pre-selected.
   const [links, setLinks] = useState<Record<string, DishLink>>({});
+  const [saveActive, setSaveActive] = useState(false);
   const slotKey = (l: DishLink) => `${l.menu_item_id}:${l.variant_id ?? ''}`;
   const pickedSlots = new Set(Object.values(links).map(slotKey));
   function setLink(key: string, link: DishLink | null) {
@@ -158,6 +159,7 @@ export function RecipeImportPanel({
           draftId,
           approvedItemKeys: Array.from(approved),
           links: Object.fromEntries(Object.entries(links).filter(([k]) => approved.has(k))),
+          saveActive,
         }),
       });
       const body = await res.json();
@@ -199,8 +201,8 @@ export function RecipeImportPanel({
         <div>
           <p className="text-xs text-muted mb-2">
             Upload a CSV, text, or PDF document listing recipes (name, ingredients with quantities). Every
-            approved recipe is created as a <strong>draft</strong> — it never goes live until you activate it in
-            Recipes, unless you link it to a dish in the review. Recipes whose name already exists are left untouched.
+            approved recipe is saved as a <strong>draft</strong> or as <strong>active</strong> — you choose in the review — and can
+            be linked to a dish there too. Recipes whose name already exists are left untouched.
           </p>
           <input
             ref={fileInputRef}
@@ -232,7 +234,7 @@ export function RecipeImportPanel({
           </div>
           <p className="text-[11px] text-muted">
             Pick the dish each recipe is for. A linked recipe is activated, so that dish starts deducting stock and shows
-            its food cost. Leave it on “Don’t link” to keep it as a draft and link it later from Menu.
+            its food cost. Leave it on “Don’t link” to link it later from Menu.
           </p>
           <div className="max-h-96 overflow-y-auto space-y-2 border border-border rounded p-2 bg-surface">
             {diff.recipes.map((row, i) => {
@@ -328,13 +330,29 @@ export function RecipeImportPanel({
               );
             })}
           </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <span className="text-muted font-semibold">Save recipes as:</span>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="recipe-save-mode" checked={!saveActive} disabled={stage === 'applying'} onChange={() => setSaveActive(false)} />
+              Draft
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="radio" name="recipe-save-mode" checked={saveActive} disabled={stage === 'applying'} onChange={() => setSaveActive(true)} />
+              Active
+            </label>
+            <span className="text-[11px] text-muted">
+              {saveActive
+                ? 'Ready to use straight away. Linked dishes start deducting stock.'
+                : 'Linked recipes are always activated; the rest stay drafts to review on the Recipes page.'}
+            </span>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={apply}
               disabled={approved.size === 0 || stage === 'applying'}
               className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs disabled:opacity-50"
             >
-              {stage === 'applying' ? 'Creating…' : `Create ${approved.size} Draft Recipe(s)`}
+              {stage === 'applying' ? 'Creating…' : `Create ${approved.size} ${saveActive ? 'Active' : 'Draft'} Recipe(s)`}
             </button>
             <button onClick={reject} disabled={stage === 'applying'} className="rounded border border-danger text-danger px-3 py-1.5 text-xs font-semibold">
               Reject All
@@ -351,9 +369,16 @@ export function RecipeImportPanel({
               {applyResult.recipes_linked} linked to a dish and activated: stock deduction, food cost and availability are on.
             </p>
           )}
-          {applyResult.recipes_created - (applyResult.recipes_linked ?? 0) > 0 && (
+          {(applyResult.recipes_active ?? 0) - (applyResult.recipes_linked ?? 0) > 0 && (
             <p className="text-muted">
-              {applyResult.recipes_created - (applyResult.recipes_linked ?? 0)} saved as draft(s), not linked — link them from Menu when ready.
+              {(applyResult.recipes_active ?? 0) - (applyResult.recipes_linked ?? 0)} saved as active, not linked yet — link them from
+              Menu when ready.
+            </p>
+          )}
+          {applyResult.recipes_created - (applyResult.recipes_active ?? applyResult.recipes_linked ?? 0) > 0 && (
+            <p className="text-muted">
+              {applyResult.recipes_created - (applyResult.recipes_active ?? applyResult.recipes_linked ?? 0)} saved as draft(s), not linked —
+              activate them on Recipes or link them from Menu.
             </p>
           )}
           {(applyResult.not_linked?.length ?? 0) > 0 && (
