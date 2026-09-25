@@ -7,6 +7,12 @@
 -- Applied by apps/api via the Management API query endpoint.
 -- ============================================================================
 
+
+-- Functions are created before some tables they read (e.g. app.membership_
+-- effective_permissions reads portal_staff, defined much later). Like
+-- pg_dump, skip body validation while building; bodies are still checked
+-- when first called. Without this, provisioning a NEW restaurant failed.
+set check_function_bodies = off;
 create extension if not exists pgcrypto;
 create schema if not exists app;
 grant usage on schema app to anon, authenticated, service_role;
