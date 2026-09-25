@@ -303,7 +303,8 @@ export function ProductEditor({
   }
 
   async function deleteProduct() {
-    if (!window.confirm(`Delete "${item.name}"? This can't be undone.`)) return;
+    const keepsRecipe = linkedRecipes.length > 0 ? ' Its recipe is kept on the Recipes page, unlinked, so you can link it again.' : '';
+    if (!window.confirm(`Delete "${item.name}"? This can't be undone.${keepsRecipe}`)) return;
     const ok = await run(() => supabase.from('menu_items').delete().eq('id', item.id));
     if (ok) onDeleted();
   }

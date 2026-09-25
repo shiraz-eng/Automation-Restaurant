@@ -16,7 +16,7 @@ do $$
 declare
   res text := ''; fails int := 0;
   v_ing uuid; v_item uuid; v_item2 uuid; v_var uuid; v_r1 uuid; v_r2 uuid; v_r3 uuid; v_batch uuid; v_vid uuid;
-  v_n int; v_q numeric; v_t text; v_m uuid;
+  v_n int; v_q numeric; v_t text; v_s text; v_m uuid; v_var2 uuid;
 begin
   perform set_config('request.jwt.claims',
     '{"role":"authenticated","sub":"00000000-0000-0000-0000-00000000f00d","app_metadata":{"role":"owner","permissions":["*"]}}', true);
@@ -65,16 +65,12 @@ begin
     res := res || E'PASS L5 unlinked: dish consumes nothing, recipe kept active\n';
   else fails := fails + 1; res := res || E'FAIL L5 unlink\n'; end if;
 
-  -- L6 link a draft to one size: nothing consumed until it's activated
+  -- L6 linking a DRAFT to one size activates it (0069): stock + cost switch on
   perform public.link_recipe(v_r2, v_item, v_var);
-  select recipe_type::text into v_t from public.recipes where id = v_r2;
-  select count(*) into v_n from public.recipe_components where menu_item_id = v_item and variant_id = v_var;
-  if v_t = 'variant' and v_n = 0 then res := res || E'PASS L6a draft linked to the Double size, no consumption yet\n';
-  else fails := fails + 1; res := res || 'FAIL L6a type ' || v_t || ' components ' || v_n || E'\n'; end if;
-  perform public.activate_recipe_version((select id from public.recipe_versions where recipe_id = v_r2 order by version desc limit 1));
+  select recipe_type::text, status::text into v_t, v_s from public.recipes where id = v_r2;
   select sum(qty_per_unit) into v_q from public.recipe_components where menu_item_id = v_item and variant_id = v_var;
-  if v_q = 120 then res := res || E'PASS L6b activating it makes the Double consume 120 g\n';
-  else fails := fails + 1; res := res || 'FAIL L6b components ' || coalesce(v_q::text, 'none') || E'\n'; end if;
+  if v_t = 'variant' and v_s = 'active' and v_q = 120 then res := res || E'PASS L6 draft linked to the Double size is activated and consumes 120 g\n';
+  else fails := fails + 1; res := res || 'FAIL L6 type ' || v_t || ' status ' || v_s || ' components ' || coalesce(v_q::text, 'none') || E'\n'; end if;
 
   -- L7 a batch recipe can't be linked to a dish
   select recipe_id into v_batch from public.create_recipe('ZZ Burger Sauce', null, null, 'preparation', null, null, null, 1000, 'ml',
@@ -83,6 +79,20 @@ begin
     perform public.link_recipe(v_batch, v_item2, null);
     fails := fails + 1; res := res || E'FAIL L7 batch linked to a dish\n';
   exception when check_violation then res := res || 'PASS L7 refused: ' || sqlerrm || E'\n'; end;
+
+  -- L9 deleting a size keeps its recipe (unlinked) instead of deleting it
+  delete from public.menu_variants where id = v_var;
+  select menu_item_id, variant_id, recipe_type::text into v_m, v_var2, v_t from public.recipes where id = v_r2;
+  if found and v_m is null and v_var2 is null and v_t = 'menu_item' then res := res || E'PASS L9 size deleted: its recipe survives, unlinked\n';
+  else fails := fails + 1; res := res || 'FAIL L9 recipe after size delete: item ' || coalesce(v_m::text, 'null') || E'\n'; end if;
+
+  -- L10 deleting the dish keeps its recipe (unlinked) instead of deleting it
+  perform public.link_recipe(v_r1, v_item2, null);
+  delete from public.menu_items where id = v_item2;
+  select menu_item_id into v_m from public.recipes where id = v_r1;
+  if found and v_m is null and not exists (select 1 from public.recipe_components where menu_item_id = v_item2) then
+    res := res || E'PASS L10 dish deleted: its recipe survives, unlinked, ready to link again\n';
+  else fails := fails + 1; res := res || E'FAIL L10 recipe deleted with its dish\n'; end if;
 
   -- L8 a portal without recipe permission can't link or unlink
   perform set_config('request.jwt.claims',

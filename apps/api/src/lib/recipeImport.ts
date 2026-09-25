@@ -15,10 +15,10 @@ export { extractPlainText };
  * DRAFT (spec: recipes are never auto-activated) — exactly like
  * draft_recipe already behaves.
  *
- * Recipes are imported UNLINKED (migration 0068): whoever designs the
- * menu links each one to a dish by hand (Menu -> product -> Link recipe).
- * A dish name the document mentions is kept as a hint only — nothing is
- * matched or attached automatically.
+ * Linking is manual (migration 0068): in the review, the reviewer picks
+ * the dish (and size) for each recipe, or leaves it unlinked to link
+ * later from the Menu. A dish the document mentions is only offered as a
+ * suggestion — nothing is attached unless the reviewer chooses it.
  *
  * Deliberately scoped to NEW recipes only: a recipe whose name already
  * exists is left alone (status 'exists') — this import never edits or
@@ -199,6 +199,9 @@ export type RecipeImportContext = {
   /** Normalized names of every recipe that isn't archived. */
   existingRecipeNames: Set<string>;
   inventoryItems: { id: string; name: string; unit: string }[];
+  /** Only used to SUGGEST a dish in the review; linking is always the
+   *  reviewer's explicit choice. */
+  menuItems: { id: string; name: string; variants: { id: string; name: string }[] }[];
 };
 
 export function recipeNameKey(name: string): string {
@@ -206,13 +209,19 @@ export function recipeNameKey(name: string): string {
 }
 
 export async function fetchRecipeImportContext(admin: SupabaseClient): Promise<RecipeImportContext> {
-  const [{ data: recipes }, { data: inventoryItems }] = await Promise.all([
+  const [{ data: recipes }, { data: inventoryItems }, { data: menuItems }] = await Promise.all([
     admin.from('recipes').select('name').neq('status', 'archived'),
     admin.from('inventory_items').select('id, name, unit'),
+    admin.from('menu_items').select('id, name, menu_variants(id, name)'),
   ]);
   return {
     existingRecipeNames: new Set(((recipes ?? []) as { name: string }[]).map((r) => recipeNameKey(r.name))),
     inventoryItems: (inventoryItems ?? []) as { id: string; name: string; unit: string }[],
+    menuItems: ((menuItems ?? []) as { id: string; name: string; menu_variants: { id: string; name: string }[] | null }[]).map((m) => ({
+      id: m.id,
+      name: m.name,
+      variants: m.menu_variants ?? [],
+    })),
   };
 }
 
@@ -230,6 +239,10 @@ export type DiffRecipeRow = {
   recipe_name: string;
   menu_item_name: string | null;
   variant_name: string | null;
+  /** A dish (and size) matching the document's hint — offered in the
+   *  review as a one-click suggestion, never linked unless chosen. */
+  suggested_menu_item_id: string | null;
+  suggested_variant_id: string | null;
   yield_qty: number;
   yield_unit: string | null;
   instructions: string | null;
@@ -254,6 +267,8 @@ export function diffRecipeImport(parsed: ParsedRecipes, ctx: RecipeImportContext
   const rows: DiffRecipeRow[] = parsed.recipes.map((r) => {
     const issues: string[] = [];
     const alreadyExists = ctx.existingRecipeNames.has(recipeNameKey(r.recipe_name));
+    const suggested = fuzzyFind(ctx.menuItems, (m) => m.name, r.menu_item_name ?? r.recipe_name);
+    const suggestedVariant = suggested && r.variant_name ? fuzzyFind(suggested.variants, (v) => v.name, r.variant_name) : null;
 
     const resolvedIngredients: DiffRecipeIngredient[] = r.ingredients.map((ing) => {
       const inv = fuzzyFind(ctx.inventoryItems, (i) => i.name, ing.name);
@@ -284,6 +299,8 @@ export function diffRecipeImport(parsed: ParsedRecipes, ctx: RecipeImportContext
       recipe_name: r.recipe_name,
       menu_item_name: r.menu_item_name,
       variant_name: r.variant_name,
+      suggested_menu_item_id: suggested?.id ?? null,
+      suggested_variant_id: suggestedVariant?.id ?? null,
       yield_qty: r.yield_qty ?? 1,
       yield_unit: r.yield_unit,
       instructions: r.instructions,

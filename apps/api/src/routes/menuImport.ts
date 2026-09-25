@@ -1,6 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { requirePortalPerm } from '../middleware/portalAuth';
+import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { isAllowedOrigin, aiEnabled, env } from '../env';
 import {
   extractPdfText,
@@ -133,6 +133,9 @@ const applySchema = z.object({
   slug: z.string().min(1),
   draftId: z.string().uuid(),
   approvedItemKeys: z.array(z.string()).min(1).max(500),
+  /** The reviewer's explicit recipe choice per approved dish (row key ->
+   *  recipe id). Dishes without an entry get no recipe. */
+  recipeLinks: z.record(z.string(), z.string().uuid()).optional(),
 });
 
 /**
@@ -146,8 +149,10 @@ const applySchema = z.object({
 menuImportRouter.post('/menu-import/apply', express.json(), requirePortalPerm('menu.create'), async (req: Request, res: Response) => {
   const parsed = applySchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
-  const { admin, userId, email, role } = req.tenant!;
-  const { draftId, approvedItemKeys } = parsed.data;
+  const { admin, userId, email, role, permissions } = req.tenant!;
+  const { draftId, approvedItemKeys, recipeLinks = {} } = parsed.data;
+  const canLinkRecipes =
+    permits(permissions, role, 'inventory.manage_recipes') || permits(permissions, role, 'finance.manage_recipes');
 
   const { data: draft, error: fetchErr } = await admin.from('menu_import_drafts').select('*').eq('id', draftId).maybeSingle();
   if (fetchErr || !draft) return res.status(404).json({ error: 'draft_not_found' });
@@ -165,7 +170,9 @@ menuImportRouter.post('/menu-import/apply', express.json(), requirePortalPerm('m
     variants_updated: 0,
     modifier_groups_created: 0,
     modifiers_created: 0,
+    recipes_linked: 0,
     skipped_missing_price: [] as string[],
+    recipes_not_linked: [] as string[],
   };
 
   try {
@@ -251,6 +258,20 @@ menuImportRouter.post('/menu-import/apply', express.json(), requirePortalPerm('m
               if (mErr) throw mErr;
               result.modifiers_created += 1;
             }
+          }
+        }
+
+        // Recipe the reviewer chose for this dish, if any. link_recipe()
+        // re-checks the recipe and the dish and activates a draft, so stock
+        // deduction, food cost and availability switch on straight away.
+        const recipeId = recipeLinks[key];
+        if (recipeId) {
+          if (!canLinkRecipes) {
+            result.recipes_not_linked.push(`${item.name} — you need recipe permission to link recipes`);
+          } else {
+            const { error: linkErr } = await admin.rpc('link_recipe', { p_recipe_id: recipeId, p_menu_item_id: itemId, p_variant_id: null });
+            if (linkErr) result.recipes_not_linked.push(`${item.name} — ${linkErr.message}`);
+            else result.recipes_linked += 1;
           }
         }
       }

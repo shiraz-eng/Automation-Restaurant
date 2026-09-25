@@ -298,7 +298,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       recipe uses it as a sub-recipe).
 //   v68 Recipes first, linked by hand: a dish recipe may exist without a
 //       menu item; link_recipe()/unlink_recipe() attach it from the Menu.
-const SCHEMA_VERSION = 68;
+//   v69 Deleting a dish or size unlinks its recipe instead of deleting it;
+//       linking a draft recipe activates it (stock + food cost switch on).
+const SCHEMA_VERSION = 69;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

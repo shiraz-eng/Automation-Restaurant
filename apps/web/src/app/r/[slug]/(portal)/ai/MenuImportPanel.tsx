@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
+import { normName, useRecipeLinkOptions } from './useRecipeLinkOptions';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -30,7 +31,9 @@ type ApplyResult = {
   variants_updated: number;
   modifier_groups_created: number;
   modifiers_created: number;
+  recipes_linked?: number;
   skipped_missing_price: string[];
+  recipes_not_linked?: string[];
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -44,6 +47,7 @@ export function MenuImportPanel({
   slug,
   onClose,
   initialFile,
+  canLinkRecipes = false,
 }: {
   slug: string;
   onClose: () => void;
@@ -51,8 +55,15 @@ export function MenuImportPanel({
    *  as a menu — runs the exact same handleFile() a manual pick would,
    *  so it goes through the same PDF-type check and menu-imports upload. */
   initialFile?: File;
+  /** Caller holds recipe permission: each dish can be linked to an
+   *  existing recipe during review (the server re-checks). */
+  canLinkRecipes?: boolean;
 }) {
   const supabase = usePortalSupabase();
+  const { unlinkedRecipes } = useRecipeLinkOptions(canLinkRecipes);
+  // Row key -> recipe id the reviewer picked. Nothing is pre-selected.
+  const [recipeLinks, setRecipeLinks] = useState<Record<string, string>>({});
+  const pickedRecipeIds = new Set(Object.values(recipeLinks));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ranInitialFile = useRef(false);
   const [stage, setStage] = useState<'idle' | 'uploading' | 'extracting' | 'review' | 'applying' | 'done'>('idle');
@@ -155,7 +166,12 @@ export function MenuImportPanel({
       const res = await fetch(`${API}/api/ai/menu-import/apply`, {
         method: 'POST',
         headers: await authHeader(),
-        body: JSON.stringify({ slug, draftId, approvedItemKeys: Array.from(approved) }),
+        body: JSON.stringify({
+          slug,
+          draftId,
+          approvedItemKeys: Array.from(approved),
+          recipeLinks: Object.fromEntries(Object.entries(recipeLinks).filter(([k, v]) => v && approved.has(k))),
+        }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -290,6 +306,39 @@ export function MenuImportPanel({
                               {item.modifier_groups.map((g) => `${g.name}: ${g.modifiers.map((m) => m.name).join(', ')}`).join(' · ')}
                             </div>
                           )}
+                          {canLinkRecipes && approved.has(key) && unlinkedRecipes.length > 0 && (() => {
+                            const suggestion = unlinkedRecipes.find(
+                              (r) => normName(r.name) === normName(item.name) && !pickedRecipeIds.has(r.id),
+                            );
+                            return (
+                              <div className="flex flex-wrap items-center gap-2 mt-1">
+                                <span className="text-[11px] text-muted">Recipe:</span>
+                                <select
+                                  value={recipeLinks[key] ?? ''}
+                                  disabled={stage === 'applying'}
+                                  onChange={(e) => setRecipeLinks((m) => ({ ...m, [key]: e.target.value }))}
+                                  className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+                                >
+                                  <option value="">No recipe</option>
+                                  {unlinkedRecipes.map((r) => (
+                                    <option key={r.id} value={r.id} disabled={pickedRecipeIds.has(r.id) && recipeLinks[key] !== r.id}>
+                                      {r.name}
+                                      {r.status === 'draft' ? ' (draft)' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                                {!recipeLinks[key] && suggestion && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setRecipeLinks((m) => ({ ...m, [key]: suggestion.id }))}
+                                    className="text-primary text-[11px] underline"
+                                  >
+                                    Use “{suggestion.name}”
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </label>
                     );
@@ -330,6 +379,15 @@ export function MenuImportPanel({
               {applyResult.modifier_groups_created} modifier group(s), {applyResult.modifiers_created} modifier option(s) created
             </li>
           </ul>
+          {(applyResult.recipes_linked ?? 0) > 0 && (
+            <p className="text-ok">
+              {applyResult.recipes_linked} dish{applyResult.recipes_linked === 1 ? '' : 'es'} linked to a recipe: stock deduction, food cost
+              and availability are on.
+            </p>
+          )}
+          {(applyResult.recipes_not_linked?.length ?? 0) > 0 && (
+            <div className="text-danger">Recipe not linked: {applyResult.recipes_not_linked!.join(' · ')}</div>
+          )}
           {applyResult.skipped_missing_price.length > 0 && (
             <div className="text-danger">
               Skipped (no price provided): {applyResult.skipped_missing_price.join(', ')}

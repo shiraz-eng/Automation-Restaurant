@@ -131,7 +131,7 @@ export function SmartImportPanel({
     const props = { slug, onClose, initialFile: file };
     switch (chosen) {
       case 'menu':
-        return <MenuImportPanel {...props} />;
+        return <MenuImportPanel {...props} canLinkRecipes={available.includes('recipes')} />;
       case 'inventory':
         return <InventoryImportPanel {...props} />;
       case 'recipes':

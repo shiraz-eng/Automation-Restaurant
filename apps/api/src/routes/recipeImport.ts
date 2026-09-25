@@ -144,6 +144,11 @@ const applySchema = z.object({
   slug: z.string().min(1),
   draftId: z.string().uuid(),
   approvedItemKeys: z.array(z.string()).min(1).max(500),
+  /** The reviewer's explicit dish choice per approved row (row key ->
+   *  dish, optionally one size). Rows without an entry stay unlinked. */
+  links: z
+    .record(z.string(), z.object({ menu_item_id: z.string().uuid(), variant_id: z.string().uuid().nullable() }))
+    .optional(),
 });
 
 /**
@@ -164,7 +169,7 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
   const parsed = applySchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
   const { admin, userId, email, role: actorRole } = req.tenant!;
-  const { draftId, approvedItemKeys } = parsed.data;
+  const { draftId, approvedItemKeys, links = {} } = parsed.data;
 
   const { data: draft, error: fetchErr } = await admin.from('recipe_import_drafts').select('*').eq('id', draftId).maybeSingle();
   if (fetchErr || !draft) return res.status(404).json({ error: 'draft_not_found' });
@@ -174,7 +179,7 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
 
   const diff = draft.diff_json as RecipeImportDiff;
   const approvedSet = new Set(approvedItemKeys);
-  const result = { recipes_created: 0, skipped: [] as string[] };
+  const result = { recipes_created: 0, recipes_linked: 0, skipped: [] as string[], not_linked: [] as string[] };
   const ctx = await fetchRecipeImportContext(admin);
 
   try {
@@ -214,10 +219,10 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
       }
 
       // Created unlinked: the dish is linked by hand from the Menu.
-      const { error: rpcErr } = await admin.rpc('create_recipe', {
+      const { data: created, error: rpcErr } = await admin.rpc('create_recipe', {
         p_name: row.recipe_name,
         p_description: row.menu_item_name ? `For ${row.menu_item_name}${row.variant_name ? ` · ${row.variant_name}` : ''} (per the imported document)` : null,
-        p_notes: 'Created by AI recipe import — review, activate, then link it to a dish from Menu.',
+        p_notes: 'Created by AI recipe import.',
         p_recipe_type: 'menu_item',
         p_menu_item_id: null,
         p_variant_id: null,
@@ -234,6 +239,28 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
       // Keep the in-memory context consistent for any later row in this
       // same batch with the same name.
       ctx.existingRecipeNames.add(recipeNameKey(row.recipe_name));
+
+      // Link only where the reviewer picked a dish. link_recipe() re-checks
+      // everything (dish exists, size belongs to it, dish has no recipe yet)
+      // and activates the new draft, so the dish's stock deduction and food
+      // cost switch on. Unlinked recipes stay drafts.
+      const link = links[key];
+      if (!link) continue;
+      const createdRow = (Array.isArray(created) ? created[0] : created) as { recipe_id?: string } | null;
+      if (!createdRow?.recipe_id) {
+        result.not_linked.push(`${row.recipe_name} — created, but could not be linked`);
+        continue;
+      }
+      const { error: linkErr } = await admin.rpc('link_recipe', {
+        p_recipe_id: createdRow.recipe_id,
+        p_menu_item_id: link.menu_item_id,
+        p_variant_id: link.variant_id,
+      });
+      if (linkErr) {
+        result.not_linked.push(`${row.recipe_name} — ${linkErr.message}`);
+        continue;
+      }
+      result.recipes_linked += 1;
     }
   } catch (err) {
     console.error('[recipe-import] apply failed partway:', err);

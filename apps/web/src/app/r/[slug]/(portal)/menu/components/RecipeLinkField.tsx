@@ -39,8 +39,10 @@ export function RecipeLinkField({
         {recipes.length === 0
           ? 'Create the recipe on the Recipes page (or import it with AI) first, then link it here.'
           : selected?.status === 'draft'
-            ? 'Draft recipe: the dish starts using stock once you activate it on the Recipes page.'
-            : 'The dish will deduct this recipe’s ingredients from stock on every order.'}
+            ? 'This draft recipe is activated when you link it: stock deduction, food cost and availability switch on.'
+            : selected
+              ? 'Stock deduction, food cost and availability switch on for this dish as soon as it’s linked.'
+              : 'Linking switches on stock deduction, food cost and automatic availability for this dish.'}
       </p>
     </div>
   );
