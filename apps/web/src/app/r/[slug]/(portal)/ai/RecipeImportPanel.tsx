@@ -9,10 +9,8 @@ const MAX_BYTES = 10 * 1024 * 1024;
 type DiffIngredient = { name: string; qty: number | null; unit: string | null; inventory_item_name: string | null; qty_base: number | null; base_unit: string | null; issue: string | null };
 type DiffRecipeRow = {
   recipe_name: string;
-  menu_item_name: string;
+  menu_item_name: string | null;
   variant_name: string | null;
-  matched_menu_item_name: string | null;
-  matched_variant_name: string | null;
   yield_qty: number;
   yield_unit: string | null;
   ingredients: DiffIngredient[];
@@ -209,6 +207,9 @@ export function RecipeImportPanel({
             <span className="text-muted font-semibold">{diff.summary.exists} already exist</span>
             {diff.summary.blocked > 0 && <span className="text-danger font-semibold">, {diff.summary.blocked} blocked</span>}.
           </div>
+          <p className="text-[11px] text-muted">
+            Recipes are added as drafts and not linked to any dish. Link each one yourself from Menu → a product → Recipe.
+          </p>
           <div className="max-h-96 overflow-y-auto space-y-2 border border-border rounded p-2 bg-surface">
             {diff.recipes.map((row, i) => {
               const key = String(i);
@@ -226,11 +227,13 @@ export function RecipeImportPanel({
                       <span className="font-semibold">{row.recipe_name}</span>
                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
-                    <div className="text-[11px] text-muted">
-                      for {row.matched_menu_item_name ?? row.menu_item_name}
-                      {row.matched_variant_name ? ` · ${row.matched_variant_name}` : ''}
-                      {row.yield_unit ? ` — makes ${row.yield_qty} ${row.yield_unit}` : ''}
-                    </div>
+                    {(row.menu_item_name || row.yield_unit) && (
+                      <div className="text-[11px] text-muted">
+                        {row.menu_item_name ? `Document says it's for ${row.menu_item_name}${row.variant_name ? ` · ${row.variant_name}` : ''}` : ''}
+                        {row.menu_item_name && row.yield_unit ? ' — ' : ''}
+                        {row.yield_unit ? `makes ${row.yield_qty} ${row.yield_unit}` : ''}
+                      </div>
+                    )}
                     <div className="text-[11px] text-muted">
                       {row.ingredients.map((ing, ii) => (
                         <span key={ii} className={`mr-2 ${ing.issue ? 'text-danger' : ''}`}>

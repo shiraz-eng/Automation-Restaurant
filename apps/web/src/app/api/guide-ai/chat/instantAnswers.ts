@@ -304,12 +304,11 @@ Dishes without a recipe don't touch stock.
   },
   {
     keys: ['How do I link a dish to its ingredients and see its food cost?', 'Link dishes to ingredients', 'How do I link a recipe?'],
-    answer: `Go to **Recipes & Food Cost → + Create Recipe**:
-1. Choose the dish (and size, if sizes use different amounts).
-2. Add each ingredient with the **quantity per portion**, using the ingredient's unit.
-3. **Activate** the recipe.
+    answer: `Recipes come first, then you link them to dishes yourself:
+1. **Recipes & Food Cost → + Create Recipe** (or import a recipe sheet with **AI → Smart Import**). Add each ingredient with the **quantity per portion**, in the ingredient's unit, then **Activate** it.
+2. **Menu → open the dish → Recipe & Food Cost → Link a recipe**. Pick the recipe, and a size if sizes use different amounts. You can also pick one when you **+ Add Product**.
 
-You'll see the dish's cost and margin immediately. From then on each sale deducts stock, and the dish's availability is calculated automatically.
+Nothing is linked automatically. Once linked, you see the dish's cost and margin, each sale deducts stock, and availability is calculated for you. **Unlink** stops that without deleting the recipe.
 [[SUGGEST]] Why recipes matter | A dish shows 0 or Unavailable | How do the percentages work?`,
   },
   {

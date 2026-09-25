@@ -473,7 +473,7 @@ export default async function PortalHome({
                 : 'qty_base, inventory_item_id, sub_recipe_id'
             }))`,
           )
-          .eq('status', 'active')
+          .neq('status', 'archived')
       : Promise.resolve({ data: null }),
     includeMenu
       ? t.client

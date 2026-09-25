@@ -5,23 +5,23 @@ import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Field, Input, Select } from '@/components/ui';
-import type { Category, RecipeRow } from '../menuTypes';
-import { RecipeConnectField, connectRecipe, recipeChoiceError, type RecipeChoice } from './RecipeConnectField';
+import type { Category } from '../menuTypes';
+import { RecipeLinkField, linkRecipe, type LinkableRecipe } from './RecipeLinkField';
 
-/** Quick-create: name + price + category (+ optionally its recipe), same
- *  insert-item-then-"Regular"-variant flow the old inline page used.
- *  Everything else (image, description, extra variants, modifiers) is
- *  added in the full Product Editor, opened automatically once this
- *  succeeds. */
+/** Quick-create: name + price + category (+ optionally an existing recipe
+ *  to link), same insert-item-then-"Regular"-variant flow the old inline
+ *  page used. Everything else (image, description, extra variants,
+ *  modifiers) is added in the full Product Editor, opened automatically
+ *  once this succeeds. */
 export function CreateProductModal({
   categories,
-  recipes,
+  linkableRecipes,
   canManageRecipes,
   onClose,
   onCreated,
 }: {
   categories: Category[];
-  recipes: RecipeRow[];
+  linkableRecipes: LinkableRecipe[];
   canManageRecipes: boolean;
   onClose: () => void;
   onCreated: (itemId: string) => void;
@@ -31,7 +31,7 @@ export function CreateProductModal({
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [recipe, setRecipe] = useState<RecipeChoice>({ mode: 'none' });
+  const [recipeId, setRecipeId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Set when the product was created but its recipe couldn't be connected:
@@ -47,11 +47,6 @@ export function CreateProductModal({
     const cents = Math.round(parseFloat(price) * 100);
     if (!name.trim() || Number.isNaN(cents) || cents < 0) {
       setError('Enter a name and a valid price.');
-      return;
-    }
-    const choiceErr = recipeChoiceError(recipe);
-    if (choiceErr) {
-      setError(choiceErr);
       return;
     }
     setBusy(true);
@@ -74,12 +69,12 @@ export function CreateProductModal({
       setError(vErr.message);
       return;
     }
-    const recipeErr = canManageRecipes ? await connectRecipe(supabase, recipes, item.id, name.trim(), recipe) : null;
+    const recipeErr = canManageRecipes && recipeId ? await linkRecipe(supabase, recipeId, item.id, null) : null;
     setBusy(false);
     router.refresh();
     if (recipeErr) {
       setCreatedId(item.id);
-      setError(`"${name.trim()}" was created, but its recipe wasn't connected: ${recipeErr}`);
+      setError(`"${name.trim()}" was created, but the recipe wasn't linked: ${recipeErr}`);
       return;
     }
     onCreated(item.id);
@@ -112,7 +107,7 @@ export function CreateProductModal({
                 ))}
               </Select>
             </Field>
-            {canManageRecipes && <RecipeConnectField recipes={recipes} value={recipe} onChange={setRecipe} />}
+            {canManageRecipes && <RecipeLinkField recipes={linkableRecipes} value={recipeId} onChange={setRecipeId} />}
           </fieldset>
           {error && <p className="text-danger text-xs">{error}</p>}
           <p className="text-[11px] text-muted">Creates the product with a &ldquo;Regular&rdquo; variant. Add image, description, sizes and modifiers next.</p>

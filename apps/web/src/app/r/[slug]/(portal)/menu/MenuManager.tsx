@@ -24,6 +24,7 @@ import { ProductTable } from './components/ProductTable';
 import { ProductGridCard } from './components/ProductGridCard';
 import { ProductEditor } from './components/ProductEditor';
 import { CreateProductModal } from './components/CreateProductModal';
+import type { LinkableRecipe } from './components/RecipeLinkField';
 import { CategoryManagerPanel } from './components/CategoryManagerPanel';
 
 export function MenuManager({
@@ -56,6 +57,16 @@ export function MenuManager({
   canManageRecipes?: boolean;
 }) {
   const router = useRouter();
+  // Dish recipes created on the Recipes page / by AI import that no menu
+  // item uses yet — what the "Link a recipe" pickers offer.
+  const linkableRecipes: LinkableRecipe[] = useMemo(
+    () =>
+      recipes
+        .filter((r) => !r.menu_item_id && r.recipe_type === 'menu_item' && r.status !== 'archived')
+        .map((r) => ({ id: r.id, name: r.name, status: r.status as LinkableRecipe['status'] }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [recipes],
+  );
   const supabase = usePortalSupabase();
 
   // The recipe-driven availability engine (tenant-migrations/0052) writes to
@@ -211,6 +222,7 @@ export function MenuManager({
           canDelete={canDelete}
           canViewCost={canViewCost}
           canManageRecipes={canManageRecipes}
+          linkableRecipes={linkableRecipes}
           onClose={() => setEditingId(null)}
           onDeleted={() => setEditingId(null)}
           onDuplicated={(newId) => setEditingId(newId)}
@@ -220,7 +232,7 @@ export function MenuManager({
       {showCreate && (
         <CreateProductModal
           categories={sortedCategories}
-          recipes={recipes}
+          linkableRecipes={linkableRecipes}
           canManageRecipes={canManageRecipes}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => {

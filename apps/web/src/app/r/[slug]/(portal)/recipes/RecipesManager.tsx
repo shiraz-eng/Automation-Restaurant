@@ -80,8 +80,8 @@ function menuPriceFor(recipe: Recipe): number | null {
 }
 
 const TYPE_LABELS: Record<Recipe['recipe_type'], string> = {
-  menu_item: 'Menu Item',
-  variant: 'Variant',
+  menu_item: 'Dish',
+  variant: 'Dish size',
   semi_finished: 'Semi-Finished',
   preparation: 'Preparation',
 };
@@ -246,10 +246,8 @@ export function RecipesManager({
           ) : (
             <RecipeForm
               mode="create"
-              menuItems={menuItems}
               inventoryItems={inventoryItems}
               subRecipes={subRecipes}
-              categories={categories}
               supabase={supabase}
               canViewCost={canViewCost}
               onDone={() => {
@@ -268,7 +266,6 @@ export function RecipesManager({
           <RecipeForm
             mode="version"
             recipe={newVersionFor}
-            menuItems={menuItems}
             inventoryItems={inventoryItems}
             subRecipes={subRecipes}
             supabase={supabase}
@@ -329,7 +326,7 @@ export function RecipesManager({
                       <span className="text-[10px] text-muted">{TYPE_LABELS[r.recipe_type]}</span>
                     </div>
                     <div className="text-[11px] text-muted mt-0.5">
-                      {menuItem?.name ?? 'No product linked'} · {currentVersion?.recipe_ingredients.length ?? 0} ingredient
+                      {menuItem ? `Linked to ${menuItem.name}` : 'Not linked — link it from Menu'} · {currentVersion?.recipe_ingredients.length ?? 0} ingredient
                       {currentVersion?.recipe_ingredients.length === 1 ? '' : 's'} · v{currentVersion?.version ?? '—'} · updated {formatDate(r.created_at)}
                     </div>
                   </div>
@@ -485,10 +482,8 @@ export function RecipesManager({
 function RecipeForm({
   mode,
   recipe,
-  menuItems,
   inventoryItems,
   subRecipes,
-  categories,
   supabase,
   canViewCost,
   onDone,
@@ -496,10 +491,8 @@ function RecipeForm({
 }: {
   mode: 'create' | 'version';
   recipe?: Recipe;
-  menuItems: MenuItemOption[];
   inventoryItems: InventoryItemOption[];
   subRecipes: SubRecipeOption[];
-  categories?: CategoryOption[];
   supabase: ReturnType<typeof usePortalSupabase>;
   canViewCost: boolean;
   onDone: () => void;
@@ -508,16 +501,9 @@ function RecipeForm({
   const [name, setName] = useState(recipe?.name ?? '');
   const [description, setDescription] = useState(recipe?.description ?? '');
   const [notes, setNotes] = useState(recipe?.notes ?? '');
+  // Recipes are created on their own; a dish recipe is linked to its menu
+  // item by hand from the Menu (link_recipe), never here.
   const [recipeType, setRecipeType] = useState<Recipe['recipe_type']>(recipe?.recipe_type ?? 'menu_item');
-  // Recipe-first workflow (default): a brand-new dish is defined by
-  // building its recipe, and the menu item is created FROM it — not the
-  // other way around. "existing" stays available for the retrofit case
-  // (adding/replacing a recipe on a product that's already on the menu).
-  const [productMode, setProductMode] = useState<'new' | 'existing'>('new');
-  const [newProductPrice, setNewProductPrice] = useState('');
-  const [newProductCategoryId, setNewProductCategoryId] = useState('');
-  const [menuItemId, setMenuItemId] = useState(recipe?.menu_item_id ?? '');
-  const [variantId, setVariantId] = useState(recipe?.variant_id ?? '');
   const [instructions, setInstructions] = useState(recipe?.instructions ?? '');
   const currentVersion = recipe?.recipe_versions.find((v) => v.id === recipe.current_version_id);
   const [yieldQty, setYieldQty] = useState(String(currentVersion?.yield_qty ?? 1));
@@ -535,7 +521,6 @@ function RecipeForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedMenuItem = menuItems.find((m) => m.id === menuItemId);
   const inventoryById = new Map(inventoryItems.map((i) => [i.id, i]));
   const subRecipeById = new Map(subRecipes.map((s) => [s.id, s]));
 
@@ -589,75 +574,22 @@ function RecipeForm({
       setBusy(false);
       return;
     }
-    const creatingNewProduct = recipeType === 'menu_item' && mode === 'create' && productMode === 'new';
-    if (recipeType === 'variant' && mode === 'create' && !menuItemId) {
-      setError('Choose the menu item this recipe is for.');
-      setBusy(false);
-      return;
-    }
-    if (recipeType === 'menu_item' && mode === 'create' && productMode === 'existing' && !menuItemId) {
-      setError('Choose the existing menu item this recipe is for.');
-      setBusy(false);
-      return;
-    }
-    let newProductCents = 0;
-    if (creatingNewProduct) {
-      newProductCents = Math.round(parseFloat(newProductPrice) * 100);
-      if (Number.isNaN(newProductCents) || newProductCents < 0) {
-        setError('Enter a valid starting price for the new product.');
-        setBusy(false);
-        return;
-      }
-    }
-
     let versionId: string | null = null;
     if (mode === 'create') {
-      // Recipe-first: the product doesn't exist yet — create it (name +
-      // "Regular" variant, same shape CreateProductModal uses) BEFORE the
-      // recipe, so create_recipe's menu_item_id is always a real product,
-      // matching the schema's own invariant (a menu_item/variant recipe
-      // must point at a product — never the reverse dependency).
-      let targetMenuItemId = menuItemId;
-      if (creatingNewProduct) {
-        const { data: newItem, error: itemErr } = await supabase
-          .from('menu_items')
-          .insert({ name: name.trim(), price_cents: 0, category_id: newProductCategoryId || null, is_available: true })
-          .select('id')
-          .single();
-        if (itemErr || !newItem) {
-          setError(itemErr?.message ?? 'Could not create the menu item.');
-          setBusy(false);
-          return;
-        }
-        const { error: variantErr } = await supabase
-          .from('menu_variants')
-          .insert({ menu_item_id: newItem.id, name: 'Regular', price_cents: newProductCents, sort_order: 0 });
-        if (variantErr) {
-          setError(variantErr.message);
-          setBusy(false);
-          return;
-        }
-        targetMenuItemId = newItem.id;
-      }
-
       const { data, error: err } = await supabase.rpc('create_recipe', {
         p_name: name.trim(),
         p_description: description.trim() || null,
         p_notes: notes.trim() || null,
         p_recipe_type: recipeType,
-        p_menu_item_id: recipeType === 'menu_item' || recipeType === 'variant' ? targetMenuItemId : null,
-        p_variant_id: recipeType === 'variant' ? variantId || null : null,
+        p_menu_item_id: null,
+        p_variant_id: null,
         p_instructions: instructions.trim() || null,
         p_yield_qty: parseFloat(yieldQty) || 1,
         p_yield_unit: yieldUnit.trim() || null,
         p_ingredients: ingredientPayload,
       });
       if (err) {
-        setError(
-          creatingNewProduct
-            ? `The menu item "${name.trim()}" was created, but the recipe failed to save: ${err.message}. Attach a recipe to it from here or Menu Management.`
-            : err.message,
-        );
+        setError(err.message);
         setBusy(false);
         return;
       }
@@ -703,8 +635,7 @@ function RecipeForm({
             </Field>
             <Field label="Type">
               <Select value={recipeType} onChange={(e) => setRecipeType(e.target.value as Recipe['recipe_type'])}>
-                <option value="menu_item">Menu Item</option>
-                <option value="variant">Variant</option>
+                <option value="menu_item">Dish</option>
                 <option value="semi_finished">Semi-Finished</option>
                 <option value="preparation">Preparation</option>
               </Select>
@@ -715,90 +646,10 @@ function RecipeForm({
           </Field>
 
           {recipeType === 'menu_item' && (
-            <div className="space-y-3">
-              <div className="flex gap-4 text-xs">
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={productMode === 'new'} onChange={() => setProductMode('new')} />
-                  Create a new menu item for this recipe
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="radio" checked={productMode === 'existing'} onChange={() => setProductMode('existing')} />
-                  Attach to an existing menu item
-                </label>
-              </div>
-
-              {productMode === 'new' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Starting Price">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={newProductPrice}
-                      onChange={(e) => setNewProductPrice(e.target.value)}
-                      placeholder="0.00"
-                    />
-                  </Field>
-                  <Field label="Category (optional)">
-                    <Select value={newProductCategoryId} onChange={(e) => setNewProductCategoryId(e.target.value)}>
-                      <option value="">— none —</option>
-                      {(categories ?? []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <p className="text-[11px] text-muted sm:col-span-2">
-                    Saving creates &ldquo;{name.trim() || 'this recipe’s name'}&rdquo; as a new product with a
-                    Regular variant at this price, linked to this recipe. Add an image, description, extra sizes
-                    and modifiers afterward in Menu Management.
-                  </p>
-                </div>
-              ) : (
-                <Field label="Menu Item">
-                  <Select value={menuItemId} onChange={(e) => setMenuItemId(e.target.value)}>
-                    <option value="">Choose item…</option>
-                    {menuItems.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              )}
-            </div>
-          )}
-
-          {recipeType === 'variant' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Menu Item">
-                <Select
-                  value={menuItemId}
-                  onChange={(e) => {
-                    setMenuItemId(e.target.value);
-                    setVariantId('');
-                  }}
-                >
-                  <option value="">Choose item…</option>
-                  {menuItems.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Variant">
-                <Select value={variantId} onChange={(e) => setVariantId(e.target.value)}>
-                  <option value="">Choose variant…</option>
-                  {(selectedMenuItem?.menu_variants ?? []).map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </div>
+            <p className="text-[11px] text-muted">
+              Saved on its own. To use it, open the dish on the Menu and link this recipe there — nothing is linked
+              automatically.
+            </p>
           )}
 
           {(recipeType === 'semi_finished' || recipeType === 'preparation') && (

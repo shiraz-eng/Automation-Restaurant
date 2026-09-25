@@ -63,8 +63,10 @@ const SETUP = `
 2. **Menu**: add categories & items with sizes (variants) and add-ons — or use **AI → Smart Import** with a photo/PDF of your menu, then review and approve.
 3. **Tables & QR**: add tables, then **Print all QR codes** and place them on tables. Guests scan to order.
 4. **Inventory**: add ingredients with units, current stock, reorder level and cost.
-5. **Recipes & Food Cost**: link each dish (and size) to its ingredients. This switches on automatic food
-   availability and real food cost. A dish with no recipe shows "No limit" in the kitchen.
+5. **Recipes & Food Cost**: create each recipe (or import them with Smart Import) and activate it. Recipes are
+   saved on their own; then on the **Menu**, open each dish and **Link a recipe** (optionally per size) — nothing
+   links automatically. Linking switches on automatic food availability and real food cost. A dish with no
+   linked recipe shows "No limit" in the kitchen.
 6. **Staff**: add team members and roles; logins are generated and shown once — hand them over securely.
 7. **Portals**: create station logins (e.g. "Counter", "Kitchen") and tick only the permissions each needs.
 8. Optional: **Menu → Priority Allocation** (share scarce ingredients by %), **Deals & Combos**, **Suppliers & Purchasing**, **Day close**.

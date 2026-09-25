@@ -25,7 +25,7 @@ import {
   type RecipeRow,
 } from '../menuTypes';
 import { ImageFallback } from './ImageFallback';
-import { RecipeConnectField, connectRecipe, recipeChoiceError, type RecipeChoice } from './RecipeConnectField';
+import { RecipeLinkField, linkRecipe, unlinkRecipe, type LinkableRecipe } from './RecipeLinkField';
 import { StatusPill } from './StatusPill';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -54,6 +54,7 @@ export function ProductEditor({
   canDelete,
   canViewCost,
   canManageRecipes = false,
+  linkableRecipes = [],
   onClose,
   onDeleted,
   onDuplicated,
@@ -73,6 +74,7 @@ export function ProductEditor({
   canDelete: boolean;
   canViewCost: boolean;
   canManageRecipes?: boolean;
+  linkableRecipes?: LinkableRecipe[];
   onClose: () => void;
   onDeleted: () => void;
   onDuplicated: (newItemId: string) => void;
@@ -81,24 +83,37 @@ export function ProductEditor({
   const supabase = usePortalSupabase();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recipeChoice, setRecipeChoice] = useState<RecipeChoice>({ mode: 'none' });
+  // Recipe linking is always manual: pick a recipe (and optionally one size).
+  const [linkRecipeId, setLinkRecipeId] = useState('');
+  const [linkSizeId, setLinkSizeId] = useState('');
   const [recipeError, setRecipeError] = useState<string | null>(null);
+  const linkedRecipes = recipes.filter((r) => r.menu_item_id === item.id);
 
-  async function connectItemRecipe() {
-    const choiceErr = recipeChoiceError(recipeChoice);
-    if (choiceErr) {
-      setRecipeError(choiceErr);
-      return;
-    }
+  async function linkItemRecipe() {
+    if (!linkRecipeId) return;
     setBusy(true);
     setRecipeError(null);
-    const err = await connectRecipe(supabase, recipes, item.id, item.name, recipeChoice);
+    const err = await linkRecipe(supabase, linkRecipeId, item.id, linkSizeId || null);
     setBusy(false);
     if (err) {
       setRecipeError(err);
       return;
     }
-    setRecipeChoice({ mode: 'none' });
+    setLinkRecipeId('');
+    setLinkSizeId('');
+    router.refresh();
+  }
+
+  async function unlinkItemRecipe(r: RecipeRow) {
+    if (!confirm(`Unlink "${r.name}" from ${item.name}? The dish stops deducting stock; the recipe itself is kept.`)) return;
+    setBusy(true);
+    setRecipeError(null);
+    const err = await unlinkRecipe(supabase, r.id);
+    setBusy(false);
+    if (err) {
+      setRecipeError(err);
+      return;
+    }
     router.refresh();
   }
   const [uploading, setUploading] = useState(false);
@@ -665,9 +680,31 @@ export function ProductEditor({
 
             <section className="rounded-lg border border-border bg-surface p-4">
               <h3 className="font-bold text-xs uppercase tracking-wide text-muted mb-3">Recipe &amp; Food Cost</h3>
+              {linkedRecipes.length > 0 && (
+                <div className="space-y-1.5 mb-3">
+                  {linkedRecipes.map((r) => {
+                    const size = r.variant_id ? item.menu_variants.find((v) => v.id === r.variant_id)?.name : null;
+                    return (
+                      <div key={r.id} className="flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <span className="font-semibold">{r.name}</span>
+                          <span className="text-muted">
+                            {size ? ` · ${size} only` : ' · whole dish'}
+                            {r.status === 'draft' ? ' · draft (activate on Recipes to use stock)' : ''}
+                          </span>
+                        </div>
+                        {canManageRecipes && (
+                          <button onClick={() => unlinkItemRecipe(r)} disabled={busy} className="text-danger text-[11px] underline shrink-0">
+                            Unlink
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {recipe ? (
                 <div className="space-y-1.5 text-xs">
-                  <div className="font-semibold">{recipe.name}</div>
                   {canViewCost && cost && (
                     <>
                       <div className="flex justify-between">
@@ -687,19 +724,31 @@ export function ProductEditor({
                     </>
                   )}
                 </div>
-              ) : canManageRecipes ? (
-                <div className="space-y-2">
-                  <p className="text-muted text-xs">No recipe linked yet.</p>
-                  <RecipeConnectField recipes={recipes.filter((r) => r.menu_item_id !== item.id)} value={recipeChoice} onChange={setRecipeChoice} />
-                  {recipeChoice.mode !== 'none' && (
-                    <Button onClick={connectItemRecipe} disabled={busy}>
-                      {busy ? 'Connecting…' : 'Connect Recipe'}
+              ) : (
+                linkedRecipes.length === 0 && <p className="text-muted text-xs">No recipe linked yet.</p>
+              )}
+              {canManageRecipes && (
+                <div className="space-y-2 mt-3">
+                  <RecipeLinkField recipes={linkableRecipes} value={linkRecipeId} onChange={setLinkRecipeId} label="Link a recipe" />
+                  {linkRecipeId && item.menu_variants.length > 1 && (
+                    <Field label="For">
+                      <Select value={linkSizeId} onChange={(e) => setLinkSizeId(e.target.value)}>
+                        <option value="">Whole dish (every size)</option>
+                        {item.menu_variants.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} only
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  )}
+                  {linkRecipeId && (
+                    <Button onClick={linkItemRecipe} disabled={busy}>
+                      {busy ? 'Linking…' : 'Link Recipe'}
                     </Button>
                   )}
                   {recipeError && <p className="text-danger text-xs">{recipeError}</p>}
                 </div>
-              ) : (
-                <p className="text-muted text-xs">No recipe linked yet.</p>
               )}
               <Link href={`/r/${slug}/recipes`} className="text-primary text-xs font-semibold hover:underline mt-3 inline-block">
                 View Recipe →

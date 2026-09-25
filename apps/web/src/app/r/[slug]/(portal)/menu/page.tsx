@@ -54,7 +54,8 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
       .select(
         `id, name, status, recipe_type, menu_item_id, variant_id, current_version_id, recipe_versions!recipe_versions_recipe_id_fkey(id, yield_qty, yield_unit, recipe_ingredients(${recipeIngredientsSelect}))`,
       )
-      .eq('status', 'active'),
+      // Drafts too: a linked draft shows on its dish, an unlinked one can be linked.
+      .neq('status', 'archived'),
     t.client.from('product_availability').select('menu_item_id, variant_id, status, producible_qty, bottleneck_inventory_item_id, reason'),
   ]);
 

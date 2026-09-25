@@ -296,7 +296,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       orders and showed Sold Out after the Food Stock panel was removed).
 //   v67 delete_recipe(): permanently delete a recipe (refused while another
 //       recipe uses it as a sub-recipe).
-const SCHEMA_VERSION = 67;
+//   v68 Recipes first, linked by hand: a dish recipe may exist without a
+//       menu item; link_recipe()/unlink_recipe() attach it from the Menu.
+const SCHEMA_VERSION = 68;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -10,6 +10,7 @@ import {
   diffRecipeImport,
   fetchRecipeImportContext,
   convertToBaseUnit,
+  recipeNameKey,
   type ParsedRecipes,
   type RecipeImportDiff,
 } from '../lib/recipeImport';
@@ -183,18 +184,8 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
       const row = diff.recipes[i]!;
 
       // Re-resolve fresh rather than trusting the stored diff snapshot.
-      const menuItem = ctx.menuItems.find((m) => m.id === row.matched_menu_item_id);
-      if (!menuItem) {
-        result.skipped.push(`${row.recipe_name} — menu item no longer found`);
-        continue;
-      }
-      const variant = row.matched_variant_id ? menuItem.variants.find((v) => v.id === row.matched_variant_id) ?? null : null;
-      if (row.matched_variant_id && !variant) {
-        result.skipped.push(`${row.recipe_name} — variant no longer found`);
-        continue;
-      }
-      if (ctx.existingRecipeKeys.has(`${menuItem.id}::${variant?.id ?? ''}`)) {
-        result.skipped.push(`${row.recipe_name} — a recipe already exists for this item now`);
+      if (ctx.existingRecipeNames.has(recipeNameKey(row.recipe_name))) {
+        result.skipped.push(`${row.recipe_name} — a recipe with this name already exists`);
         continue;
       }
 
@@ -222,13 +213,14 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
         continue;
       }
 
+      // Created unlinked: the dish is linked by hand from the Menu.
       const { error: rpcErr } = await admin.rpc('create_recipe', {
         p_name: row.recipe_name,
-        p_description: null,
-        p_notes: 'Created by AI recipe import — review before activating.',
-        p_recipe_type: variant ? 'variant' : 'menu_item',
-        p_menu_item_id: menuItem.id,
-        p_variant_id: variant?.id ?? null,
+        p_description: row.menu_item_name ? `For ${row.menu_item_name}${row.variant_name ? ` · ${row.variant_name}` : ''} (per the imported document)` : null,
+        p_notes: 'Created by AI recipe import — review, activate, then link it to a dish from Menu.',
+        p_recipe_type: 'menu_item',
+        p_menu_item_id: null,
+        p_variant_id: null,
         p_instructions: row.instructions,
         p_yield_qty: row.yield_qty,
         p_yield_unit: row.yield_unit,
@@ -240,8 +232,8 @@ recipeImportRouter.post('/recipe-import/apply', express.json(), requirePortalPer
       }
       result.recipes_created += 1;
       // Keep the in-memory context consistent for any later row in this
-      // same batch that targets the same menu item/variant.
-      ctx.existingRecipeKeys.add(`${menuItem.id}::${variant?.id ?? ''}`);
+      // same batch with the same name.
+      ctx.existingRecipeNames.add(recipeNameKey(row.recipe_name));
     }
   } catch (err) {
     console.error('[recipe-import] apply failed partway:', err);
