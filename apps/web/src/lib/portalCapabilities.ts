@@ -33,6 +33,12 @@ export type PortalCapabilities = {
   paymentReconcile: boolean;
   /** CashCountPanel (finance.reconcile). */
   cashCount: boolean;
+  /** Restaurant Performance (the Dashboard's PerformancePanel +
+   *  RestaurantIntelligencePanel) at the top of the Finance section, for a
+   *  finance portal that doesn't also have the Analytics section. Its sales
+   *  RPCs need orders.view; profit tiles appear with finance.view_profit /
+   *  finance.view_cogs and degrade gracefully without them. */
+  financePerformance: boolean;
   analytics: boolean;
   deals: boolean;
   social: boolean;
@@ -116,6 +122,10 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     // floor; the analytics/reports keys on top of it are what actually
     // signal "wants the aggregate view", not a substitute for it.
     analytics: has('orders.view') && hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
+    financePerformance:
+      has('orders.view') &&
+      hasAny(['finance.view', 'finance.view_profit', 'finance.view_cogs']) &&
+      !hasAny(['analytics.view', 'analytics.export', 'reports.generate', 'reports.export']),
     deals: has('deals.view'),
     social: has('social.view'),
     staff: has('staff.view'),
@@ -153,7 +163,7 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       (caps.recipes || caps.ingredientCosts) && { id: 'recipes', label: 'Recipes & Food Cost' },
       caps.inventory && { id: 'inventory', label: 'Inventory' },
       (caps.suppliers || caps.purchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
-      (caps.finance || caps.dayClose || caps.paymentReconcile || caps.cashCount) && { id: 'finance', label: 'Finance' },
+      (caps.finance || caps.dayClose || caps.paymentReconcile || caps.cashCount || caps.financePerformance) && { id: 'finance', label: 'Finance' },
       caps.analytics && { id: 'analytics', label: 'Analytics' },
       caps.reportHistory && { id: 'reports', label: 'Report History' },
       caps.reviews && { id: 'reviews', label: 'Reviews' },
@@ -207,6 +217,9 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   finance: [
     'finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit',
     'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile',
+    // Restaurant Performance at the top of Finance needs orders.view (sales);
+    // finance.view_cogs also unlocks its profit tiles.
+    'orders.view', 'finance.view_cogs',
   ],
   // The three cost keys unlock PerformancePanel's profit tiles and Top
   // Products (period_profitability/item_profitability accept any of them).

@@ -14,10 +14,14 @@ export function AnalyticsSection({
   slug,
   restaurantName,
   logoUrl,
+  showIntelligence = true,
 }: {
   slug: string;
   restaurantName: string;
   logoUrl?: string | null;
+  /** The Restaurant Intelligence panel's endpoint requires analytics.view;
+   *  a finance portal without it shows the performance panel only. */
+  showIntelligence?: boolean;
 }) {
   const [period, setPeriod] = useState<Period>('today');
   const [customRange, setCustomRange] = useState<CustomRange | null>(null);
@@ -33,7 +37,7 @@ export function AnalyticsSection({
         customRange={customRange}
         onCustomRangeChange={setCustomRange}
       />
-      <RestaurantIntelligencePanel period={period} customRange={customRange} />
+      {showIntelligence && <RestaurantIntelligencePanel period={period} customRange={customRange} />}
     </>
   );
 }

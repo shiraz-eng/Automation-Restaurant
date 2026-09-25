@@ -145,6 +145,7 @@ export default async function PortalHome({
     finance: canFinance,
     dayClose: includeDayClose,
     analytics: includeAnalytics,
+    financePerformance: includeFinancePerformance,
     deals: includeDeals,
     social: includeSocial,
     staff: includeStaff,
@@ -919,7 +920,7 @@ export default async function PortalHome({
             </section>
           )}
 
-          {(canFinance || includeDayClose || includePaymentReconcile || includeCashCount) && (
+          {(canFinance || includeDayClose || includePaymentReconcile || includeCashCount || includeFinancePerformance) && (
             <section id="finance" className="scroll-mt-16 space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <h2 className="font-bold text-sm">Finance</h2>
@@ -927,6 +928,12 @@ export default async function PortalHome({
                   <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="expenses" label="Expenses" />
                 )}
               </div>
+              {includeFinancePerformance && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-xs text-muted uppercase tracking-wide">Restaurant Performance</h3>
+                  <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} showIntelligence={has('analytics.view')} />
+                </div>
+              )}
               {canFinance && (
                 <ExpensesManager
                   expenses={expenses}

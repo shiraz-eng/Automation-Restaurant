@@ -7,6 +7,8 @@ import { can } from '@/lib/permissions';
 import { PortalAiWidget } from '@/components/PortalAiWidget';
 import { ExpenseForm } from './ExpenseForm';
 import { FinanceProfitCards } from './FinanceProfitCards';
+import { fetchPortalTheme } from '@/lib/theme';
+import { AnalyticsSection } from '../portal/[portalKey]/AnalyticsSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,7 +73,7 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
   since.setDate(since.getDate() - 30);
   const now = new Date();
 
-  const [{ data: paid }, { data: periodRows, error: periodErr }, { data: itemRows }, { data: expenses }] =
+  const [{ data: paid }, { data: periodRows, error: periodErr }, { data: itemRows }, { data: expenses }, { logoUrl }] =
     await Promise.all([
       t.client
         .from('orders')
@@ -85,6 +87,7 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
         .select('id, category, description, amount_cents, expense_date')
         .order('expense_date', { ascending: false })
         .limit(10),
+      fetchPortalTheme(t.client),
     ]);
 
   const rows = paid ?? [];
@@ -120,7 +123,20 @@ export default async function FinancePage({ params }: { params: Promise<{ slug: 
   return (
     <div className="space-y-8 max-w-5xl">
       <h1 className="text-xl font-black">Finance</h1>
-      <p className="text-muted text-xs -mt-6">Paid orders and profitability, last 30 days.</p>
+
+      {/* The Owner Dashboard's own Restaurant Performance panels (period
+          picker, sales, profit, trends, top products, payment mix,
+          intelligence) — same components and RPCs, so the numbers match
+          the Dashboard exactly. */}
+      <section className="space-y-4">
+        <h2 className="font-bold text-sm">Restaurant Performance</h2>
+        <AnalyticsSection slug={slug} restaurantName={t.config.restaurantName} logoUrl={logoUrl} />
+      </section>
+
+      <div>
+        <h2 className="font-bold text-sm">Finance detail</h2>
+        <p className="text-muted text-xs mt-1">Paid orders and profitability, last 30 days.</p>
+      </div>
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Revenue today" value={formatCents(sum(today))} hint={`${today.length} orders`} />
