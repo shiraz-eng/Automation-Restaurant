@@ -74,8 +74,9 @@ export type ReportDeal = {
   name: string;
   qty_sold: number;
   revenue_cents: number;
-  cogs_cents: number;
-  contribution_cents: number;
+  /** null = no recipe cost known for this deal (shown as N/A, never $0). */
+  cogs_cents: number | null;
+  contribution_cents: number | null;
   contribution_margin_pct: number | null;
 };
 export type ReportPromotion = {
@@ -765,8 +766,8 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
           d.name,
           String(d.qty_sold),
           formatCents(d.revenue_cents),
-          formatCents(d.cogs_cents),
-          formatCents(d.contribution_cents),
+          d.cogs_cents != null ? formatCents(d.cogs_cents) : 'N/A',
+          d.contribution_cents != null ? formatCents(d.contribution_cents) : 'N/A',
           d.contribution_margin_pct != null ? `${d.contribution_margin_pct}%` : 'N/A',
         ]),
         styles: { fontSize: 8.5, cellPadding: 1.5 },
@@ -1112,6 +1113,19 @@ export async function saveAndStoreReportPdf(
   opts: { sections?: ReportSection[]; domain?: string } | undefined,
   ctx: { supabase: SupabaseClient; auditId: string | null; domain: string },
 ): Promise<void> {
+  // Every PDF carries the restaurant's Brand Kit (logo + primary colour),
+  // whichever screen or portal generated it — callers that didn't pass one
+  // (generated portals, section reports) get it filled in here, so a new
+  // portal is branded automatically with nothing to configure.
+  if (!data.logoUrl || !data.primaryColor) {
+    try {
+      const { data: kitRows } = await ctx.supabase.rpc('get_brand_kit');
+      const kit = (Array.isArray(kitRows) ? kitRows[0] : kitRows) as { logo_url?: string | null; primary_color?: string | null } | null;
+      data = { ...data, logoUrl: data.logoUrl || kit?.logo_url || null, primaryColor: data.primaryColor || kit?.primary_color || null };
+    } catch {
+      // Unbranded is better than no PDF.
+    }
+  }
   const { doc, filename } = await buildReportDoc(data, opts);
   doc.save(filename);
   if (!ctx.auditId) return;

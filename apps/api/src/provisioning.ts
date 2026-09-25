@@ -310,7 +310,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       analytics portals get Restaurant Performance without "View orders".
 //   v73 SECURITY: guests could list every order (guest_read using (true));
 //       tracking now goes through track_order(order_id) only.
-const SCHEMA_VERSION = 73;
+//   v74 Deals in Restaurant Performance: revenue_by_category adds a "Deals"
+//       row; deal_sales() gives units/orders/revenue per deal.
+const SCHEMA_VERSION = 74;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
@@ -447,7 +449,24 @@ export async function provisionTenant(input: {
       let mgmt: MgmtClient;
       let projectRef: string;
       let organizationId: string;
-      if (existing.data?.project_ref) {
+      // A project recorded by an earlier attempt may since have been deleted
+      // from the owner's Supabase account (e.g. to free up the free-plan
+      // project limit). Resuming on it would fail forever — forget it and
+      // create a new one instead.
+      let resumeRef = existing.data?.project_ref ?? null;
+      if (resumeRef) {
+        const probe = connected ? mgmtClient((await getFreshConnection(tenantId)).access_token) : platformMgmt;
+        try {
+          await probe.getProject(resumeRef);
+        } catch (err) {
+          if (/-> 404|removed|not found/i.test(String((err as Error).message))) {
+            console.warn(`[provision] ${slug}: recorded project ${resumeRef} no longer exists — creating a new one`);
+            await supabaseAdmin.from('tenant_projects').delete().eq('tenant_id', tenantId);
+            resumeRef = null;
+          }
+        }
+      }
+      if (resumeRef && existing.data?.project_ref) {
         // A previous attempt created (and registered) the project but never
         // got through schema application — resume on that SAME project
         // rather than asking Supabase for a new one, which would just be

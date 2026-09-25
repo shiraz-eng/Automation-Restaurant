@@ -176,6 +176,17 @@ type Profitability = {
   net_profit_margin_pct: number | null;
 } | null;
 type Slice = { name: string; value: number };
+type DealRow = {
+  deal_id: string;
+  name: string;
+  orders_count: number;
+  qty_sold: number;
+  revenue_cents: number;
+  cogs_cents: number | null;
+  contribution_cents: number | null;
+  contribution_margin_pct: number | null;
+};
+
 type ItemRow = {
   name: string;
   qty_sold: number;
@@ -295,6 +306,9 @@ export function PerformancePanel({
   const [categoryMix, setCategoryMix] = useState<Slice[]>([]);
   const [paymentMixData, setPaymentMixData] = useState<Slice[]>([]);
   const [topItems, setTopItems] = useState<ItemRow[]>([]);
+  // Deals sold in the period (deal_sales, 0074) with cost/margin merged in
+  // from deal_profitability when the viewer can see costs.
+  const [dealRows, setDealRows] = useState<DealRow[]>([]);
   const [topSort, setTopSort] = useState<'revenue_cents' | 'qty_sold'>('revenue_cents');
   const [feedback, setFeedback] = useState<FeedbackRow | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
@@ -375,6 +389,32 @@ export function PerformancePanel({
         );
         setTopItems(itemRes.error ? [] : ((itemRes.data as ItemRow[]) ?? []).slice(0, 8));
         setFeedback((fbRes.data as FeedbackRow[] | null)?.[0] ?? null);
+
+        // Deals: sales for everyone who can see performance; cost/margin
+        // only when deal_profitability allows it (degrades to sales only).
+        const [dealSalesRes, dealProfitRes] = await Promise.all([
+          supabase.rpc('deal_sales', { p_from: from.toISOString(), p_to: to.toISOString() }),
+          supabase.rpc('deal_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
+        ]);
+        if (cancelled) return;
+        const profitById = new Map(
+          ((dealProfitRes.error ? [] : dealProfitRes.data) as { deal_id: string; cogs_cents: number; cogs_known: boolean; contribution_cents: number; contribution_margin_pct: number | null }[] ?? []).map(
+            (d) => [d.deal_id, d],
+          ),
+        );
+        setDealRows(
+          ((dealSalesRes.error ? [] : dealSalesRes.data) as { deal_id: string; name: string; orders_count: number; qty_sold: number; revenue_cents: number }[] ?? []).map(
+            (d) => {
+              const p = profitById.get(d.deal_id);
+              return {
+                ...d,
+                cogs_cents: p?.cogs_known ? p.cogs_cents : null,
+                contribution_cents: p?.cogs_known ? p.contribution_cents : null,
+                contribution_margin_pct: p?.cogs_known ? p.contribution_margin_pct : null,
+              };
+            },
+          ),
+        );
       } catch (e) {
         // Supabase RPC errors are plain {message, code, ...} objects, not
         // Error instances — String(e) on one of those prints "[object
@@ -534,7 +574,18 @@ export function PerformancePanel({
       supplierPayable,
       managementActivity,
       attentionItems,
-      deals,
+      // The server's deal section when it came back; otherwise the deals
+      // this panel already loaded, so the PDF never silently drops them.
+      deals:
+        deals ??
+        dealRows.map((d) => ({
+          name: d.name,
+          qty_sold: d.qty_sold,
+          revenue_cents: d.revenue_cents,
+          cogs_cents: d.cogs_cents,
+          contribution_cents: d.contribution_cents,
+          contribution_margin_pct: d.contribution_margin_pct,
+        })),
       promotions,
       inventoryReconciliation,
       aiInsights,
@@ -872,6 +923,56 @@ export function PerformancePanel({
                     <Bar dataKey="value" fill="rgb(var(--primary))" radius={[0, 3, 3, 0]} isAnimationActive />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border bg-surface p-5">
+            <div className="flex items-baseline justify-between mb-3">
+              <h3 className="font-bold text-sm">Deals &amp; combos</h3>
+              {dealRows.length > 0 && (
+                <span className="text-[11px] text-muted">
+                  {formatCents(dealRows.reduce((s, d) => s + d.revenue_cents, 0))} from{' '}
+                  {dealRows.reduce((s, d) => s + d.qty_sold, 0)} sold
+                </span>
+              )}
+            </div>
+            {dealRows.length === 0 ? (
+              <p className="text-muted text-xs">No deals sold in this period.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-muted border-b border-border">
+                    <tr>
+                      <th className="py-2 pr-3 font-semibold">Deal</th>
+                      <th className="py-2 px-3 font-semibold text-right">Sold</th>
+                      <th className="py-2 px-3 font-semibold text-right">Orders</th>
+                      <th className="py-2 px-3 font-semibold text-right">Revenue</th>
+                      {canSeeProfit && <th className="py-2 px-3 font-semibold text-right">Contribution</th>}
+                      {canSeeProfit && <th className="py-2 pl-3 font-semibold text-right">Margin</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dealRows.map((d) => (
+                      <tr key={d.deal_id} className="border-b border-border/50 last:border-0">
+                        <td className="py-2 pr-3 font-semibold">{d.name}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{d.qty_sold}</td>
+                        <td className="py-2 px-3 text-right tabular-nums text-muted">{d.orders_count}</td>
+                        <td className="py-2 px-3 text-right tabular-nums font-bold">{formatCents(d.revenue_cents)}</td>
+                        {canSeeProfit && (
+                          <td className="py-2 px-3 text-right tabular-nums">
+                            {d.contribution_cents != null ? formatCents(d.contribution_cents) : <span className="text-muted">no recipe cost</span>}
+                          </td>
+                        )}
+                        {canSeeProfit && (
+                          <td className="py-2 pl-3 text-right tabular-nums text-muted">
+                            {d.contribution_margin_pct != null ? `${d.contribution_margin_pct}%` : '—'}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
