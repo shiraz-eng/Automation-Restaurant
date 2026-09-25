@@ -6,7 +6,7 @@ import { supabaseAdmin } from './supabase';
 import { env, supabaseOrgPool } from './env';
 import { platformMgmt, mgmtClient, type CreatedProject, type MgmtClient } from './mgmt';
 import { getFreshConnection } from './lib/supabaseOAuth';
-import { tenantServiceClient } from './lib/tenantAdmin';
+import { resolveTenantClient, tenantServiceClient } from './lib/tenantAdmin';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
 import { getPlanByTier } from './lib/plans';
@@ -594,6 +594,28 @@ export async function provisionTenant(input: {
       });
       setupUrl = `${env.APP_URL}/onboarding/claim?token=${raw}`;
     }
+
+    // Readiness gate: resolve the restaurant exactly the way every API
+    // feature (PDFs, AI imports, reports) will — and make sure its admin
+    // key is stored — BEFORE going live. A restaurant that the API can't
+    // reach must fail here (and be retried), not surface later to the
+    // owner as "restaurant not found".
+    const { data: reg } = await supabaseAdmin
+      .from('tenant_projects')
+      .select('service_key')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!reg?.service_key) {
+      const { error: keyErr } = await supabaseAdmin
+        .from('tenant_projects')
+        .update({ service_key: serviceKey })
+        .eq('tenant_id', tenantId);
+      if (keyErr) throw new Error(`storing the project key failed: ${keyErr.message}`);
+    }
+    const ready = await resolveTenantClient(slug);
+    if (!ready.ok) throw new Error(`workspace not reachable by the API (${ready.reason}${ready.detail ? `: ${ready.detail}` : ''})`);
+    const { error: probeErr } = await ready.client.admin.from('business_settings').select('id').limit(1);
+    if (probeErr) throw new Error(`workspace database check failed: ${probeErr.message}`);
 
     // Workspace is ready → activate, THEN send the welcome email.
     await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
