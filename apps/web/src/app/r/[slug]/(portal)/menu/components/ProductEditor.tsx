@@ -135,7 +135,7 @@ export function ProductEditor({
     (singleVariant != null && priceStr !== (singleVariant.price_cents / 100).toFixed(2));
 
   // Variants / modifiers — same immediate-add drafts the old inline page used.
-  const [vDraft, setVDraft] = useState({ name: '', price: '', sku: '' });
+  const [vDraft, setVDraft] = useState({ name: '', price: '', sku: '', recipeId: '' });
   const [mgDraft, setMgDraft] = useState<{ name: string; kind: ModifierKind; max: string }>({
     name: '',
     kind: 'multi',
@@ -217,16 +217,40 @@ export function ProductEditor({
   async function addVariant() {
     const cents = Math.round(parseFloat(vDraft.price) * 100);
     if (!vDraft.name.trim() || Number.isNaN(cents) || cents < 0) return setError('Variant needs a name and a valid price.');
-    const ok = await run(() =>
-      supabase.from('menu_variants').insert({
+    setBusy(true);
+    setError(null);
+    const { data: created, error: vErr } = await supabase
+      .from('menu_variants')
+      .insert({
         menu_item_id: item.id,
         name: vDraft.name.trim(),
         price_cents: cents,
         sku: vDraft.sku.trim() || null,
         sort_order: 99,
-      }),
-    );
-    if (ok) setVDraft({ name: '', price: '', sku: '' });
+      })
+      .select('id')
+      .single();
+    if (vErr || !created) {
+      setBusy(false);
+      setError(vErr?.message ?? 'Could not add the variant.');
+      return;
+    }
+    // The recipe picked for the new size, if any — linked on purpose here.
+    const linkErr = vDraft.recipeId ? await linkRecipe(supabase, vDraft.recipeId, item.id, created.id) : null;
+    setBusy(false);
+    setVDraft({ name: '', price: '', sku: '', recipeId: '' });
+    if (linkErr) setError(`Variant added, but its recipe wasn't linked: ${linkErr}`);
+    router.refresh();
+  }
+
+  async function linkSizeRecipe(recipeId: string, variantId: string) {
+    if (!recipeId) return;
+    setBusy(true);
+    setError(null);
+    const err = await linkRecipe(supabase, recipeId, item.id, variantId);
+    setBusy(false);
+    if (err) return setError(err);
+    router.refresh();
   }
 
   async function addModifierGroup() {
@@ -493,7 +517,7 @@ export function ProductEditor({
                       <th className="p-2 font-semibold">Variant</th>
                       <th className="p-2 font-semibold text-right">Price</th>
                       <th className="p-2 font-semibold">SKU</th>
-                      <th className="p-2 font-semibold">Stock</th>
+                      <th className="p-2 font-semibold">Recipe</th>
                       <th className="p-2 font-semibold">Status</th>
                       {canEdit && <th className="p-2" />}
                     </tr>
@@ -508,11 +532,41 @@ export function ProductEditor({
                           <td className="p-2 text-right font-mono">{formatCents(v.price_cents)}</td>
                           <td className="p-2 font-mono text-muted">{v.sku ?? '—'}</td>
                           <td className="p-2">
-                            {v.track_availability ? (
-                              <span className={v.available_qty === 0 ? 'text-danger' : ''}>{v.available_qty}</span>
-                            ) : (
-                              <span className="text-muted">untracked</span>
-                            )}
+                            {(() => {
+                              const sizeRecipe = linkedRecipes.find((r) => r.variant_id === v.id);
+                              const dishRecipe = linkedRecipes.find((r) => !r.variant_id);
+                              if (sizeRecipe) {
+                                return (
+                                  <span className="whitespace-nowrap">
+                                    <span className="font-semibold">{sizeRecipe.name}</span>
+                                    {canManageRecipes && (
+                                      <button onClick={() => unlinkItemRecipe(sizeRecipe)} disabled={busy} className="text-danger text-[11px] underline ml-2">
+                                        Unlink
+                                      </button>
+                                    )}
+                                  </span>
+                                );
+                              }
+                              const fallback = dishRecipe ? `Uses ${dishRecipe.name}` : 'No recipe';
+                              if (!canManageRecipes || linkableRecipes.length === 0) return <span className="text-muted">{fallback}</span>;
+                              return (
+                                <Select
+                                  value=""
+                                  disabled={busy}
+                                  onChange={(e) => linkSizeRecipe(e.target.value, v.id)}
+                                  className="text-[11px] py-1 min-w-[9rem]"
+                                  aria-label={`Link a recipe to ${v.name}`}
+                                >
+                                  <option value="">{fallback}</option>
+                                  {linkableRecipes.map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                      Link {r.name}
+                                      {r.status === 'draft' ? ' (draft)' : ''}
+                                    </option>
+                                  ))}
+                                </Select>
+                              );
+                            })()}
                           </td>
                           <td className="p-2">
                             <span className={v.is_available ? 'text-ok' : 'text-muted'}>{v.is_available ? 'on sale' : 'off'}</span>
@@ -550,6 +604,19 @@ export function ProductEditor({
                   <Field label="SKU">
                     <Input className="w-24" value={vDraft.sku} onChange={(e) => setVDraft((s) => ({ ...s, sku: e.target.value }))} />
                   </Field>
+                  {canManageRecipes && linkableRecipes.length > 0 && (
+                    <Field label="Recipe (optional)">
+                      <Select className="w-44" value={vDraft.recipeId} onChange={(e) => setVDraft((s) => ({ ...s, recipeId: e.target.value }))}>
+                        <option value="">{linkedRecipes.some((r) => !r.variant_id) ? 'Use the dish recipe' : 'No recipe'}</option>
+                        {linkableRecipes.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                            {r.status === 'draft' ? ' (draft)' : ''}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  )}
                   <Button variant="ghost" disabled={busy} onClick={addVariant}>
                     <PlusIcon size={12} className="inline mr-1" /> Add Variant
                   </Button>

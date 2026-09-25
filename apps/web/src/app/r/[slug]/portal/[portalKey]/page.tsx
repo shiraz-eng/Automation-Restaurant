@@ -773,6 +773,7 @@ export default async function PortalHome({
                     canCreate={has('variants.create')}
                     canUpdate={has('variants.update')}
                     canArchive={has('variants.archive')}
+                    canLinkRecipes={has('inventory.manage_recipes') || has('finance.manage_recipes')}
                   />
                 </div>
               )}
