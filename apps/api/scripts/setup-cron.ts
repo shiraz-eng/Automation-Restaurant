@@ -22,6 +22,7 @@ const JOBS: { name: string; schedule: string; path: string }[] = [
   { name: 'ar-low-stock', schedule: '*/15 * * * *', path: '/api/cron/low-stock' },
   { name: 'ar-recipe-cost', schedule: '7,22,37,52 * * * *', path: '/api/cron/recipe-cost' },
   { name: 'ar-attendance', schedule: '41 * * * *', path: '/api/cron/attendance' },
+  { name: 'ar-provisioning', schedule: '*/2 * * * *', path: '/api/cron/provisioning' },
 ];
 
 async function sql(query: string) {

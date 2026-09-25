@@ -4,6 +4,7 @@ import { env } from '../env';
 import { runLowStockSweepAllTenants } from '../lib/lowStockAutomation';
 import { runRecipeCostSweepAllTenants } from '../lib/recipeAutomation';
 import { runAttendanceAutoAbsentSweepAllTenants } from '../lib/attendanceAutomation';
+import { advanceAllProvisioning } from '../provisioning';
 
 /**
  * Background jobs for serverless hosting. server.ts runs these on a
@@ -40,6 +41,9 @@ const JOBS: Record<string, () => Promise<void>> = {
   'low-stock': runLowStockSweepAllTenants,
   'recipe-cost': runRecipeCostSweepAllTenants,
   attendance: runAttendanceAutoAbsentSweepAllTenants,
+  // Backstop for restaurant setup when nobody is watching the onboarding
+  // screen (whose status polls normally drive it).
+  provisioning: advanceAllProvisioning,
 };
 
 async function handle(req: Request, res: Response) {

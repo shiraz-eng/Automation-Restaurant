@@ -413,8 +413,11 @@ export async function provisionTenant(input: {
   /** Model B: create the project in the owner's own Supabase org using the
    *  OAuth grant in supabase_connections, instead of the platform org pool. */
   connected?: boolean;
-}): Promise<void> {
+}, opts?: { budgetMs?: number }): Promise<'done' | 'pending' | 'failed'> {
   const { tenantId, restaurantName, slug, ownerEmail, ownerName, connected } = input;
+  // One step's time budget. Serverless calls are capped (60 s on Vercel), so
+  // a step that runs out of time stops cleanly and the next one resumes.
+  const deadline = Date.now() + (opts?.budgetMs ?? STEP_BUDGET_MS);
 
   try {
     await supabaseAdmin
@@ -488,6 +491,7 @@ export async function provisionTenant(input: {
         console.log(
           `[provision] ${slug}: created project ${projectRef} in owner org ${organizationId}, waiting for database…`,
         );
+        await registerNewProject(tenantId, projectRef, organizationId, dbPassword);
       } else {
         mgmt = platformMgmt;
         const picked = await createProjectInPool(`ar-${slug}`.slice(0, 56), dbPassword);
@@ -496,9 +500,21 @@ export async function provisionTenant(input: {
         console.log(
           `[provision] ${slug}: created project ${projectRef} in org ${organizationId}, waiting for database…`,
         );
+        await registerNewProject(tenantId, projectRef, organizationId, dbPassword);
       }
 
-      await mgmt.waitForQueryable(projectRef);
+      // A new database takes 1-3 minutes to come up — longer than one
+      // serverless call. Wait only within this step's budget; if it isn't
+      // up yet, stop here and let the next step (the next status poll)
+      // resume on the same, already-registered project.
+      try {
+        await mgmt.waitForQueryable(projectRef, Math.max(3_000, deadline - Date.now() - 25_000));
+      } catch (err) {
+        if (/not queryable within/.test(String((err as Error).message))) throw new NotReadyYet('database starting');
+        throw err;
+      }
+      // Applying the schema needs a fresh budget, not the tail of this one.
+      if (deadline - Date.now() < 20_000) throw new NotReadyYet('schema next');
       const keys = await mgmt.getApiKeys(projectRef);
       projectUrl = `https://${projectRef}.supabase.co`;
 
@@ -645,7 +661,13 @@ export async function provisionTenant(input: {
     console.log(
       `[provision] ${slug}: done — portal ready, welcome email ${mailStatus(mail)} (${mail.provider})`,
     );
+    return 'done';
   } catch (err) {
+    if (err instanceof NotReadyYet) {
+      // Not a failure: still provisioning; the next step picks it up.
+      console.log(`[provision] ${slug}: step paused (${err.message}) — resuming on the next poll`);
+      return 'pending';
+    }
     console.error(`[provision] ${slug}: FAILED`, err);
     const { data: t } = await supabaseAdmin
       .from('tenants')
@@ -657,6 +679,101 @@ export async function provisionTenant(input: {
       provisioning_error: String((err as Error).message ?? err),
       provisioning_attempts: ((t as { provisioning_attempts?: number } | null)?.provisioning_attempts ?? 0) + 1,
     });
+    return 'failed';
+  }
+}
+
+/** Paused, not failed: this step ran out of its time budget and the next
+ *  step resumes from the same, already-registered project. */
+class NotReadyYet extends Error {}
+
+// Vercel caps a call at 60 s; leave room for the response and bookkeeping.
+const STEP_BUDGET_MS = 48_000;
+// A step's lease: a newer step may take over once it's this old (the
+// function running it was frozen or killed).
+const LEASE_MS = 60_000;
+
+/** Registers a project the moment Supabase accepts it (keys come later), so
+ *  a step cut off right after creation resumes on this project instead of
+ *  asking for a second one. */
+async function registerNewProject(tenantId: string, projectRef: string, organizationId: string, dbPassword: string) {
+  const { error } = await supabaseAdmin.from('tenant_projects').upsert(
+    {
+      tenant_id: tenantId,
+      project_ref: projectRef,
+      project_url: `https://${projectRef}.supabase.co`,
+      organization_id: organizationId || null,
+      db_password: dbPassword,
+    },
+    { onConflict: 'tenant_id' },
+  );
+  if (error) throw new Error(`registry insert failed: ${error.message}`);
+}
+
+/**
+ * Runs ONE provisioning step for a restaurant still being set up, if no
+ * other step holds its lease. Driven by the onboarding screen's status polls
+ * (every few seconds), the OAuth callback and the cron sweep — so setup keeps
+ * moving on serverless hosting, where a background task is frozen as soon as
+ * the response is sent.
+ */
+export async function advanceProvisioning(slug: string): Promise<'claimed' | 'busy' | 'not_provisioning'> {
+  const staleBefore = new Date(Date.now() - LEASE_MS).toISOString();
+  const { data: claimed, error } = await supabaseAdmin
+    .from('tenants')
+    .update({ provisioning_heartbeat: new Date().toISOString() })
+    .eq('slug', slug)
+    .eq('status', 'provisioning')
+    .or(`provisioning_heartbeat.is.null,provisioning_heartbeat.lt.${staleBefore}`)
+    .select('id, restaurant_name, slug, owner_email, owner_name');
+  if (error) {
+    console.error(`[provision] ${slug}: lease claim failed:`, error.message);
+    return 'busy';
+  }
+  const t = (claimed ?? [])[0] as
+    | { id: string; restaurant_name: string; slug: string; owner_email: string; owner_name: string | null }
+    | undefined;
+  if (!t) {
+    const { data: row } = await supabaseAdmin.from('tenants').select('status').eq('slug', slug).maybeSingle();
+    return row?.status === 'provisioning' ? 'busy' : 'not_provisioning';
+  }
+  try {
+    const { data: conn } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', t.id).maybeSingle();
+    await provisionTenant({
+      tenantId: t.id,
+      restaurantName: t.restaurant_name,
+      slug: t.slug,
+      ownerEmail: t.owner_email,
+      ownerName: t.owner_name ?? undefined,
+      connected: Boolean(conn),
+    });
+  } finally {
+    // Release the lease so the next poll continues immediately.
+    await supabaseAdmin.from('tenants').update({ provisioning_heartbeat: null }).eq('id', t.id);
+  }
+  return 'claimed';
+}
+
+/** Advances every restaurant still provisioning (cron backstop for when
+ *  nobody is watching the onboarding screen). */
+export async function advanceAllProvisioning(): Promise<void> {
+  // One restaurant per call: a step can take most of a 60 s serverless call.
+  // Only recent sign-ups: an old stuck one shouldn't suddenly create a
+  // project in someone's Supabase account hours later.
+  const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { data: rows } = await supabaseAdmin
+    .from('tenants')
+    .select('slug')
+    .eq('status', 'provisioning')
+    .gte('created_at', since)
+    .order('created_at')
+    .limit(1);
+  for (const r of (rows ?? []) as { slug: string }[]) {
+    try {
+      await advanceProvisioning(r.slug);
+    } catch (err) {
+      console.error(`[provision] advance ${r.slug} failed:`, err);
+    }
   }
 }
 

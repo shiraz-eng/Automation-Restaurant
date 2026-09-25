@@ -104,7 +104,7 @@ export function mgmtClient(token: string): MgmtClient {
           return;
         } catch (err) {
           lastErr = err;
-          await new Promise((r) => setTimeout(r, 10_000));
+          await new Promise((r) => setTimeout(r, 3_000));
         }
       }
       throw new Error(

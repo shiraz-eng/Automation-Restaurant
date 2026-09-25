@@ -4,7 +4,8 @@ import { stripe, tierFromPriceId } from '../stripe';
 import { supabaseAdmin } from '../supabase';
 import { env } from '../env';
 import { slugify } from '../lib/slug';
-import { provisionTenant } from '../provisioning';
+import { advanceProvisioning } from '../provisioning';
+import { waitUntil } from '@vercel/functions';
 import { syncEntitlementsForTenant } from '../lib/entitlementSync';
 import {
   isBillingInterval,
@@ -177,13 +178,13 @@ async function handleCheckoutCompleted(
   // 2. Kick off project provisioning (minutes long) detached, so Stripe gets a
   //    fast 200. Progress/failure is tracked on the tenants row; the welcome
   //    email is sent by provisionTenant only after the workspace is ready.
-  void provisionTenant({
-    tenantId,
-    restaurantName,
-    slug,
-    ownerEmail: email,
-    ownerName: ownerName ?? undefined,
-  });
+  //    Runs in short resumable steps (serverless): the first here, the rest
+  //    driven by the onboarding screen's status polls and the cron sweep.
+  await supabaseAdmin
+    .from('tenants')
+    .update({ status: 'provisioning', provisioning_error: null, provisioning_heartbeat: null })
+    .eq('id', tenantId);
+  waitUntil(advanceProvisioning(slug).catch((err) => console.error('[stripe] provisioning step failed:', err)));
 
   console.log(`[stripe] registered tenant ${tenantId} (${slug}); provisioning project…`);
   return { tenantId, summary: `New signup: ${restaurantName}` };

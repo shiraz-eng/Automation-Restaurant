@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
 import { isAllowedOrigin, env, oauthConnectEnabled } from '../env';
 import { slugify } from '../lib/slug';
-import { provisionTenant } from '../provisioning';
+import { advanceProvisioning } from '../provisioning';
+import { waitUntil } from '@vercel/functions';
 import { hashClaimToken } from '../lib/tokens';
 import {
   simulatePayment,
@@ -229,13 +230,11 @@ onboardingRouter.post('/pay/confirm', express.json(), async (req: Request, res: 
     });
   }
 
-  void provisionTenant({
-    tenantId: row.tenant_id,
-    restaurantName: d.restaurant_name,
-    slug: row.slug,
-    ownerEmail: d.owner_email,
-    ownerName: d.owner_name,
-  });
+  await supabaseAdmin
+    .from('tenants')
+    .update({ status: 'provisioning', provisioning_error: null, provisioning_heartbeat: null })
+    .eq('id', row.tenant_id);
+  waitUntil(advanceProvisioning(row.slug).catch((err) => console.error('[onboarding] provisioning step failed:', err)));
   return res.status(202).json({ ok: true, slug: row.slug, status: 'provisioning', payment: paymentInfo });
 });
 
@@ -351,14 +350,11 @@ onboardingRouter.get('/connect/callback', async (req: Request, res: Response) =>
       .update({ status: 'provisioning', provisioning_error: null })
       .eq('id', tenantId);
 
-    void provisionTenant({
-      tenantId,
-      restaurantName: tenant.restaurant_name,
-      slug: tenant.slug,
-      ownerEmail: tenant.owner_email,
-      ownerName: tenant.owner_name ?? undefined,
-      connected: true,
-    });
+    // First provisioning step. waitUntil keeps the serverless function alive
+    // for it after the redirect is sent; the onboarding screen's status
+    // polls run the following steps (see advanceProvisioning).
+    await supabaseAdmin.from('tenants').update({ provisioning_heartbeat: null }).eq('id', tenantId);
+    waitUntil(advanceProvisioning(tenant.slug).catch((err) => console.error('[onboarding] provisioning step failed:', err)));
     done(tenant.slug);
   } catch (err) {
     console.error('[onboarding] connect/callback failed:', err);
@@ -391,6 +387,12 @@ onboardingRouter.get('/status/:slug', async (req: Request, res: Response) => {
     .eq('slug', slug)
     .maybeSingle();
   if (!data) return res.status(404).json({ error: 'not_found' });
+  // Each poll moves setup forward one step (if no step is already running).
+  // Serverless hosts freeze background work after the response, so setup
+  // advances here instead of in one long detached task.
+  if (data.status === 'provisioning') {
+    waitUntil(advanceProvisioning(slug).catch((err) => console.error(`[onboarding] advance ${slug} failed:`, err)));
+  }
   // A failed connect/provision is recoverable by re-authorizing, so offer the
   // link on both 'awaiting_connection' and 'failed' when connect is enabled.
   const canConnect =
