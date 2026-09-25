@@ -22,6 +22,7 @@ import { staffImportRouter } from './routes/staffImport';
 import { importClassifyRouter } from './routes/importClassify';
 import { socialRouter } from './routes/social';
 import { guideAiPublicRouter, guideAiAuthRouter } from './routes/guideAi';
+import { cronRouter } from './routes/cron';
 
 /**
  * The Express app itself — no .listen(), no background sweeps. Shared by
@@ -61,5 +62,6 @@ app.use('/api/ai', poImportRouter);
 app.use('/api/ai', staffImportRouter);
 app.use('/api/ai', importClassifyRouter);
 app.use('/api/social', socialRouter);
+app.use('/api/cron', cronRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));

@@ -29,6 +29,10 @@ const schema = z.object({
   // every organization the account owns, so the org pool below needs no extra
   // credentials.
   SUPABASE_ACCESS_TOKEN: z.string().min(1, 'Management API personal access token'),
+  // Optional extra token for /api/cron/* (e.g. Vercel Cron sends it as a
+  // Bearer). Not required: the cron routes also accept a token derived from
+  // SUPABASE_SERVICE_ROLE_KEY (see routes/cron.ts).
+  CRON_SECRET: z.string().trim().optional(),
   // Single org (paid plan). Also the fallback when SUPABASE_ORG_IDS is unset.
   SUPABASE_ORG_ID: z.string().min(1, 'Supabase organization id'),
   // Org pool for free-tier scaling: comma-separated org ids. Provisioning tries
