@@ -104,24 +104,31 @@ export function TrackClient({
   const [counterId, setCounterId] = useState(initialCounterId);
   const current = stepIndex(status);
 
-  // Live: react to this order's status/counter-assignment changes with no refresh.
+  // Live: poll this order's status/counter every few seconds with no
+  // refresh. (Guests can't subscribe to the orders table any more — they
+  // may only read their own order through track_order(), migration 0073.)
+  // Stops once the order is finished.
   useEffect(() => {
-    const channel = supabase
-      .channel(`order-${initial.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${initial.id}` },
-        (payload) => {
-          const row = payload.new as { status?: string; pickup_counter_portal_id?: string | null };
-          if (row.status) setStatus(row.status);
-          if ('pickup_counter_portal_id' in row) setCounterId(row.pickup_counter_portal_id ?? null);
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
+    if (status === 'paid' || status === 'cancelled') return;
+    let cancelled = false;
+    const tick = async () => {
+      const { data } = await supabase.rpc('track_order', { p_order_id: initial.id });
+      if (cancelled || !data) return;
+      const row = data as { status?: string; pickup_counter_portal_id?: string | null };
+      if (row.status) setStatus(row.status);
+      setCounterId(row.pickup_counter_portal_id ?? null);
     };
-  }, [supabase, initial.id]);
+    const timer = setInterval(tick, 8000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [supabase, initial.id, status]);
 
   const [fbOpen, setFbOpen] = useState(false);
   const [rating, setRating] = useState(5);

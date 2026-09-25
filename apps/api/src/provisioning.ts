@@ -308,7 +308,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v72 The Dashboard's aggregate performance reports also accept
 //       analytics.view / finance view keys (totals only), so finance and
 //       analytics portals get Restaurant Performance without "View orders".
-const SCHEMA_VERSION = 72;
+//   v73 SECURITY: guests could list every order (guest_read using (true));
+//       tracking now goes through track_order(order_id) only.
+const SCHEMA_VERSION = 73;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

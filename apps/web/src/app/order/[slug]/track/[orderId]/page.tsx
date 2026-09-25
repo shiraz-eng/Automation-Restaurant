@@ -22,16 +22,13 @@ export default async function TrackPage({
   const anon = createClient(config.url, config.anonKey, {
     auth: { persistSession: false },
   });
-  const [{ data: order }, { data: counters }] = await Promise.all([
-    anon
-      .from('orders')
-      .select(
-        'id, order_number, table_label, customer_name, status, subtotal_cents, tax_cents, total_cents, created_at, pickup_counter_portal_id, order_lines(name_snapshot, qty, line_total_cents)',
-      )
-      .eq('id', orderId)
-      .maybeSingle(),
-    anon.from('portals').select('id, name').eq('type', 'checkout').eq('status', 'active').order('name'),
-  ]);
+  // track_order() returns this one order only to someone holding its id —
+  // guests can no longer read the orders table directly (migration 0073).
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+  const { data: tracked } = isUuid ? await anon.rpc('track_order', { p_order_id: orderId }) : { data: null };
+  const result = tracked as (TrackedOrder & { pickup_counter_portal_id: string | null; counters?: { id: string; name: string }[] }) | null;
+  const order = result ? { ...result, counters: undefined } : null;
+  const counters = result?.counters ?? [];
 
   if (!order) {
     return (
