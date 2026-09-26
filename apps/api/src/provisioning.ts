@@ -418,6 +418,19 @@ export async function provisionTenant(input: {
   // One step's time budget. Serverless calls are capped (60 s on Vercel), so
   // a step that runs out of time stops cleanly and the next one resumes.
   const deadline = Date.now() + (opts?.budgetMs ?? STEP_BUDGET_MS);
+  // When each milestone happened (ISO), saved on tenants.provisioning_timeline
+  // so the time from Supabase approval to the welcome email is measurable.
+  const marks: Record<string, string> = {};
+  const mark = (label: string) => {
+    marks[label] = new Date().toISOString();
+  };
+  const saveTimeline = async () => {
+    if (!Object.keys(marks).length) return;
+    const { data: row } = await supabaseAdmin.from('tenants').select('provisioning_timeline').eq('id', tenantId).maybeSingle();
+    const prev = ((row as { provisioning_timeline?: Record<string, string> } | null)?.provisioning_timeline ?? {}) as Record<string, string>;
+    await patchTenant(tenantId, { provisioning_timeline: { ...prev, ...marks } });
+  };
+  mark('step_started');
 
   try {
     await supabaseAdmin
@@ -492,6 +505,7 @@ export async function provisionTenant(input: {
           `[provision] ${slug}: created project ${projectRef} in owner org ${organizationId}, waiting for database…`,
         );
         await registerNewProject(tenantId, projectRef, organizationId, dbPassword);
+        mark('project_created');
       } else {
         mgmt = platformMgmt;
         const picked = await createProjectInPool(`ar-${slug}`.slice(0, 56), dbPassword);
@@ -501,21 +515,27 @@ export async function provisionTenant(input: {
           `[provision] ${slug}: created project ${projectRef} in org ${organizationId}, waiting for database…`,
         );
         await registerNewProject(tenantId, projectRef, organizationId, dbPassword);
+        mark('project_created');
       }
 
       // A new database takes 1-3 minutes to come up — longer than one
       // serverless call. Wait only within this step's budget; if it isn't
       // up yet, stop here and let the next step (the next status poll)
       // resume on the same, already-registered project.
+      // The project's API keys exist as soon as it's created — fetch them
+      // while the database is still starting instead of afterwards.
+      const keysPromise = mgmt.getApiKeys(projectRef);
+      keysPromise.catch(() => {});
       try {
         await mgmt.waitForQueryable(projectRef, Math.max(3_000, deadline - Date.now() - 25_000));
       } catch (err) {
         if (/not queryable within/.test(String((err as Error).message))) throw new NotReadyYet('database starting');
         throw err;
       }
+      mark('database_ready');
       // Applying the schema needs a fresh budget, not the tail of this one.
       if (deadline - Date.now() < 20_000) throw new NotReadyYet('schema next');
-      const keys = await mgmt.getApiKeys(projectRef);
+      const keys = await keysPromise;
       projectUrl = `https://${projectRef}.supabase.co`;
 
       const { error: regErr } = await supabaseAdmin.from('tenant_projects').upsert(
@@ -534,6 +554,7 @@ export async function provisionTenant(input: {
 
       console.log(`[provision] ${slug}: applying tenant schema…`);
       await mgmt.runSql(projectRef, TENANT_SCHEMA_SQL);
+      mark('schema_applied');
 
       serviceKey = keys.service_role;
       const { error: verErr } = await supabaseAdmin
@@ -574,85 +595,81 @@ export async function provisionTenant(input: {
         app_metadata: { role: 'owner', permissions: ['*'] },
       });
     }
-    const { error: memErr } = await tenantAdmin.from('memberships').upsert(
-      {
-        user_id: userId,
-        email: ownerEmail.toLowerCase(),
-        full_name: ownerName ?? null,
-        role: 'owner',
-        status: 'active',
-      },
-      { onConflict: 'email' },
-    );
-    if (memErr) throw new Error(`owner membership failed: ${memErr.message}`);
+    mark('owner_created');
 
+    // Everything below depends only on the owner account existing, not on
+    // each other — run it all at once (it used to be ~8 round trips in a
+    // row, each adding to the wait for the welcome email).
+    const ownerMembership = async () => {
+      const { error: memErr } = await tenantAdmin.from('memberships').upsert(
+        {
+          user_id: userId,
+          email: ownerEmail.toLowerCase(),
+          full_name: ownerName ?? null,
+          role: 'owner',
+          status: 'active',
+        },
+        { onConflict: 'email' },
+      );
+      if (memErr) throw new Error(`owner membership failed: ${memErr.message}`);
+    };
     // Push this tenant's plan entitlements into its own project (0055) —
     // has to happen here, not in the Stripe webhook, since the project
-    // doesn't exist yet when the webhook first fires.
-    try {
-      await syncEntitlementsForTenant(tenantId);
-    } catch (err) {
-      console.error(`[provision] ${slug}: entitlement sync failed:`, err);
-    }
-
+    // doesn't exist yet when the webhook first fires. Best effort.
+    const entitlements = () =>
+      syncEntitlementsForTenant(tenantId).catch((err) => console.error(`[provision] ${slug}: entitlement sync failed:`, err));
     // Secure single-use set-password link for the welcome email.
-    let setupUrl: string | null = null;
-    if (!input.ownerPassword) {
+    const claimLink = async (): Promise<string | null> => {
+      if (input.ownerPassword) return null;
       const { raw, hash } = createClaimToken();
-      const expiresAt = new Date(
-        Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000,
-      ).toISOString();
+      const expiresAt = new Date(Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000).toISOString();
       await supabaseAdmin.from('onboarding_tokens').insert({
         tenant_id: tenantId,
         email: ownerEmail.toLowerCase(),
         token_hash: hash,
         expires_at: expiresAt,
       });
-      setupUrl = `${env.APP_URL}/onboarding/claim?token=${raw}`;
-    }
-
+      return `${env.APP_URL}/onboarding/claim?token=${raw}`;
+    };
     // Readiness gate: resolve the restaurant exactly the way every API
-    // feature (PDFs, AI imports, reports) will — and make sure its admin
-    // key is stored — BEFORE going live. A restaurant that the API can't
-    // reach must fail here (and be retried), not surface later to the
-    // owner as "restaurant not found".
-    const { data: reg } = await supabaseAdmin
-      .from('tenant_projects')
-      .select('service_key')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-    if (!reg?.service_key) {
-      const { error: keyErr } = await supabaseAdmin
-        .from('tenant_projects')
-        .update({ service_key: serviceKey })
-        .eq('tenant_id', tenantId);
-      if (keyErr) throw new Error(`storing the project key failed: ${keyErr.message}`);
-    }
-    const ready = await resolveTenantClient(slug);
-    if (!ready.ok) throw new Error(`workspace not reachable by the API (${ready.reason}${ready.detail ? `: ${ready.detail}` : ''})`);
-    const { error: probeErr } = await ready.client.admin.from('business_settings').select('id').limit(1);
-    if (probeErr) throw new Error(`workspace database check failed: ${probeErr.message}`);
+    // feature (PDFs, AI imports, reports) will — its key is already stored
+    // with the project registry row above — BEFORE going live. A restaurant
+    // the API can't reach must fail here (and be retried), not surface
+    // later to the owner as "restaurant not found".
+    const readiness = async () => {
+      const ready = await resolveTenantClient(slug);
+      if (!ready.ok) throw new Error(`workspace not reachable by the API (${ready.reason}${ready.detail ? `: ${ready.detail}` : ''})`);
+      const { error: probeErr } = await ready.client.admin.from('business_settings').select('id').limit(1);
+      if (probeErr) throw new Error(`workspace database check failed: ${probeErr.message}`);
+    };
+    const plan = async () => {
+      const { data: sub } = await supabaseAdmin
+        .from('subscriptions')
+        .select('tier, billing_interval')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      const planName = sub?.tier ? ((await getPlanByTier(sub.tier))?.name ?? sub.tier) : 'Subscription';
+      return { planName, billingInterval: sub?.billing_interval ?? 'monthly' };
+    };
+    const [, , setupUrl, , sub] = await Promise.all([ownerMembership(), entitlements(), claimLink(), readiness(), plan()]);
+    mark('workspace_ready');
 
     // Workspace is ready → activate, THEN send the welcome email.
     await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
-
-    const { data: sub } = await supabaseAdmin
-      .from('subscriptions')
-      .select('tier, billing_interval')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-    const planName = sub?.tier ? ((await getPlanByTier(sub.tier))?.name ?? sub.tier) : 'Subscription';
+    const planName = sub.planName;
 
     const mail = await sendWelcomeEmail({
       to: ownerEmail,
       restaurantName,
       ownerName,
       planName,
-      billingInterval: sub?.billing_interval ?? 'monthly',
+      billingInterval: sub.billingInterval,
       portalUrl: `${env.APP_URL}/r/${slug}/login`,
       tempPassword: input.ownerPassword ? null : tempPassword,
       setupUrl,
     });
+    mark('welcome_email_sent');
+    await saveTimeline();
     await patchTenant(tenantId, {
       welcome_email_status: mailStatus(mail),
       welcome_email_sent_at: new Date().toISOString(),
@@ -666,6 +683,7 @@ export async function provisionTenant(input: {
     if (err instanceof NotReadyYet) {
       // Not a failure: still provisioning; the next step picks it up.
       console.log(`[provision] ${slug}: step paused (${err.message}) — resuming on the next poll`);
+      await saveTimeline().catch(() => {});
       return 'pending';
     }
     console.error(`[provision] ${slug}: FAILED`, err);

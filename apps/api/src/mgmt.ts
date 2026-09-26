@@ -104,7 +104,9 @@ export function mgmtClient(token: string): MgmtClient {
           return;
         } catch (err) {
           lastErr = err;
-          await new Promise((r) => setTimeout(r, 3_000));
+          // Poll every second: this wait is most of the time a new restaurant
+          // spends before its welcome email.
+          await new Promise((r) => setTimeout(r, 1_000));
         }
       }
       throw new Error(
