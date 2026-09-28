@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
@@ -45,7 +45,10 @@ type Msg = {
   attachment?: FileRef;
   /** A PDF the assistant wrote on request (create_pdf_document). */
   document?: { title: string; content: string };
+  /** Reopened from a saved chat — its proposal buttons are not live any more. */
+  fromHistory?: boolean;
 };
+type SavedChat = { id: string; title: string; updated_at: string; message_count: number };
 type FileRef = { name: string; mimeType: string; storagePath: string };
 
 // Mirrors routes/ai.ts's FILE_MIME_TYPES and MAX_FILE_BYTES (and the
@@ -94,6 +97,81 @@ export function AiChat({ slug }: { slug: string }) {
   const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Saved chats (tenant-migrations/0081): the one open now, and this person's list.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [history, setHistory] = useState<SavedChat[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [loadingChat, setLoadingChat] = useState(false);
+
+  async function loadHistory() {
+    const { data } = await supabase
+      .from('ai_conversations')
+      .select('id, title, updated_at, message_count')
+      .eq('kind', 'staff')
+      .order('updated_at', { ascending: false })
+      .limit(100);
+    setHistory((data as SavedChat[] | null) ?? []);
+  }
+  useEffect(() => {
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase]);
+
+  function newChat() {
+    if (busy) return;
+    setMsgs([]);
+    setConversationId(null);
+    setError(null);
+    setHistoryOpen(false);
+  }
+
+  async function openChat(id: string) {
+    if (busy) return;
+    setLoadingChat(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('ai_messages')
+      .select('role, content, attachment, extras')
+      .eq('conversation_id', id)
+      .order('created_at', { ascending: true });
+    setLoadingChat(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    type Row = { role: 'user' | 'assistant'; content: string; attachment: FileRef | null; extras: Record<string, unknown> | null };
+    setMsgs(
+      ((data as Row[] | null) ?? []).map((r) => {
+        const x = r.extras ?? {};
+        return {
+          role: r.role,
+          content: r.content,
+          attachment: r.attachment ?? undefined,
+          tools: (x.tools as string[] | undefined) ?? undefined,
+          pendingAction: (x.pendingAction as PendingAction | undefined) ?? undefined,
+          profitCard: (x.profitCard as ProfitCard | undefined) ?? undefined,
+          orderCard: (x.orderCard as OrderProfitRow | undefined) ?? undefined,
+          dealCard: (x.dealCard as { period: string; deals: DealProfitRow[] } | undefined) ?? undefined,
+          document: (x.document as { title: string; content: string } | undefined) ?? undefined,
+          fromHistory: true,
+        };
+      }),
+    );
+    setConversationId(id);
+    setHistoryOpen(false);
+    scrollDown();
+  }
+
+  async function deleteChat(id: string) {
+    if (!window.confirm('Delete this chat? It cannot be recovered.')) return;
+    const { error: err } = await supabase.from('ai_conversations').delete().eq('id', id);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    if (id === conversationId) newChat();
+    loadHistory();
+  }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -179,9 +257,12 @@ export function AiChat({ slug }: { slug: string }) {
         await authHeader(),
         {
           slug,
+          // The latest part of the conversation (a long saved chat can exceed what one request carries).
           messages: next
             .filter((m) => m.content.trim())
-            .map((m) => ({ role: m.role, content: m.content, ...(m.attachment ? { attachment: m.attachment } : {}) })),
+            .slice(-30)
+            .map((m) => ({ role: m.role, content: m.content.slice(0, 30000), ...(m.attachment ? { attachment: m.attachment } : {}) })),
+          ...(conversationId ? { conversationId } : {}),
         },
         {
           status: (label) => setStatus(label),
@@ -207,6 +288,10 @@ export function AiChat({ slug }: { slug: string }) {
         dealCard: (data.dealCard as { period: string; deals: DealProfitRow[] } | null) ?? undefined,
         document: (data.document as { title: string; content: string } | null) ?? undefined,
       }));
+      if (typeof data.conversationId === 'string') {
+        setConversationId(data.conversationId);
+        loadHistory();
+      }
       scrollDown();
     } finally {
       setBusy(false);
@@ -307,8 +392,59 @@ export function AiChat({ slug }: { slug: string }) {
     }
   }
 
+  const currentTitle = history.find((h) => h.id === conversationId)?.title;
+
   return (
-    <div className="rounded-lg border border-border bg-surface flex flex-col h-[65vh]">
+    <div className="relative rounded-lg border border-border bg-surface flex flex-col h-[65vh]">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((v) => !v)}
+          className="text-xs font-semibold rounded border border-border px-2.5 py-1 hover:border-primary"
+        >
+          History{history.length ? ` (${history.length})` : ''} ▾
+        </button>
+        <span className="text-xs text-muted truncate">{loadingChat ? 'Opening chat…' : currentTitle ?? (msgs.length ? 'New chat' : '')}</span>
+        <button
+          type="button"
+          onClick={newChat}
+          disabled={busy}
+          className="text-xs font-semibold rounded bg-primary text-primary-fg px-2.5 py-1 disabled:opacity-50"
+        >
+          + New chat
+        </button>
+      </div>
+      {historyOpen && (
+        <div className="absolute left-2 right-2 top-11 z-20 max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
+          {history.length === 0 ? (
+            <p className="p-3 text-xs text-muted">No saved chats yet — every chat you start is saved here automatically.</p>
+          ) : (
+            history.map((h) => (
+              <div
+                key={h.id}
+                className={`flex items-center gap-2 px-3 py-2 border-b border-border/60 last:border-0 ${h.id === conversationId ? 'bg-primary/10' : 'hover:bg-main'}`}
+              >
+                <button type="button" onClick={() => openChat(h.id)} className="flex-1 min-w-0 text-left">
+                  <div className="text-xs font-semibold truncate">{h.title}</div>
+                  <div className="text-[10px] text-muted">
+                    {new Date(h.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ·{' '}
+                    {h.message_count} messages
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteChat(h.id)}
+                  className="text-muted hover:text-danger text-sm px-1"
+                  aria-label={`Delete chat "${h.title}"`}
+                  title="Delete chat"
+                >
+                  🗑
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
       <div ref={boxRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {msgs.length === 0 ? (
           <div className="space-y-2">
@@ -437,7 +573,9 @@ export function AiChat({ slug }: { slug: string }) {
               {m.pendingAction && (
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
-                  {!m.resolution ? (
+                  {m.fromHistory && !m.resolution ? (
+                    <p className="text-[11px] text-muted">From an earlier chat — ask again to redo it, or approve it in Approvals.</p>
+                  ) : !m.resolution ? (
                     <div className="flex gap-2">
                       <button
                         onClick={() => confirmAction(i, m.pendingAction!)}

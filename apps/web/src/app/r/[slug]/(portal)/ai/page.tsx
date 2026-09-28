@@ -3,6 +3,7 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { can, gatePortalPage } from '@/lib/permissions';
 import { AiChat } from './AiChat';
 import { AiAssistantPanel } from './AiAssistantPanel';
+import { CustomerChats } from './CustomerChats';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +26,9 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
       <div>
         <h1 className="text-xl font-black">Assistant</h1>
         <p className="text-muted text-xs mt-1">
-          Ask about today&apos;s numbers, the kitchen, stock or feedback. It reads live data with
-          your permissions — it can&apos;t change anything without your confirmation.
+          Ask anything — today&apos;s numbers, the kitchen, stock, ideas, or a PDF to read or make. It reads
+          live data with your permissions and can&apos;t change anything without your confirmation. Every
+          chat is saved under History.
         </p>
       </div>
       <AiAssistantPanel
@@ -41,6 +43,7 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
         canImportStaff={canImportStaff}
       />
       <AiChat slug={slug} />
+      {can(perms, role, 'customers.view') && <CustomerChats />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
+import { openConversation, saveExchange, compact } from '../lib/aiChatStore';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -227,6 +228,8 @@ const bodySchema = z.object({
   attachment: inlineAttachmentSchema.optional(),
   /** true = reply as server-sent events: status / delta / done / error. */
   stream: z.boolean().optional(),
+  /** The saved chat to continue (omit to start a new one). */
+  conversationId: z.string().uuid().optional(),
 });
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 /** A file the viewer attached, loaded for the model; keyed by message index. */
@@ -768,6 +771,9 @@ aiRouter.post(
       aiProvider === 'gemini'
         ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit)
         : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, files, emit);
+    // Saved chat (tenant-migrations/0081): this person's conversation, or a new one.
+    const lastUser = parsed.data.messages[parsed.data.messages.length - 1]!;
+    const conversationId = await openConversation(admin, { kind: 'staff', userId }, parsed.data.conversationId, lastUser.content);
     const payload = (result: AgentResult) => ({
       reply: result.reply,
       tools: result.trace,
@@ -777,7 +783,25 @@ aiRouter.post(
       orderCard: result.orderCard ?? null,
       dealCard: result.dealCard ?? null,
       document: result.document ?? null,
+      conversationId,
     });
+    const save = (result: AgentResult) =>
+      saveExchange(
+        admin,
+        conversationId,
+        { content: lastUser.content, attachment: lastUser.attachment ?? (inline ? { name: inline.name, mimeType: inline.mimeType } : null) },
+        {
+          content: result.reply,
+          extras: compact({
+            tools: result.trace.map((t) => t.name),
+            pendingAction: result.pendingAction,
+            profitCard: result.profitCard,
+            orderCard: result.orderCard,
+            dealCard: result.dealCard,
+            document: result.document,
+          }),
+        },
+      );
 
     if (parsed.data.stream) {
       // Server-sent events: the answer appears as it's written, with a
@@ -785,6 +809,7 @@ aiRouter.post(
       const send = startSse(res);
       try {
         const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
+        await save(result);
         send('done', payload(result));
       } catch (err) {
         console.error('[ai] chat failed:', err);
@@ -795,7 +820,9 @@ aiRouter.post(
     }
 
     try {
-      return res.json(payload(await run(noEmit)));
+      const result = await run(noEmit);
+      await save(result);
+      return res.json(payload(result));
     } catch (err) {
       console.error('[ai] chat failed:', err);
       return res.status(502).json({ error: 'ai_failed', message: 'The assistant could not complete the request.' });

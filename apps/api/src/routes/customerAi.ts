@@ -6,6 +6,8 @@ import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { tenantClientForSlug } from './public';
 import { CUSTOMER_AI_TOOLS, CUSTOMER_SYSTEM_PROMPT, type CustomerAiTool } from '../lib/customerAiTools';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
+import { openConversation, saveExchange, compact } from '../lib/aiChatStore';
+import { tenantServiceClientBySlug } from '../lib/tenantAdmin';
 
 export const customerAiRouter = express.Router();
 
@@ -64,6 +66,9 @@ const bodySchema = z.object({
   cart_lines: z.array(cartLineSchema).max(50).optional(),
   /** true = reply as server-sent events: status / delta / done / error. */
   stream: z.boolean().optional(),
+  /** Random id the guest's browser keeps — lets the chat be saved for the owner. */
+  session_id: z.string().trim().min(8).max(100).regex(/^[A-Za-z0-9-]+$/).optional(),
+  conversation_id: z.string().uuid().optional(),
 });
 
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -270,6 +275,21 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
     aiProvider === 'gemini'
       ? runGemini(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit)
       : runAnthropic(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit);
+  // Saved for the owner to read (tenant-migrations/0081). Written with the
+  // restaurant's service key — the guest's own client can never read or
+  // change saved chats.
+  const lastUser = messages[messages.length - 1]!;
+  const store = parsed.data.session_id ? await tenantServiceClientBySlug(slug) : null;
+  const conversationId = store && parsed.data.session_id
+    ? await openConversation(store.admin, { kind: 'customer', guestSession: parsed.data.session_id }, parsed.data.conversation_id, lastUser.content)
+    : null;
+  const save = (result: ChatResult) =>
+    store
+      ? saveExchange(store.admin, conversationId, { content: lastUser.content }, {
+          content: result.reply,
+          extras: compact({ tools: result.trace.map((t) => t.name), dealCards: result.dealCards, resolvedCards: result.resolvedCards, budgetCard: result.budgetCard }),
+        })
+      : Promise.resolve();
   const payload = (result: ChatResult) => ({
     reply: result.reply,
     tools: result.trace,
@@ -277,12 +297,14 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
     dealCards: result.dealCards ?? null,
     resolvedCards: result.resolvedCards ?? null,
     budgetCard: result.budgetCard ?? null,
+    conversation_id: conversationId,
   });
 
   if (parsed.data.stream) {
     const send = startSse(res);
     try {
       const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
+      await save(result);
       send('done', payload(result));
     } catch (err) {
       console.error('[customer-ai] chat failed:', err);
@@ -293,7 +315,9 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
   }
 
   try {
-    return res.json(payload(await run(noEmit)));
+    const result = await run(noEmit);
+    await save(result);
+    return res.json(payload(result));
   } catch (err) {
     console.error('[customer-ai] chat failed:', err);
     return res.status(502).json({ error: 'ai_failed', message: 'The assistant could not complete that just now.' });

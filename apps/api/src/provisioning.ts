@@ -322,7 +322,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       charges the setting, never a caller-supplied rate.
 //   v79 period_tax(): tax collected and sales incl. tax, for Restaurant Performance.
 //   v80 Private ai-chat storage bucket for AI Assistant attachments.
-const SCHEMA_VERSION = 80;
+//   v81 Saved AI chats (ai_conversations / ai_messages) for staff and customers.
+const SCHEMA_VERSION = 81;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

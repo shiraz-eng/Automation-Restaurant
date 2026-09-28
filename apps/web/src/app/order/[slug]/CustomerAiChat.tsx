@@ -56,6 +56,23 @@ export function CustomerAiChat({
   const [busy, setBusy] = useState(false);
   // What the assistant is doing right now ("Checking deals for your cart…").
   const [status, setStatus] = useState<string | null>(null);
+  // The saved chat this guest is in (tenant-migrations/0081), for the owner to read.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
+  /** A random id this browser keeps per restaurant — no name, email or login. */
+  function guestSessionId(): string | undefined {
+    try {
+      const key = `ar-guest-chat:${slug}`;
+      let id = localStorage.getItem(key);
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem(key, id);
+      }
+      return id;
+    } catch {
+      return undefined; // storage blocked — the chat still works, it just isn't saved
+    }
+  }
   const [error, setError] = useState<string | null>(null);
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -88,7 +105,14 @@ export function CustomerAiChat({
         const result = await streamAiChat(
           `${API}/api/public/ai/chat`,
           { 'Content-Type': 'application/json' },
-          { slug, restaurant_name: restaurantName, messages: next.slice(-10), cart_lines: cartSnapshot },
+          {
+            slug,
+            restaurant_name: restaurantName,
+            messages: next.slice(-10),
+            cart_lines: cartSnapshot,
+            session_id: guestSessionId(),
+            ...(conversationId ? { conversation_id: conversationId } : {}),
+          },
           {
             status: (label) => setStatus(label),
             delta: (text) => {
@@ -103,8 +127,15 @@ export function CustomerAiChat({
           setMessages((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
           return;
         }
-        const body = result.done as { reply?: string; dealCards?: DealCard[] | null; resolvedCards?: ResolvedCard[] | null; budgetCard?: BudgetCard | null };
+        const body = result.done as {
+          reply?: string;
+          dealCards?: DealCard[] | null;
+          resolvedCards?: ResolvedCard[] | null;
+          budgetCard?: BudgetCard | null;
+          conversation_id?: string | null;
+        };
         patch((c) => (c.trim() ? c : (body.reply ?? '')));
+        if (body.conversation_id) setConversationId(body.conversation_id);
         // Structured evidence the backend's tool calls actually returned —
         // rendered as real action cards, never re-derived from the model's prose.
         if (body.dealCards) setDealCards((c) => ({ ...c, [replyIndex]: body.dealCards! }));
@@ -218,6 +249,7 @@ export function CustomerAiChat({
               <div>
                 <div className="font-bold text-sm">Ask about the menu</div>
                 <div className="text-muted text-[10.5px]">Recommendations only — you confirm before anything&rsquo;s added</div>
+                <div className="text-muted text-[10px]">Chats are saved so the restaurant can improve its service.</div>
               </div>
             </div>
             <button onClick={() => setOpen(false)} className="text-muted hover:text-body text-xl leading-none px-2" aria-label="Close">
