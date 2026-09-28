@@ -7,6 +7,7 @@ import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
+import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -437,169 +438,13 @@ async function callTool(
   }
 }
 
-// ── Gemini (direct REST — the SDK's role/shape assumptions vary by endpoint) ─
-type GPart =
-  | { text: string; thought?: boolean }
-  | { inlineData: { mimeType: string; data: string } }
-  | { functionCall: { name: string; args?: Record<string, unknown> } }
-  | { functionResponse: { name: string; response: object } };
-type GContent = { role: 'user' | 'model'; parts: GPart[] };
-
-/** Live progress for a streamed chat: tool lookups and answer text as it arrives. */
-type Emitter = { status: (label: string) => void; delta: (text: string) => void };
-const noEmit: Emitter = { status: () => {}, delta: () => {} };
-
-// Models tried for chat, fastest first. Measured 2026-09-28 on this key:
-// gemini-3.1-flash-lite starts answering in ~2s, while the
-// "gemini-flash-lite-latest" alias queued for 18-30s on the free tier, and
-// gemini-flash-latest often returned 503 "high demand". The next model is
-// raced in when the current one hasn't started answering after HEDGE_MS (or
-// fails), and whichever answers first wins.
-const GEMINI_CHAT_MODELS = [...new Set(['gemini-3.1-flash-lite', env.GEMINI_MODEL, 'gemini-flash-latest'])];
-const HEDGE_MS = 4000;
-const MODEL_TIMEOUT_MS = 40_000;
-
+// ── Gemini — streaming, backup models and SSE live in lib/geminiStream.ts ──
 /** A friendly progress line for a tool the model is calling. */
 function toolLabel(name: string): string {
   if (name === 'create_pdf_document') return 'Creating your PDF…';
   if (name === 'generate_report') return 'Preparing your report…';
   const words = name.replace(/^(get|list|compute|draft|create)_/, '').replace(/_/g, ' ');
   return `Checking ${words}…`;
-}
-
-/** Consecutive plain-text parts merged into one (anything carrying extra
- *  fields, e.g. a Gemini 3 thoughtSignature, is kept exactly as sent). */
-function mergeTextParts(parts: GPart[]): GPart[] {
-  const out: GPart[] = [];
-  for (const p of parts) {
-    const prev = out[out.length - 1];
-    const plain = (x: GPart | undefined) => !!x && 'text' in x && Object.keys(x).length === 1;
-    if (plain(p) && plain(prev)) (prev as { text: string }).text += (p as { text: string }).text;
-    else out.push({ ...p });
-  }
-  return out;
-}
-
-/** One streamed generateContent call. onParts sees each chunk as it arrives. */
-async function geminiStreamOnce(model: string, body: object, signal: AbortSignal, onParts: (parts: GPart[]) => void): Promise<GContent> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    let message = `gemini ${res.status}`;
-    try {
-      const j = (await res.json()) as { error?: { message?: string } };
-      message = j.error?.message ?? message;
-    } catch {
-      /* non-JSON error body */
-    }
-    const err = new Error(`${model}: ${message}`);
-    (err as { status?: number }).status = res.status;
-    throw err;
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  const parts: GPart[] = [];
-  let buf = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith('data:')) continue;
-      const event = JSON.parse(line.slice(5)) as { candidates?: { content?: GContent }[]; error?: { code?: number; message?: string } };
-      if (event.error) {
-        const err = new Error(`${model}: ${event.error.message ?? 'stream error'}`);
-        (err as { status?: number }).status = event.error.code;
-        throw err;
-      }
-      const got = event.candidates?.[0]?.content?.parts ?? [];
-      if (got.length) {
-        parts.push(...got);
-        onParts(got);
-      }
-    }
-  }
-  return { role: 'model', parts: mergeTextParts(parts) };
-}
-
-/** One model turn, raced across GEMINI_CHAT_MODELS: the next model starts if
- *  the current one hasn't produced anything after HEDGE_MS or fails; the
- *  first to stream anything wins and the others are cancelled. onText only
- *  ever receives the winner's text. */
-function geminiTurn(contents: GContent[], tools: ToolLike[], system: string, onText: (text: string) => void): Promise<GContent> {
-  const decls = tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    ...(Object.keys(t.input_schema.properties).length ? { parameters: t.input_schema } : {}),
-  }));
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents,
-    ...(decls.length ? { tools: [{ functionDeclarations: decls }] } : {}),
-  };
-  return new Promise<GContent>((resolve, reject) => {
-    let winner = -1;
-    let settled = false;
-    let started = 0;
-    let failed = 0;
-    let lastErr: unknown = new Error('no model available');
-    let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
-    const ctrls: AbortController[] = [];
-    const cancelOthers = (keep: number) => ctrls.forEach((c, j) => j !== keep && c.abort());
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(hedgeTimer);
-      fn();
-    };
-    const startNext = () => {
-      if (settled || winner >= 0 || started >= GEMINI_CHAT_MODELS.length) return;
-      const i = started++;
-      const ctrl = new AbortController();
-      ctrls[i] = ctrl;
-      let timedOut = false;
-      const kill = setTimeout(() => {
-        timedOut = true;
-        ctrl.abort();
-      }, MODEL_TIMEOUT_MS);
-      clearTimeout(hedgeTimer);
-      hedgeTimer = setTimeout(startNext, HEDGE_MS);
-      geminiStreamOnce(GEMINI_CHAT_MODELS[i]!, body, ctrl.signal, (parts) => {
-        if (winner < 0) {
-          winner = i;
-          clearTimeout(hedgeTimer);
-          cancelOthers(i);
-        }
-        if (winner !== i) return;
-        for (const p of parts) if ('text' in p && p.text && !p.thought) onText(p.text);
-      }).then(
-        (content) => {
-          clearTimeout(kill);
-          if (winner === i || winner < 0) {
-            cancelOthers(i);
-            finish(() => resolve(content));
-          }
-        },
-        (err) => {
-          clearTimeout(kill);
-          if (winner === i) return finish(() => reject(err));
-          if (ctrl.signal.aborted && !timedOut) return; // cancelled because another model won
-          failed++;
-          lastErr = err;
-          if (started < GEMINI_CHAT_MODELS.length) startNext();
-          else if (failed === started && winner < 0) finish(() => reject(lastErr));
-        },
-      );
-    };
-    startNext();
-  });
 }
 
 export async function runGemini(
@@ -646,19 +491,8 @@ export async function runGemini(
       streamed += text;
       emit.delta(text);
     };
-    // Retry the whole turn on 429/503 across every model — but never after
-    // text has already reached the viewer (it would appear twice).
-    let content: GContent | undefined;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        content = await geminiTurn(contents, declared, system, onText);
-        break;
-      } catch (err) {
-        const status = (err as { status?: number }).status;
-        if (turnText || attempt >= 2 || (status !== 429 && status !== 503)) throw err;
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
+    // geminiTurn retries on 429/503 itself (never after text has streamed).
+    const content = await geminiTurn(contents, declared, system, onText);
     const calls = content.parts.filter(
       (p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p,
     );
@@ -948,26 +782,13 @@ aiRouter.post(
     if (parsed.data.stream) {
       // Server-sent events: the answer appears as it's written, with a
       // progress line while data is being looked up.
-      res.status(200);
-      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-transform');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders();
-      const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const send = startSse(res);
       try {
         const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
         send('done', payload(result));
       } catch (err) {
         console.error('[ai] chat failed:', err);
-        const status = (err as { status?: number }).status;
-        send('error', {
-          error: 'ai_failed',
-          message:
-            status === 429 || status === 503
-              ? "Google's AI service is overloaded right now — please try again in a minute. (A paid Gemini key avoids this.)"
-              : 'The assistant could not complete the request — please try again.',
-        });
+        send('error', { error: 'ai_failed', message: aiFailureMessage(err) });
       }
       res.end();
       return;

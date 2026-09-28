@@ -23,14 +23,7 @@ export async function streamAiChat(
   }
   if (!res.ok || !res.body) {
     const j = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-    return {
-      ok: false,
-      code: j.error,
-      error:
-        j.error === 'ai_not_configured'
-          ? 'The assistant is not configured — add a GEMINI_API_KEY or ANTHROPIC_API_KEY to the API server.'
-          : (j.message ?? j.error ?? 'The assistant failed.'),
-    };
+    return { ok: false, code: j.error, error: j.message ?? j.error ?? 'The assistant failed.' };
   }
 
   const reader = res.body.getReader();

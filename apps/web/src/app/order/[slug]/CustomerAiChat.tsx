@@ -2,6 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { formatCents } from '@/lib/format';
+import { Markdown } from '@/components/Markdown';
+import { streamAiChat } from '@/lib/aiStream';
 import type { Product, ModOption, DealMatch, DealLite } from './StorefrontClient';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -52,6 +54,8 @@ export function CustomerAiChat({
   const [budgetCards, setBudgetCards] = useState<Record<number, BudgetCard>>({});
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // What the assistant is doing right now ("Checking deals for your cart…").
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -70,7 +74,49 @@ export function CustomerAiChat({
     const next = [...messages, { role: 'user' as const, content }];
     setMessages(next);
     setBusy(true);
+    setStatus(null);
     scrollToBottom();
+    const useExpressApi = typeof window === 'undefined' || (API && !API.includes('localhost:4000'));
+    if (useExpressApi) {
+      // Streamed: the reply appears as it's written, with a short
+      // "Checking deals…" line while the menu is being looked up.
+      const replyIndex = next.length;
+      setMessages([...next, { role: 'assistant', content: '' }]);
+      const patch = (fn: (c: string) => string) =>
+        setMessages((all) => all.map((m, i) => (i === replyIndex ? { ...m, content: fn(m.content) } : m)));
+      try {
+        const result = await streamAiChat(
+          `${API}/api/public/ai/chat`,
+          { 'Content-Type': 'application/json' },
+          { slug, restaurant_name: restaurantName, messages: next.slice(-10), cart_lines: cartSnapshot },
+          {
+            status: (label) => setStatus(label),
+            delta: (text) => {
+              setStatus(null);
+              patch((c) => c + text);
+              scrollToBottom();
+            },
+          },
+        );
+        if (!result.ok) {
+          setError(result.error || "Couldn't reach the assistant.");
+          setMessages((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
+          return;
+        }
+        const body = result.done as { reply?: string; dealCards?: DealCard[] | null; resolvedCards?: ResolvedCard[] | null; budgetCard?: BudgetCard | null };
+        patch((c) => (c.trim() ? c : (body.reply ?? '')));
+        // Structured evidence the backend's tool calls actually returned —
+        // rendered as real action cards, never re-derived from the model's prose.
+        if (body.dealCards) setDealCards((c) => ({ ...c, [replyIndex]: body.dealCards! }));
+        if (body.resolvedCards) setResolvedCards((c) => ({ ...c, [replyIndex]: body.resolvedCards! }));
+        if (body.budgetCard) setBudgetCards((c) => ({ ...c, [replyIndex]: body.budgetCard! }));
+        scrollToBottom();
+      } finally {
+        setBusy(false);
+        setStatus(null);
+      }
+      return;
+    }
     try {
       // The full tool-calling assistant (deal matching, item resolution,
       // budget proposals as action cards) lives behind the Express API —
@@ -149,7 +195,7 @@ export function CustomerAiChat({
     }
   }
 
-  const suggestions = ['What are your best sellers?', "What's the best deal right now?", 'Something under Rs. 1000?'];
+  const suggestions = ['What are your best sellers?', "What's the best deal right now?", 'Something under Rs. 1000?', 'What would you recommend for 4 people?'];
 
   return (
     <>
@@ -194,14 +240,15 @@ export function CustomerAiChat({
                 ))}
               </div>
             )}
-            {messages.map((m, i) => (
+            {messages.map((m, i) =>
+              m.role === 'assistant' && !m.content && !dealCards[i] && !resolvedCards[i] && !budgetCards[i] ? null : (
               <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
-                    m.role === 'user' ? 'bg-primary text-primary-fg' : 'bg-surface border border-border'
+                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                    m.role === 'user' ? 'bg-primary text-primary-fg whitespace-pre-wrap' : 'bg-surface border border-border'
                   }`}
                 >
-                  {m.content}
+                  {m.role === 'user' ? m.content : <Markdown text={m.content} />}
                   {dealCards[i]?.map((card, ci) => (
                     <div key={ci} className="mt-2 rounded-xl border border-ok/50 bg-ok/10 p-2.5">
                       <div className="font-bold text-[11px]">{card.deal_name}</div>
@@ -273,8 +320,14 @@ export function CustomerAiChat({
                   )}
                 </div>
               </div>
-            ))}
-            {busy && <div className="text-muted text-xs">Thinking…</div>}
+              ),
+            )}
+            {busy && (status || !messages[messages.length - 1]?.content || messages[messages.length - 1]?.role === 'user') && (
+              <div className="text-muted text-xs flex items-center gap-1.5">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                {status ?? 'Thinking…'}
+              </div>
+            )}
             {error && <div className="text-danger text-xs">{error}</div>}
           </div>
 

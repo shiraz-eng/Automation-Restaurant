@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest';
+// gemini-3.1-flash-lite answers in ~2s; the "-latest" alias queued for
+// 18-30s on the free tier (measured 2026-09-28).
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 
 /**
  * Lightweight customer ordering assistant for when the Express backend
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
       .join('\n');
     const dealsText = deals.map((d) => `- ${d.name}: ${(d.price_cents / 100).toFixed(2)}${d.description ? ` — ${d.description}` : ''}`).join('\n');
 
-    const systemPrompt = `You are the ordering assistant for ${restaurantName}. Answer questions about the menu below using only what's listed — never invent a dish, price, or deal. Keep answers short and friendly. You cannot add anything to the cart yourself; tell the customer to tap "Add" on the item.
+    const systemPrompt = `You are the ordering assistant for ${restaurantName}. Answer questions about the menu below using only what's listed — never invent a dish, price, or deal. You may also answer general food questions (what a dish is, typical spice level, what goes well together) from your own knowledge; for allergies, say recipes vary and to confirm with staff. Reply in the guest's language, short and friendly, with **bold** dish names. You cannot add anything to the cart yourself; tell the customer to tap "Add" on the item.
 
 MENU:
 ${menuText || '(no items listed)'}

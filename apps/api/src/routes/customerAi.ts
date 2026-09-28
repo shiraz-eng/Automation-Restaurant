@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { tenantClientForSlug } from './public';
 import { CUSTOMER_AI_TOOLS, CUSTOMER_SYSTEM_PROMPT, type CustomerAiTool } from '../lib/customerAiTools';
+import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
 
 export const customerAiRouter = express.Router();
 
@@ -61,6 +62,8 @@ const bodySchema = z.object({
     .min(1)
     .max(20),
   cart_lines: z.array(cartLineSchema).max(50).optional(),
+  /** true = reply as server-sent events: status / delta / done / error. */
+  stream: z.boolean().optional(),
 });
 
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -128,42 +131,16 @@ async function callTool(
   }
 }
 
-// ── Gemini (direct REST, matches routes/ai.ts's own pattern) ──────────────
-type GPart =
-  | { text: string }
-  | { functionCall: { name: string; args?: Record<string, unknown> } }
-  | { functionResponse: { name: string; response: object } };
-type GContent = { role: 'user' | 'model'; parts: GPart[] };
-
-async function geminiGenerate(contents: GContent[], tools: CustomerAiTool[], system: string) {
-  const decls = tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    ...(Object.keys(t.input_schema.properties).length ? { parameters: t.input_schema } : {}),
-  }));
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents,
-    ...(decls.length ? { tools: [{ functionDeclarations: decls }] } : {}),
-  };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-      body: JSON.stringify(body),
-    },
-  );
-  const json = (await res.json()) as { candidates?: { content?: GContent }[]; error?: { code?: number; message?: string } };
-  if (!res.ok || json.error) {
-    const err = new Error(json.error?.message ?? `gemini ${res.status}`);
-    (err as { status?: number }).status = json.error?.code ?? res.status;
-    throw err;
-  }
-  return json.candidates?.[0]?.content ?? { role: 'model' as const, parts: [] };
-}
-
+// ── Gemini — streaming, backup models and SSE live in lib/geminiStream.ts ──
 type ChatResult = { reply: string; trace: { name: string; ok: boolean }[] } & Capture;
+
+/** A friendly progress line while the assistant looks something up. */
+function toolLabel(name: string): string {
+  if (name === 'compare_deal_savings') return 'Checking deals for your cart…';
+  if (name === 'build_budget_order') return 'Putting an order together…';
+  if (name === 'resolve_menu_selection') return 'Finding that on the menu…';
+  return 'Checking the menu…';
+}
 
 async function runGemini(
   messages: ChatMsg[],
@@ -171,25 +148,47 @@ async function runGemini(
   system: string,
   tenant: SupabaseClient,
   realCartLines: { variant_id?: string; deal_id?: string; qty: number }[],
+  emit: Emitter = noEmit,
 ): Promise<ChatResult> {
   const byName = new Map(tools.map((t) => [t.name, t]));
   const contents: GContent[] = messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
   const trace: ChatResult['trace'] = [];
   const capture: Capture = {};
+  let streamed = '';
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const content = await withRetry(() => geminiGenerate(contents, tools, system));
+    let turnText = false;
+    const onText = (text: string) => {
+      if (!turnText && streamed && !streamed.endsWith('\n')) {
+        streamed += '\n\n';
+        emit.delta('\n\n');
+      }
+      turnText = true;
+      streamed += text;
+      emit.delta(text);
+    };
+    const content = await geminiTurn(contents, tools, system, onText);
     const calls = content.parts.filter((p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p);
     if (calls.length === 0) {
-      const text = content.parts.filter((p): p is { text: string } => 'text' in p).map((p) => p.text).join('\n').trim();
-      return { reply: text || '(no answer)', trace, ...capture };
+      const text = content.parts
+        .filter((p): p is { text: string } => 'text' in p && !(p as { thought?: boolean }).thought)
+        .map((p) => p.text)
+        .join('')
+        .trim();
+      return { reply: streamed.trim() || text || '(no answer)', trace, ...capture };
     }
     contents.push(content);
-    const parts: GPart[] = [];
-    for (const c of calls) {
-      const out = await callTool(byName.get(c.functionCall.name), (c.functionCall.args ?? {}) as Record<string, unknown>, tenant, trace, c.functionCall.name, capture, realCartLines);
+    // Lookups asked for in the same turn run at the same time.
+    for (const c of calls) emit.status(toolLabel(c.functionCall.name));
+    const outs = await Promise.all(
+      calls.map((c) =>
+        callTool(byName.get(c.functionCall.name), (c.functionCall.args ?? {}) as Record<string, unknown>, tenant, trace, c.functionCall.name, capture, realCartLines),
+      ),
+    );
+    const parts: GPart[] = calls.map((c, k) => {
+      const out = outs[k];
       const response = out !== null && typeof out === 'object' && !Array.isArray(out) ? (out as object) : { result: out };
-      parts.push({ functionResponse: { name: c.functionCall.name, response } });
-    }
+      return { functionResponse: { name: c.functionCall.name, response } };
+    });
     contents.push({ role: 'user', parts });
   }
   return { reply: 'I ran out of steps before finishing — try asking again more specifically.', trace, ...capture };
@@ -201,6 +200,7 @@ async function runAnthropic(
   system: string,
   tenant: SupabaseClient,
   realCartLines: { variant_id?: string; deal_id?: string; qty: number }[],
+  emit: Emitter = noEmit,
 ): Promise<ChatResult> {
   const byName = new Map(tools.map((t) => [t.name, t]));
   const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY as string });
@@ -208,24 +208,31 @@ async function runAnthropic(
   const trace: ChatResult['trace'] = [];
   const capture: Capture = {};
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const resp = await anthropic.messages.create({
-      model: env.AI_MODEL,
-      max_tokens: 700,
-      system,
-      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
-      messages: convo,
-    });
+    const resp = await withRetry(() =>
+      anthropic.messages.create({
+        model: env.AI_MODEL,
+        max_tokens: 1024,
+        system,
+        tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+        messages: convo,
+      }),
+    );
     if (resp.stop_reason !== 'tool_use') {
       const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+      if (text) emit.delta(text);
       return { reply: text || '(no answer)', trace, ...capture };
     }
     convo.push({ role: 'assistant', content: resp.content });
-    const results: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of resp.content) {
-      if (block.type !== 'tool_use') continue;
-      const out = await callTool(byName.get(block.name), (block.input ?? {}) as Record<string, unknown>, tenant, trace, block.name, capture, realCartLines);
-      results.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out).slice(0, 8000) });
-    }
+    const uses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    for (const u of uses) emit.status(toolLabel(u.name));
+    const outs = await Promise.all(
+      uses.map((block) => callTool(byName.get(block.name), (block.input ?? {}) as Record<string, unknown>, tenant, trace, block.name, capture, realCartLines)),
+    );
+    const results: Anthropic.ToolResultBlockParam[] = uses.map((block, k) => ({
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: JSON.stringify(outs[k]).slice(0, 8000),
+    }));
     convo.push({ role: 'user', content: results });
   }
   return { reply: 'I ran out of steps before finishing — try asking again more specifically.', trace, ...capture };
@@ -237,7 +244,9 @@ async function runAnthropic(
  * anon-key client so every tool call runs through the same guest_read RLS
  * the storefront itself uses. Never mutates anything — recommendations
  * and resolved items/prices are returned for the CLIENT to apply through
- * its own existing cart functions.
+ * its own existing cart functions. With stream: true the reply arrives as
+ * server-sent events (status / delta / done / error), like the staff
+ * assistant.
  */
 customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: Request, res: Response) => {
   if (!aiEnabled) {
@@ -256,20 +265,35 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
   const system = CUSTOMER_SYSTEM_PROMPT(restaurant_name || slug);
+  const realCartLines = cart_lines ?? [];
+  const run = (emit: Emitter) =>
+    aiProvider === 'gemini'
+      ? runGemini(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit)
+      : runAnthropic(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit);
+  const payload = (result: ChatResult) => ({
+    reply: result.reply,
+    tools: result.trace,
+    provider: aiProvider,
+    dealCards: result.dealCards ?? null,
+    resolvedCards: result.resolvedCards ?? null,
+    budgetCard: result.budgetCard ?? null,
+  });
+
+  if (parsed.data.stream) {
+    const send = startSse(res);
+    try {
+      const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
+      send('done', payload(result));
+    } catch (err) {
+      console.error('[customer-ai] chat failed:', err);
+      send('error', { error: 'ai_failed', message: aiFailureMessage(err) });
+    }
+    res.end();
+    return;
+  }
+
   try {
-    const realCartLines = cart_lines ?? [];
-    const result =
-      aiProvider === 'gemini'
-        ? await runGemini(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines)
-        : await runAnthropic(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines);
-    return res.json({
-      reply: result.reply,
-      tools: result.trace,
-      provider: aiProvider,
-      dealCards: result.dealCards ?? null,
-      resolvedCards: result.resolvedCards ?? null,
-      budgetCard: result.budgetCard ?? null,
-    });
+    return res.json(payload(await run(noEmit)));
   } catch (err) {
     console.error('[customer-ai] chat failed:', err);
     return res.status(502).json({ error: 'ai_failed', message: 'The assistant could not complete that just now.' });
