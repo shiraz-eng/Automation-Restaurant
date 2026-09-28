@@ -15,7 +15,7 @@ type ChatMsg = { role: 'user' | 'assistant'; content: string };
 // Every number and id here comes straight from a tool result.
 type DealCard = { deal_id: string; deal_name: string; status: string; individual_total_cents: number; deal_total_cents: number; savings_cents: number; missing?: string };
 type ResolvedCard = { menu_item_id: string; item_name: string; variant_id: string | null; variant_name: string | null; available: boolean; modifier_option_ids: string[]; resolved_modifiers: { name: string; price_cents: number }[]; unit_price_cents: number | null };
-type BudgetCard = { items: { variant_id: string; name: string; qty: number; unit_price_cents: number }[]; deal: { deal_id: string; name: string; price_cents: number; qty: number } | null; subtotal_cents: number };
+type BudgetCard = { title?: string; items: { variant_id: string; name: string; qty: number; unit_price_cents: number }[]; deal: { deal_id: string; name: string; price_cents: number; qty: number } | null; subtotal_cents: number };
 
 export function CustomerAiChat({
   slug,
@@ -226,9 +226,9 @@ export function CustomerAiChat({
 
   const suggestions = [
     'What are your best sellers?',
+    'Create a deal for 4 people',
+    'What healthy options do you recommend?',
     "What's the best deal right now?",
-    'Can you recommend something for lunch?',
-    'What would you recommend for a group?',
   ];
 
   return (
@@ -329,7 +329,7 @@ export function CustomerAiChat({
                   ))}
                   {budgetCards[i] && (
                     <div className="mt-2 rounded-xl border border-border bg-surface p-2.5">
-                      <div className="font-bold text-[11px] mb-1">Suggested order</div>
+                      <div className="font-bold text-[11px] mb-1">{budgetCards[i].title || 'Suggested order'}</div>
                       <ul className="text-[11px] space-y-0.5">
                         {budgetCards[i].items.map((it, ii) => (
                           <li key={ii} className="flex justify-between">

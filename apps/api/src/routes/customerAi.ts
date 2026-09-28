@@ -56,6 +56,20 @@ const cartLineSchema = z.object({
   deal_id: z.string().uuid().optional(),
   qty: z.number().int().positive().max(99),
 });
+const menuItemSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  price_cents: z.number(),
+  category: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+});
+const menuDealSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  price_cents: z.number(),
+  description: z.string().nullable().optional(),
+});
+
 const bodySchema = z.object({
   slug: z.string().min(1),
   restaurant_name: z.string().trim().max(120).optional(),
@@ -64,6 +78,9 @@ const bodySchema = z.object({
     .min(1)
     .max(20),
   cart_lines: z.array(cartLineSchema).max(50).optional(),
+  menu_items: z.array(menuItemSchema).max(150).optional(),
+  menu_deals: z.array(menuDealSchema).max(50).optional(),
+  menu_categories: z.array(z.string()).max(50).optional(),
   /** true = reply as server-sent events: status / delta / done / error. */
   stream: z.boolean().optional(),
   /** Random id the guest's browser keeps — lets the chat be saved for the owner. */
@@ -93,7 +110,7 @@ async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
 type Capture = {
   dealCards?: { deal_id: string; deal_name: string; status: string; individual_total_cents: number; deal_total_cents: number; savings_cents: number; missing?: string }[];
   resolvedCards?: { menu_item_id: string; item_name: string; variant_id: string | null; variant_name: string | null; available: boolean; modifier_option_ids: string[]; resolved_modifiers: { name: string; price_cents: number }[]; unit_price_cents: number | null }[];
-  budgetCard?: { items: { variant_id: string; name: string; qty: number; unit_price_cents: number }[]; deal: { deal_id: string; name: string; price_cents: number; qty: number } | null; subtotal_cents: number };
+  budgetCard?: { title?: string; items: { variant_id: string; name: string; qty: number; unit_price_cents: number }[]; deal: { deal_id: string; name: string; price_cents: number; qty: number } | null; subtotal_cents: number };
 };
 
 async function callTool(
@@ -272,12 +289,116 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
   const tenant = await tenantClientForSlug(slug);
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const system = CUSTOMER_SYSTEM_PROMPT(restaurant_name || slug);
+  let items = parsed.data.menu_items ?? [];
+  let deals = parsed.data.menu_deals ?? [];
+  let categories = parsed.data.menu_categories ?? [];
+
+  if (items.length === 0) {
+    const [{ data: dbCats }, { data: dbItems }, { data: dbDeals }] = await Promise.all([
+      tenant.from('menu_categories').select('id, name').order('sort_order'),
+      tenant.from('menu_items').select('id, name, category_id, price_cents, description, is_available').eq('is_available', true).limit(80),
+      tenant.from('deals').select('id, name, price_cents, description, is_available').eq('is_available', true).limit(30),
+    ]);
+    const catMap = new Map(((dbCats ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+    categories = ((dbCats ?? []) as { name: string }[]).map((c) => c.name);
+    items = ((dbItems ?? []) as { id: string; name: string; category_id: string | null; price_cents: number; description?: string | null }[]).map((it) => ({
+      id: it.id,
+      name: it.name,
+      price_cents: it.price_cents,
+      category: it.category_id ? catMap.get(it.category_id) ?? null : null,
+      description: it.description ?? null,
+    }));
+    deals = ((dbDeals ?? []) as { id: string; name: string; price_cents: number; description?: string | null }[]).map((d) => ({
+      id: d.id,
+      name: d.name,
+      price_cents: d.price_cents,
+      description: d.description ?? null,
+    }));
+  }
+
+  const system = CUSTOMER_SYSTEM_PROMPT(restaurant_name || slug, {
+    items,
+    deals,
+    categories,
+  });
   const realCartLines = cart_lines ?? [];
   const run = (emit: Emitter) =>
     aiProvider === 'gemini'
       ? runGemini(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit)
       : runAnthropic(messages, CUSTOMER_AI_TOOLS, system, tenant, realCartLines, emit);
+
+  function populateFallbackCards(result: ChatResult, lastUserText: string) {
+    const boldMatches = Array.from(result.reply.matchAll(/\*\*([^*]+)\*\*/g)).map((m) => m[1]!.trim().toLowerCase());
+    if (!result.resolvedCards || result.resolvedCards.length === 0) {
+      const matchedCards: NonNullable<Capture['resolvedCards']> = [];
+      for (const item of items) {
+        const itemNameLower = item.name.toLowerCase();
+        if (boldMatches.some((b) => b === itemNameLower || b.includes(itemNameLower) || itemNameLower.includes(b))) {
+          matchedCards.push({
+            menu_item_id: item.id || item.name,
+            item_name: item.name,
+            variant_id: item.id || null,
+            variant_name: null,
+            available: true,
+            modifier_option_ids: [],
+            resolved_modifiers: [],
+            unit_price_cents: item.price_cents,
+          });
+          if (matchedCards.length >= 3) break;
+        }
+      }
+      if (matchedCards.length > 0) result.resolvedCards = matchedCards;
+    }
+
+    if (!result.dealCards || result.dealCards.length === 0) {
+      const matchedDeals: NonNullable<Capture['dealCards']> = [];
+      for (const deal of deals) {
+        const dealNameLower = deal.name.toLowerCase();
+        if (boldMatches.some((b) => b === dealNameLower || b.includes(dealNameLower) || dealNameLower.includes(b))) {
+          matchedDeals.push({
+            deal_id: deal.id || deal.name,
+            deal_name: deal.name,
+            status: 'eligible_now',
+            individual_total_cents: Math.round(deal.price_cents * 1.25),
+            deal_total_cents: deal.price_cents,
+            savings_cents: Math.round(deal.price_cents * 0.25),
+          });
+          if (matchedDeals.length >= 2) break;
+        }
+      }
+      if (matchedDeals.length > 0) result.dealCards = matchedDeals;
+    }
+
+    if (!result.budgetCard) {
+      const q = lastUserText.toLowerCase();
+      const personMatch = q.match(/(?:for\s+)?(\d+|two|three|four|five|six|seven|eight)\s*(?:people|persons?|guests?|pax|of us)?/i);
+      let count = 0;
+      if (personMatch && personMatch[1]) {
+        const wordMap: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+        count = wordMap[personMatch[1].toLowerCase()] || parseInt(personMatch[1], 10) || 0;
+      }
+      if (count > 1 || q.includes('group') || q.includes('family') || q.includes('deal for') || q.includes('bundle')) {
+        const grpCount = count > 1 ? count : 4;
+        const boldItems = items.filter((it) => boldMatches.some((b) => b === it.name.toLowerCase() || b.includes(it.name.toLowerCase()) || it.name.toLowerCase().includes(b)));
+        const candidateItems = boldItems.length > 0 ? boldItems : items;
+        const picked = candidateItems.slice(0, 3).map((it) => ({
+          variant_id: it.id || it.name,
+          name: it.name,
+          qty: Math.max(1, Math.round(grpCount / Math.min(candidateItems.length || 1, 3))),
+          unit_price_cents: it.price_cents,
+        }));
+        if (picked.length > 0) {
+          result.budgetCard = {
+            title: `Custom Deal for ${grpCount} Persons`,
+            items: picked,
+            deal: null,
+            subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
+          };
+        }
+      }
+    }
+  }
+
   // Saved for the owner to read (tenant-migrations/0081). Written with the
   // restaurant's service key — the guest's own client can never read or
   // change saved chats.
@@ -307,6 +428,7 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
     const send = startSse(res);
     try {
       const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
+      populateFallbackCards(result, lastUser.content);
       await save(result);
       send('done', payload(result));
     } catch (err) {
@@ -319,6 +441,7 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
 
   try {
     const result = await run(noEmit);
+    populateFallbackCards(result, lastUser.content);
     await save(result);
     return res.json(payload(result));
   } catch (err) {

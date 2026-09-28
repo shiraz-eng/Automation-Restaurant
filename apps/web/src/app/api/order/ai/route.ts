@@ -48,6 +48,7 @@ type ResolvedCard = {
   unit_price_cents: number | null;
 };
 type BudgetCard = {
+  title?: string;
   items: { variant_id: string; name: string; qty: number; unit_price_cents: number }[];
   deal: { deal_id: string; name: string; price_cents: number; qty: number } | null;
   subtotal_cents: number;
@@ -120,43 +121,188 @@ function extractDynamicCards(
 }
 
 /**
- * Builds dynamic budget cards if the user specifically asked for an order under a budget.
+ * Dynamically builds custom deal cards or budget cards:
+ * - If the guest asks for a deal or meal for N people (e.g. "deal for 4 person", "meal for 2", "recommend for 4 people"),
+ *   it constructs an interactive bundle card with an "Add all to cart" button.
+ * - If the guest asks for an order under a budget (e.g. "under $50"), it builds a budget-fitting bundle.
  */
-function extractDynamicBudget(
+function extractDynamicDealOrBudget(
   lastUserMsg: string,
+  reply: string,
   items: MenuContextItem[],
+  deals: MenuContextDeal[],
 ): BudgetCard | null {
   const q = lastUserMsg.toLowerCase();
-  const match = q.match(/under\s+(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i) || q.match(/budget\s+(?:of\s+)?(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i);
-  if (!match || !match[1]) return null;
 
-  const budgetCents = parseInt(match[1], 10) * 100;
-  if (budgetCents <= 0 || items.length === 0) return null;
+  // Detect group size (e.g. "deal for 4", "for 4 people", "4 persons", "meal for 2", "family of 5")
+  const personMatch = q.match(/(?:for\s+)?(\d+|two|three|four|five|six|seven|eight)\s*(?:people|persons?|guests?|pax|of us)?/i);
+  let personCount = 0;
+  if (personMatch && personMatch[1]) {
+    const raw = personMatch[1].toLowerCase();
+    const wordMap: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+    personCount = wordMap[raw] || parseInt(raw, 10) || 0;
+  }
+  const isGroupQuery = personCount > 1 || q.includes('group') || q.includes('family') || q.includes('deal for') || q.includes('bundle');
 
-  const affordable = items.filter((it) => it.price_cents <= budgetCents).sort((a, b) => b.price_cents - a.price_cents);
-  const picked: { variant_id: string; name: string; qty: number; unit_price_cents: number }[] = [];
-  let rem = budgetCents;
+  // Detect budget request
+  const budgetMatch = q.match(/under\s+(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i) || q.match(/budget\s+(?:of\s+)?(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i);
+  const budgetCents = budgetMatch && budgetMatch[1] ? parseInt(budgetMatch[1], 10) * 100 : 0;
 
-  for (const it of affordable) {
-    if (it.price_cents <= rem) {
+  if (!isGroupQuery && budgetCents <= 0) return null;
+
+  const count = personCount > 0 ? personCount : 4;
+
+  // Extract items bolded in the AI's reply
+  const boldMatches = Array.from(reply.matchAll(/\*\*([^*]+)\*\*/g)).map((m) => m[1]!.trim().toLowerCase());
+  const recommendedItems = items.filter((it) => {
+    const nameLower = it.name.toLowerCase();
+    return boldMatches.some((b) => b === nameLower || b.includes(nameLower) || nameLower.includes(b));
+  });
+
+  // Check if an existing deal was recommended
+  const recommendedDeal = deals.find((d) => {
+    const nameLower = d.name.toLowerCase();
+    return boldMatches.some((b) => b === nameLower || b.includes(nameLower) || nameLower.includes(b));
+  });
+
+  if (recommendedDeal) {
+    const dealQty = Math.max(1, Math.floor(count / 2));
+    return {
+      title: `Recommended Deal for ${count} Persons`,
+      items: [],
+      deal: {
+        deal_id: recommendedDeal.id || recommendedDeal.name,
+        name: recommendedDeal.name,
+        price_cents: recommendedDeal.price_cents,
+        qty: dealQty,
+      },
+      subtotal_cents: recommendedDeal.price_cents * dealQty,
+    };
+  }
+
+  // If specific items were bolded by the assistant for the custom deal
+  if (recommendedItems.length > 0) {
+    const picked: { variant_id: string; name: string; qty: number; unit_price_cents: number }[] = [];
+    const mains = recommendedItems.filter((it) => {
+      const cat = (it.category || '').toLowerCase();
+      return !cat.includes('drink') && !cat.includes('beverage') && !cat.includes('side') && !cat.includes('dessert');
+    });
+    const sides = recommendedItems.filter((it) => {
+      const cat = (it.category || '').toLowerCase();
+      return cat.includes('side') || cat.includes('fry') || cat.includes('fries') || cat.includes('snack') || cat.includes('appetizer');
+    });
+    const drinks = recommendedItems.filter((it) => {
+      const cat = (it.category || '').toLowerCase();
+      return cat.includes('drink') || cat.includes('beverage') || cat.includes('shake') || cat.includes('soda');
+    });
+
+    if (mains.length > 0) {
+      const qtyPerMain = Math.max(1, Math.round(count / mains.length));
+      for (const m of mains) {
+        picked.push({
+          variant_id: m.id || m.name,
+          name: m.name,
+          qty: qtyPerMain,
+          unit_price_cents: m.price_cents,
+        });
+      }
+    } else {
+      for (const it of recommendedItems.slice(0, 3)) {
+        picked.push({
+          variant_id: it.id || it.name,
+          name: it.name,
+          qty: Math.max(1, Math.round(count / Math.min(recommendedItems.length, 3))),
+          unit_price_cents: it.price_cents,
+        });
+      }
+    }
+
+    for (const s of sides.slice(0, 2)) {
       picked.push({
-        variant_id: it.id || it.name,
-        name: it.name,
-        qty: 1,
-        unit_price_cents: it.price_cents,
+        variant_id: s.id || s.name,
+        name: s.name,
+        qty: Math.max(1, Math.floor(count / 2)),
+        unit_price_cents: s.price_cents,
       });
-      rem -= it.price_cents;
-      if (picked.length >= 3) break;
+    }
+
+    for (const d of drinks.slice(0, 1)) {
+      picked.push({
+        variant_id: d.id || d.name,
+        name: d.name,
+        qty: count,
+        unit_price_cents: d.price_cents,
+      });
+    }
+
+    if (picked.length > 0) {
+      return {
+        title: `Custom Deal for ${count} Persons`,
+        items: picked,
+        deal: null,
+        subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
+      };
     }
   }
 
-  if (picked.length === 0) return null;
+  // If budget specified without group
+  if (budgetCents > 0 && items.length > 0) {
+    const affordable = items.filter((it) => it.price_cents <= budgetCents).sort((a, b) => b.price_cents - a.price_cents);
+    const picked: { variant_id: string; name: string; qty: number; unit_price_cents: number }[] = [];
+    let rem = budgetCents;
+    for (const it of affordable) {
+      if (it.price_cents <= rem) {
+        picked.push({ variant_id: it.id || it.name, name: it.name, qty: 1, unit_price_cents: it.price_cents });
+        rem -= it.price_cents;
+        if (picked.length >= 3) break;
+      }
+    }
+    if (picked.length > 0) {
+      return {
+        title: `Suggested Order Under ${(budgetCents / 100).toFixed(0)}`,
+        items: picked,
+        deal: null,
+        subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
+      };
+    }
+  }
 
-  return {
-    items: picked,
-    deal: null,
-    subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
-  };
+  // Fallback: build bundle from popular/available items for group
+  if (isGroupQuery && items.length > 0) {
+    const mains = items.filter((it) => {
+      const cat = (it.category || '').toLowerCase();
+      return !cat.includes('drink') && !cat.includes('side') && !cat.includes('sauce');
+    });
+    const mainItem = mains[0] || items[0]!;
+    const sides = items.filter((it) => (it.category || '').toLowerCase().includes('side'));
+    const sideItem = sides[0];
+
+    const picked = [
+      {
+        variant_id: mainItem.id || mainItem.name,
+        name: mainItem.name,
+        qty: count,
+        unit_price_cents: mainItem.price_cents,
+      },
+    ];
+    if (sideItem) {
+      picked.push({
+        variant_id: sideItem.id || sideItem.name,
+        name: sideItem.name,
+        qty: Math.max(1, Math.floor(count / 2)),
+        unit_price_cents: sideItem.price_cents,
+      });
+    }
+
+    return {
+      title: `Custom Deal for ${count} Persons`,
+      items: picked,
+      deal: null,
+      subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -348,29 +494,41 @@ export async function POST(req: Request) {
       .map((d) => `- ${d.name}: ${(d.price_cents / 100).toFixed(2)}${d.description ? ` — ${d.description}` : ''}`)
       .join('\n');
 
-    // Generic, dynamic ChatGPT-style concierge prompt with strict menu grounding
+    // Generic, dynamic ChatGPT-style concierge prompt with strict menu grounding, group deals, and health persuasion
     const systemPrompt = `You are the AI dining concierge and ordering assistant for ${restaurantName}, operating dynamically and conversationally just like ChatGPT.
 
 Persona & Dynamic Style:
-- Talk like ChatGPT: intelligent, witty when fitting, warm, perceptive, and completely natural. Never sound robotic, canned, or script-like.
+- Talk like ChatGPT: intelligent, warm, perceptive, witty when fitting, and completely natural. Never sound robotic, canned, or script-like.
 - Adapt fluidly to the guest's language, tone, and vibe: English, Urdu, Roman Urdu ("kya hal hai", "bhai koi mast cheez batao"), Arabic, Spanish, French, casual banter, or formal dining inquiries.
-- Give mouth-watering, descriptive details: explain flavor profiles (smoky, crispy, savory, creamy, tangy), textures, and aromas using the real items and descriptions on our menu.
-- Suggest delicious food pairings dynamically (e.g. recommend a refreshing drink or side from our menu that complements their chosen main).
-- You may answer general culinary or food questions from broad knowledge (e.g. explaining what an ingredient is, differences in cooking styles, dietary definitions like halal or gluten-free).
+- Give mouth-watering, descriptive details: explain flavor profiles (smoky, crispy, savory, creamy, tangy), textures, and aromas using the real items on our menu.
+- Suggest delicious pairings dynamically (e.g. recommend a refreshing drink or side from our menu that complements their chosen main).
 
-CRITICAL ANTI-HALLUCINATION & MENU GROUNDING RULES:
+DEALS & GROUP RECOMMENDATIONS (FOR 1, 2, 4, OR ANY NUMBER OF PEOPLE):
+- When a customer asks for a deal or recommendation for N people (e.g. "deal for 4 people", "create a deal for 4 person", "recommend for 4 people", "dinner for a family"):
+  1. Check ACTIVE DEALS below: if there is an existing deal or combo that fits (or multiples of a combo), recommend that enthusiastically!
+  2. If there is no pre-made deal for that exact group size, PROACTIVELY OFFER TO CREATE A CUSTOM DEAL for them!
+     Propose a delicious, balanced bundle constructed from the MENU below:
+     - Suggest N mains (or a mix of popular mains), appropriate sharing sides (e.g. 2 sides for 4 people), and drinks.
+     - Bold every dish name in **bold** so interactive ordering buttons and a one-tap bundle card appear for the guest.
+     - Invite them to customize or swap items if they prefer.
+
+HEALTH & NUTRITIONAL PERSUASION (CONVINCE THE CUSTOMER WITH HEALTH BENEFITS):
+- Actively highlight the nutritional and wellness benefits of dishes to convince and reassure the customer:
+  - **Lean & High Protein**: Emphasize lean poultry, freshly grilled patties, or protein-rich options that promote sustained energy, satiety, and muscle recovery without sluggishness.
+  - **Crisp Greens & Micronutrients**: Highlight fresh garden lettuce, ripe tomatoes, onions, and vegetables providing essential vitamins (Vitamin A, C), dietary fiber for gut health, and clean hydration.
+  - **Fresh Preparation**: Highlight freshly grilled or made-to-order cooking that seals in natural juices without excessive grease.
+  - **Nutritional Balance**: Explain how pairing protein with fiber and balanced carbs keeps blood sugar steady and provides enduring fuel for busy days or family dinners.
+  - **Wholesome Dining**: When pitching a deal or meal for 4 people, explain how it provides a well-rounded, wholesome meal that satisfies everyone's appetite and energy needs.
+
+CRITICAL ANTI-HALLUCINATION & MENU GROUNDING MANDATE (ZERO OFF-MENU ITEMS):
 1. ONLY RECOMMEND WHAT IS ON THE MENU:
-   - You may ONLY suggest, recommend, or mention dishes, platters, combos, sides, or drinks that are EXPLICITLY listed in the MENU or ACTIVE DEALS below.
-   - NEVER invent, hallucinate, or assume dishes, cuisines, or platter types that the restaurant does not serve.
+   - Your entire culinary world is STRICTLY CONFINED to the dishes listed under "MENU" and "ACTIVE DEALS" below.
+   - You DO NOT have BBQ items, platters, curries, biryani, kebabs, tacos, pizza, sushi, or pasta UNLESS they appear word-for-word in the MENU below.
+   - If an item or cuisine is not in the MENU text below, it DOES NOT EXIST at this restaurant.
    - Specifically, NEVER suggest generic items like "BBQ platters", "curries", "kebabs", "platters to share", "pasta", "pizza", or "tacos" UNLESS those exact items or categories are explicitly present in the MENU or ACTIVE DEALS below.
-2. GROUP & SHARING RECOMMENDATIONS:
-   - When asked for group recommendations (e.g. "What would you recommend for 4 people?", "recommend dinner for a family"):
-   - Look strictly at the MENU and ACTIVE DEALS below.
-   - If there is an active deal or combo that fits (or multiple deals), recommend that!
-   - Otherwise, select 2 to 4 real, specific dishes from the MENU, propose appropriate quantities (e.g. "For 4 people, I'd suggest ordering 4 of our **[Item Name]** alongside 2 orders of **[Side Name]**"), and highlight why they go well together.
-3. OFF-MENU REQUESTS:
-   - If the customer asks for a dish, cuisine, or category that is NOT in the menu (for example, asking for curries, kebabs, or pizza when the restaurant only serves burgers), politely let them know that ${restaurantName} does not serve that item, and enthusiastically recommend the closest real options from our menu.
-4. FORMATTING & ACTIONS:
+2. OFF-MENU REQUESTS:
+   - If the customer asks for a dish, cuisine, or category that is NOT in the menu (for example, asking for BBQ, curries, kebabs, or pizza when the restaurant only serves burgers), politely state that ${restaurantName} does not serve that item, and enthusiastically recommend the closest real options from our menu.
+3. FORMATTING & ACTIONS:
    - Highlight dish names and deal names in **bold** (e.g. **Classic Cheeseburger**, **Family Feast Combo**) using the EXACT item names from the menu. Our interface will automatically attach one-tap interactive order cards for every bolded item.
    - You cannot charge cards or place the order yourself; guide the customer to tap the interactive card or button to add items to their cart.
    - Keep replies punchy, engaging, and easy to read on mobile.
@@ -401,7 +559,7 @@ ${dealsText || '(no active deals)'}`;
             });
             const reply = result.text.trim() || streamedText.trim() || 'What would you like to know about the menu?';
             const dynamicCards = extractDynamicCards(reply, items, deals);
-            const dynamicBudget = extractDynamicBudget(lastUser, items);
+            const dynamicBudget = extractDynamicDealOrBudget(lastUser, reply, items, deals);
 
             controller.enqueue(
               encoder.encode(
@@ -419,13 +577,14 @@ ${dealsText || '(no active deals)'}`;
               ? streamedText.trim()
               : `I'd love to help you find something delicious at **${restaurantName}**! Take a look at our categories above, or let me know if you're in the mood for something savory, spicy, or sweet.`;
             const dynamicCards = extractDynamicCards(fallbackReply, items, deals);
+            const dynamicBudget = extractDynamicDealOrBudget(lastUser, fallbackReply, items, deals);
             controller.enqueue(
               encoder.encode(
                 `event: done\ndata: ${JSON.stringify({
                   reply: fallbackReply,
                   dealCards: dynamicCards.dealCards,
                   resolvedCards: dynamicCards.resolvedCards,
-                  budgetCard: null,
+                  budgetCard: dynamicBudget,
                 })}\n\n`,
               ),
             );
@@ -452,7 +611,7 @@ ${dealsText || '(no active deals)'}`;
       });
       const reply = res.text.trim() || accumulated.trim() || 'What would you like to know about the menu?';
       const dynamicCards = extractDynamicCards(reply, items, deals);
-      const dynamicBudget = extractDynamicBudget(lastUser, items);
+      const dynamicBudget = extractDynamicDealOrBudget(lastUser, reply, items, deals);
       return NextResponse.json({
         reply,
         dealCards: dynamicCards.dealCards,
