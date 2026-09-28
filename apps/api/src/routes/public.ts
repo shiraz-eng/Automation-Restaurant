@@ -42,7 +42,10 @@ publicRouter.get('/faq-items', async (_req: Request, res: Response) => {
   }
 });
 
-const TAX_RATE_BPS = 800;
+// place_order() charges the restaurant's own tax setting (tenant migration
+// 0078) and ignores this argument; it is still passed because the function
+// signature requires it.
+const TAX_RATE_BPS = 0;
 
 // Storefront is served cross-origin from the web app in dev.
 publicRouter.use((req: Request, res: Response, next: NextFunction) => {

@@ -3,7 +3,10 @@ import { getTenantConfig } from '@/lib/tenant';
 import { createClient } from '@supabase/supabase-js';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const TAX_RATE_BPS = 800;
+// place_order() charges the restaurant's own tax setting (tenant migration
+// 0078) and ignores this argument; it is still passed because the function
+// signature requires it.
+const TAX_RATE_BPS = 0;
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => null);

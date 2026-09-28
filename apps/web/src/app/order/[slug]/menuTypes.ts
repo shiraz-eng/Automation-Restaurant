@@ -120,8 +120,6 @@ export function refName(x: NamedRef): string {
   return one(x)?.name ?? '';
 }
 
-export const TAX_RATE_BPS = 800;
-
 export function toProducts(items: MenuItem[]): Product[] {
   const out: Product[] = [];
   for (const it of items) {

@@ -203,10 +203,12 @@ export function NewOrderPanel({
             <span>Subtotal</span>
             <span>{formatCents(subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>Tax ({(taxRateBps / 100).toFixed(0)}%)</span>
-            <span>{formatCents(tax)}</span>
-          </div>
+          {taxRateBps > 0 && (
+            <div className="flex justify-between">
+              <span>Tax ({taxRateBps / 100}%)</span>
+              <span>{formatCents(tax)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-body font-black text-sm pt-1">
             <span>Total</span>
             <span>{formatCents(total)}</span>

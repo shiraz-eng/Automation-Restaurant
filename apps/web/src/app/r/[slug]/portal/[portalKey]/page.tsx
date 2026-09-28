@@ -554,6 +554,13 @@ export default async function PortalHome({
       : Promise.resolve({ data: null }),
   ]);
   const myMembershipId = (myMembershipRes.data as { id: string } | null)?.id ?? null;
+  // The restaurant's tax setting — the same rate place_order() charges.
+  let cashierTaxRateBps = 0;
+  if (includeCashier) {
+    const { data: taxRows } = await t.client.rpc('get_tax_settings');
+    const taxRow = (Array.isArray(taxRows) ? taxRows[0] : taxRows) as { tax_enabled: boolean; tax_rate_bps: number } | null;
+    cashierTaxRateBps = taxRow?.tax_enabled ? taxRow.tax_rate_bps : 0;
+  }
 
   const tableRows: TableRow[] = await Promise.all(
     ((tablesRes.data ?? []) as { id: string; label: string; seats: number; sort_order: number }[]).map(async (r) => {
@@ -726,7 +733,7 @@ export default async function PortalHome({
                   },
                 }}
                 canCreateOrder={canCreateOrderCashier}
-                taxRateBps={800}
+                taxRateBps={cashierTaxRateBps}
                 menuCategories={(cashierMenuCatRes.data as NewOrderCategory[] | null) ?? []}
                 menuItems={cashierMenuItemsWithAvailability as unknown as NewOrderItem[]}
                 canViewReceipt={has('receipts.view')}

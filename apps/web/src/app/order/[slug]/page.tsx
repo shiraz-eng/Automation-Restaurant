@@ -117,6 +117,18 @@ export default async function OrderPage({
   const { table } = await searchParams;
   const config = await getTenantConfig(slug);
   const menu = await getMenu(slug, config);
+  // The restaurant's tax setting, shown in the cart — the same rate
+  // place_order() will charge (it reads the setting itself).
+  let taxRateBps = 0;
+  if (config) {
+    try {
+      const { data: taxRows } = await createClient(config.url, config.anonKey).rpc('get_tax_settings');
+      const taxRow = (Array.isArray(taxRows) ? taxRows[0] : taxRows) as { tax_enabled: boolean; tax_rate_bps: number } | null;
+      taxRateBps = taxRow?.tax_enabled ? taxRow.tax_rate_bps : 0;
+    } catch {
+      /* cart shows no tax line; the order is still charged correctly */
+    }
+  }
 
   if (!config || !menu) {
     return (
@@ -137,6 +149,7 @@ export default async function OrderPage({
       items={menu.items}
       deals={menu.deals ?? []}
       brandKit={menu.brandKit ?? null}
+      taxRateBps={taxRateBps}
     />
   );
 }

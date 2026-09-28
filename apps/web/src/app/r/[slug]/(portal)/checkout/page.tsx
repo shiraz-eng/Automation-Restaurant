@@ -7,7 +7,6 @@ import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } f
 export const dynamic = 'force-dynamic';
 
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
-const TAX_RATE_BPS = 800;
 
 export default async function CheckoutPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -15,6 +14,10 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
   if (!t) notFound();
   const { role, perms } = await gatePortalPage(t.client, slug, 'payments.view');
   const canCreateOrder = can(perms, role, 'orders.create');
+  // The restaurant's tax setting — the same rate place_order() charges.
+  const { data: taxRows } = await t.client.rpc('get_tax_settings');
+  const taxRow = (Array.isArray(taxRows) ? taxRows[0] : taxRows) as { tax_enabled: boolean; tax_rate_bps: number } | null;
+  const taxRateBps = taxRow?.tax_enabled ? taxRow.tax_rate_bps : 0;
 
   const [{ data, error }, { data: settings }, { data: menuCategories }, { data: menuItems }, { data: availabilityRows }] = await Promise.all([
     t.client
@@ -99,7 +102,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
             },
           }}
           canCreateOrder={canCreateOrder}
-          taxRateBps={TAX_RATE_BPS}
+          taxRateBps={taxRateBps}
           menuCategories={(menuCategories as NewOrderCategory[] | null) ?? []}
           menuItems={menuItemsWithAvailability as unknown as NewOrderItem[]}
           canViewReceipt={can(perms, role, 'receipts.view')}

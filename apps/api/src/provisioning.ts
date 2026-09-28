@@ -318,7 +318,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       (expenses, sales_by_day); expenses published for live updates.
 //   v77 Net profit subtracts every expense recorded up to the end of the
 //       period (not only expenses dated inside it).
-const SCHEMA_VERSION = 77;
+//   v78 Tax settings (business_settings.tax_enabled/tax_rate_bps); place_order
+//       charges the setting, never a caller-supplied rate.
+const SCHEMA_VERSION = 78;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

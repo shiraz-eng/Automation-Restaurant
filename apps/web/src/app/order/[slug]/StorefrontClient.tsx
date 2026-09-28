@@ -37,7 +37,6 @@ import { MobileCartBar } from './components/MobileCartBar';
 
 export type { MenuCategory, MenuItem, DealLite, Product, ModOption, DealMatch };
 
-const TAX_RATE_BPS = 800;
 const NAV_HEIGHT = 52;
 
 export function StorefrontClient({
@@ -48,6 +47,7 @@ export function StorefrontClient({
   items,
   deals,
   brandKit,
+  taxRateBps = 0,
 }: {
   slug: string;
   restaurantName: string;
@@ -56,6 +56,8 @@ export function StorefrontClient({
   items: MenuItem[];
   deals: DealLite[];
   brandKit?: BrandKit | null;
+  /** The restaurant's tax setting (0 = no tax), from get_tax_settings(). */
+  taxRateBps?: number;
 }) {
   const router = useRouter();
   // Scoped to this render tree via inline CSS custom properties (not
@@ -117,7 +119,7 @@ export function StorefrontClient({
     [lines, dealLines],
   );
   const discount = promoState.status === 'ok' ? Math.min(promoState.discount, subtotal) : 0;
-  const tax = Math.round(((subtotal - discount) * TAX_RATE_BPS) / 10000);
+  const tax = Math.round(((subtotal - discount) * taxRateBps) / 10000);
   const total = subtotal - discount + tax;
   const count =
     lines.reduce((s, l) => s + l.qty, 0) + dealLines.reduce((s, d) => s + d.qty, 0);
