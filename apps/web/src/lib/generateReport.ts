@@ -182,7 +182,7 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 // accent color. buildReportDoc shadows this with a local `PRIMARY` parsed
 // from data.primaryColor, so every existing `PRIMARY` reference in this
 // file's functions below picks up the restaurant's own color for free.
-const DEFAULT_PRIMARY: [number, number, number] = [234, 88, 12];
+const DEFAULT_PRIMARY: [number, number, number] = [24, 24, 27];
 const MUTED: [number, number, number] = [100, 116, 139];
 const BODY: [number, number, number] = [15, 23, 42];
 const BORDER: [number, number, number] = [226, 232, 240];

@@ -30,7 +30,8 @@ import { resolvePeriod, computeAttentionItems, forwardRange, AI_TOOLS } from './
  * each one.
  */
 
-const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEA580C' } };
+// Platform black — the same default the app and PDF reports use.
+const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF18181B' } };
 const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FFFFFFFF' } };
 const MONEY_FMT = '$#,##0.00';
 const PCT_FMT = '0.0"%"';
@@ -71,9 +72,8 @@ const colLetter = (n: number) => COLUMN_LETTERS[n - 1] ?? 'A';
 // the real cell values, so it can never drift from the numbers next to it
 // and needs no chart-image rendering pipeline (ExcelJS has no native
 // chart-object API). Applied to one representative money/percent column
-// per table sheet, in the same brand orange as the header row and the
-// PDF's own bar charts (both rgb(234,88,12)).
-function addDataBar(sheet: ExcelJS.Worksheet, columnIndex: number, rowCount: number, argb = 'FFEA580C') {
+// per table sheet, in a dark grey that reads under black header rows.
+function addDataBar(sheet: ExcelJS.Worksheet, columnIndex: number, rowCount: number, argb = 'FF52525B') {
   if (rowCount <= 0) return;
   const col = colLetter(columnIndex);
   sheet.addConditionalFormatting({

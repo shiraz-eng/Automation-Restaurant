@@ -38,10 +38,14 @@ export const PRESETS: Record<string, ThemeTokens> = {
   'Soft Neutral': { primary: '87 83 78', 'primary-fg': '255 255 255', radius: '16px' },
 };
 
+/** No Brand Kit colour chosen: primary/primary-fg stay EMPTY so globals.css's
+ *  platform black applies (with its dark-mode step). An empty token is never
+ *  written as a CSS variable. */
+export const DEFAULT_PRIMARY = PRESETS['Minimal Black'].primary;
 export const DEFAULT_THEME: ThemeState = {
-  preset: 'Warm Orange',
+  preset: 'Minimal Black',
   appearance: 'system',
-  tokens: PRESETS['Warm Orange'],
+  tokens: { primary: '', 'primary-fg': '', radius: '12px' },
 };
 
 export const STORAGE_KEY = 'ar-theme';
@@ -106,8 +110,8 @@ export function themeFromBrandKit(kit: BrandKit | null | undefined): ThemeState 
     preset: 'Custom',
     appearance: kit.appearance ?? DEFAULT_THEME.appearance,
     tokens: {
-      primary: kit.primary_color || DEFAULT_THEME.tokens.primary,
-      'primary-fg': kit.primary_fg || DEFAULT_THEME.tokens['primary-fg'],
+      primary: kit.primary_color || '',
+      'primary-fg': kit.primary_color ? kit.primary_fg || '255 255 255' : '',
       radius: kit.radius || DEFAULT_THEME.tokens.radius,
       ...(kit.bg_main ? { 'bg-main': kit.bg_main } : {}),
       ...(kit.bg_surface ? { 'bg-surface': kit.bg_surface } : {}),
@@ -161,11 +165,10 @@ export function saveTheme(state: ThemeState, storageKey: string = STORAGE_KEY) {
  * localStorage) scope one restaurant's Brand Kit to its own render tree
  * without ever touching document.documentElement. */
 export function cssVarsFromTokens(tokens: ThemeTokens): Record<string, string> {
-  const vars: Record<string, string> = {
-    '--primary': tokens.primary,
-    '--primary-fg': tokens['primary-fg'],
-    '--radius': tokens.radius,
-  };
+  const vars: Record<string, string> = {};
+  if (tokens.primary) vars['--primary'] = tokens.primary;
+  if (tokens['primary-fg']) vars['--primary-fg'] = tokens['primary-fg'];
+  if (tokens.radius) vars['--radius'] = tokens.radius;
   if (tokens['bg-main']) vars['--bg-main'] = tokens['bg-main'];
   if (tokens['bg-surface']) vars['--bg-surface'] = tokens['bg-surface'];
   if (tokens.border) vars['--border-color'] = tokens.border;

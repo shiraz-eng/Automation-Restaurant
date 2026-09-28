@@ -5,7 +5,9 @@
 /* Design tokens (RULE-UI-03). Values are space-separated RGB channels so Tailwind
    can apply opacity via rgb(var(--x) / <alpha-value>). */
 :root {
-  --primary: 234 88 12;
+  /* Platform brand colour: black (the Brand Kit's "Minimal Black" preset).
+     A restaurant's own Brand Kit colour, when set, overrides it. */
+  --primary: 24 24 27;
   --primary-fg: 255 255 255;
   --bg-main: 248 250 252;
   --bg-surface: 255 255 255;
@@ -37,6 +39,9 @@
    'light') always wins, exactly as before. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    /* Black stays black on a dark page, lifted one step so buttons don't
+       vanish into the near-black background. */
+    --primary: 63 63 70;
     --bg-main: 9 9 14;
     --bg-surface: 20 20 26;
     --border-color: 38 38 45;
@@ -46,6 +51,7 @@
 }
 
 :root[data-theme='dark'] {
+  --primary: 63 63 70;
   --bg-main: 9 9 14;
   --bg-surface: 20 20 26;
   --border-color: 38 38 45;

@@ -324,7 +324,6 @@ export function PerformancePanel({
   const [feedback, setFeedback] = useState<FeedbackRow | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
   const [dailyRows, setDailyRows] = useState<{ business_date: string; net_sales_cents: number }[]>([]);
-  const [verifyOpen, setVerifyOpen] = useState(false);
   const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | null>(null);
 
   // Live figures: any order, payment or expense change (debounced), plus a
@@ -911,9 +910,6 @@ export function PerformancePanel({
                   ⚠ {profit.cogs_lines_missing}/{profit.cogs_lines_total} sold line(s) missing a recipe — COGS understates the true figure
                 </span>
               )}
-              <button onClick={() => setVerifyOpen(true)} className="text-primary font-semibold underline underline-offset-2">
-                Verify this calculation →
-              </button>
             </div>
           )}
 
@@ -1104,9 +1100,6 @@ export function PerformancePanel({
         </>
       )}
 
-      {verifyOpen && profit && (
-        <VerifyProfitModal profit={profit} periodLabel={periodLabel} onClose={() => setVerifyOpen(false)} />
-      )}
       {drilldownLevel && profit && (
         <ProfitDrilldownModal
           profit={profit}
@@ -1118,85 +1111,5 @@ export function PerformancePanel({
         />
       )}
     </section>
-  );
-}
-
-/**
- * Profit Verification (spec §27): the exact formula with the real values
- * already sitting in `profit` — no second calculation, just laid out so an
- * owner or accountant can check it line by line — plus an honest
- * data-quality checklist. Never claims a check passed that isn't actually
- * true for THIS period's data.
- */
-function VerifyProfitModal({
-  profit,
-  periodLabel,
-  onClose,
-}: {
-  profit: NonNullable<Profitability>;
-  periodLabel: string;
-  onClose: () => void;
-}) {
-  const row = (label: string, value: string, opts?: { bold?: boolean; sub?: boolean }) => (
-    <div className={`flex items-center justify-between py-1 ${opts?.sub ? 'pl-3 text-muted' : ''}`}>
-      <span className={opts?.bold ? 'font-bold' : ''}>{label}</span>
-      <span className={`font-mono ${opts?.bold ? 'font-bold' : ''}`}>{value}</span>
-    </div>
-  );
-  const checks: { ok: boolean; text: string }[] = [
-    { ok: true, text: `Sales scoped to ${periodLabel} (served/paid orders only — cancelled, void, and other-tenant orders are never counted).` },
-    { ok: profit.cogs_lines_missing === 0, text: profit.cogs_lines_missing === 0
-        ? 'Every sold line had a recipe configured — COGS reflects the full period.'
-        : `${profit.cogs_lines_missing} of ${profit.cogs_lines_total} sold line(s) have no recipe configured — theoretical COGS and gross profit understate the true figure.` },
-    { ok: true, text: `Actual ingredient value consumed/wasted/adjusted this period (from the stock ledger): ${formatCents(profit.actual_cogs_cents)}${profit.cogs_variance_cents !== 0 ? ` — ${profit.cogs_variance_cents > 0 ? 'above' : 'below'} the recipe-based figure by ${formatCents(Math.abs(profit.cogs_variance_cents))}.` : ' — matches the recipe-based figure.'}` },
-    { ok: true, text: `Expenses included: ${formatCents(profit.expenses_cents)} across all recorded expense records dated in this period, any category.` },
-    { ok: false, text: 'Labor/payroll cost is NOT separately tracked — it is only reflected here if it was entered as an expense record. If it wasn’t, Net Profit above overstates true profit by that amount.' },
-    { ok: true, text: 'No duplicate-order or duplicate-expense detection has run automatically — each figure is a straight sum of the underlying records for this period.' },
-  ];
-  const fullyCalculated = checks.every((c) => c.ok);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-black text-sm">Profit Verification — {periodLabel}</h3>
-          <button onClick={onClose} className="text-muted text-xs">✕</button>
-        </div>
-
-        <div className="text-xs border border-border rounded-lg p-3 space-y-0.5">
-          {row('Gross sales', formatCents(profit.gross_sales_cents))}
-          {row('− Discounts', `-${formatCents(profit.discount_cents)}`, { sub: true })}
-          {row('− Refunds', `-${formatCents(profit.refunded_cents)}`, { sub: true })}
-          {row('= Net sales', formatCents(profit.net_sales_cents), { bold: true })}
-          {row('− COGS (theoretical)', `-${formatCents(profit.theoretical_cogs_cents)}`, { sub: true })}
-          {row('= Gross profit', formatCents(profit.gross_profit_cents), { bold: true })}
-          {row('− Expenses (all recorded)', `-${formatCents(profit.expenses_cents)}`, { sub: true })}
-          {row('= Net profit', formatCents(profit.net_profit_cents), { bold: true })}
-          <div className="flex items-center justify-between pt-1 text-muted">
-            <span>Gross margin / Net margin</span>
-            <span className="font-mono">
-              {profit.gross_margin_pct != null ? `${profit.gross_margin_pct}%` : 'N/A'} / {profit.net_profit_margin_pct != null ? `${profit.net_profit_margin_pct}%` : 'N/A'}
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <p className={`text-xs font-bold mb-2 ${fullyCalculated ? 'text-ok' : 'text-warn'}`}>
-            {fullyCalculated ? '✓ Fully calculated from recorded data' : '⚠ Partially calculated — see below'}
-          </p>
-          <ul className="space-y-1.5 text-[11px]">
-            {checks.map((c, i) => (
-              <li key={i} className={c.ok ? 'text-body' : 'text-warn'}>
-                {c.ok ? '✓' : '⚠'} {c.text}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <p className="text-[10px] text-muted">
-          These figures come from the same period_profitability calculation used by this dashboard, the Finance page, generated reports, and the AI assistant — there is one calculation engine, not a separate one per screen.
-        </p>
-      </div>
-    </div>
   );
 }

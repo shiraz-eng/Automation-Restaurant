@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { useTheme } from '@/components/ThemeProvider';
 import { Button, Card, Field, Input } from '@/components/ui';
-import { PRESETS, channelsToHex, hexToChannels, type Appearance, type ThemeTokens } from '@/lib/theme';
+import { DEFAULT_PRIMARY, PRESETS, channelsToHex, hexToChannels, type Appearance, type ThemeTokens } from '@/lib/theme';
 
 const APPEARANCES: Appearance[] = ['light', 'dark', 'system'];
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -129,8 +129,8 @@ export function BrandKitManager({
     const { error: e } = await supabase
       .from('business_settings')
       .update({
-        brand_primary: theme.tokens.primary,
-        brand_primary_fg: theme.tokens['primary-fg'],
+        brand_primary: theme.tokens.primary || null,
+        brand_primary_fg: theme.tokens.primary ? theme.tokens['primary-fg'] || null : null,
         brand_bg_main: theme.tokens['bg-main'] || null,
         brand_bg_surface: theme.tokens['bg-surface'] || null,
         brand_border: theme.tokens.border || null,
@@ -238,7 +238,7 @@ export function BrandKitManager({
           ))}
           {theme.preset === 'Custom' && (
             <div className="rounded-lg border border-primary p-3">
-              <span className="block w-full h-8 rounded mb-2" style={{ background: `rgb(${theme.tokens.primary})` }} />
+              <span className="block w-full h-8 rounded mb-2" style={{ background: `rgb(${theme.tokens.primary || DEFAULT_PRIMARY})` }} />
               <span className="text-[11px] font-semibold">Custom</span>
             </div>
           )}
@@ -252,7 +252,7 @@ export function BrandKitManager({
           <span className="font-semibold">Primary</span>
           <input
             type="color"
-            value={channelsToHex(theme.tokens.primary)}
+            value={channelsToHex(theme.tokens.primary || DEFAULT_PRIMARY)}
             disabled={!canEdit}
             onChange={(e) => setPrimary(hexToChannels(e.target.value))}
             className="h-8 w-14 rounded border border-border bg-surface"
