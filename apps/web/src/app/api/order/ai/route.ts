@@ -5,9 +5,8 @@ export const dynamic = 'force-dynamic';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// Fast models in priority order. gemini-3.5-flash-lite and gemini-3.1-flash-lite
-// answer in ~1-2s with minimal thinking; gemini-3.8-flash and 3.7-flash provide
-// solid backups if the lighter models experience demand spikes.
+// Fast models in priority order: flash-lite models start streaming in ~1-2s,
+// backed by flash models if there is a demand spike.
 const ORDER_AI_MODELS = [
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
@@ -54,143 +53,115 @@ type BudgetCard = {
   subtotal_cents: number;
 };
 
-type InstantResult = {
-  reply: string;
-  dealCards?: DealCard[];
-  resolvedCards?: ResolvedCard[];
-  budgetCard?: BudgetCard;
-};
-
 /**
- * Instant local answers for common storefront ordering queries (greetings,
- * deals, best sellers, budget proposals, family/group recommendations).
- * Returns in < 5ms without burning API quota or waiting on network latency.
+ * Dynamically scans the AI's natural response to detect any dishes or deals
+ * that were recommended or highlighted, and returns structured action cards
+ * so the guest gets interactive one-tap "Add to cart" / "Use Deal" buttons.
  */
-function checkInstantResponse(
-  query: string,
-  restaurantName: string,
+function extractDynamicCards(
+  reply: string,
   items: MenuContextItem[],
   deals: MenuContextDeal[],
-): InstantResult | null {
-  const q = query.trim().toLowerCase();
+): { dealCards: DealCard[] | null; resolvedCards: ResolvedCard[] | null } {
+  const boldMatches = Array.from(reply.matchAll(/\*\*([^*]+)\*\*/g)).map((m) => m[1]!.trim().toLowerCase());
+  const replyLower = reply.toLowerCase();
 
-  // 1. Greetings
-  if (/^(hi|hello|hey|salam|assalam|aoa|good (morning|afternoon|evening))\b/i.test(q)) {
-    const dealHighlight = deals.length > 0 ? ` Today's featured combo is **${deals[0]!.name}**!` : '';
-    return {
-      reply: `Hello! Welcome to **${restaurantName}**. I'm here to help you choose what to order — ask about our best sellers, current deals, or what fits your budget!${dealHighlight}`,
-    };
-  }
+  const matchedCards: ResolvedCard[] = [];
+  const matchedDeals: DealCard[] = [];
 
-  // 2. Deals / Combos / Offers
-  if (/best deal|what deal|any deal|deals|combos?|discount|offers?|specials?/i.test(q)) {
-    if (deals.length > 0) {
-      const cards: DealCard[] = deals.slice(0, 4).map((d) => ({
-        deal_id: d.id || d.name,
-        deal_name: d.name,
-        status: 'eligible_now',
-        individual_total_cents: Math.round(d.price_cents * 1.25),
-        deal_total_cents: d.price_cents,
-        savings_cents: Math.round(d.price_cents * 0.25),
-      }));
-      const list = deals
-        .slice(0, 3)
-        .map((d) => `- **${d.name}**: Rs. ${(d.price_cents / 100).toFixed(0)}${d.description ? ` (${d.description})` : ''}`)
-        .join('\n');
-      return {
-        reply: `Here are our best combos and active deals right now:\n\n${list}\n\nTap **Use Deal** below to add any combo to your cart!`,
-        dealCards: cards,
-      };
-    }
-  }
+  // Match items mentioned or bolded in the dynamic AI text
+  for (const item of items) {
+    const itemNameLower = item.name.toLowerCase();
+    const isBolded = boldMatches.some((b) => b === itemNameLower || b.includes(itemNameLower) || itemNameLower.includes(b));
+    const isMentioned = replyLower.includes(itemNameLower);
 
-  // 3. Best sellers / Popular / Recommendations
-  if (/best seller|popular|recommend|most ordered|top dish|signature|favorites?/i.test(q)) {
-    if (items.length > 0) {
-      const topItems = items.slice(0, 4);
-      const cards: ResolvedCard[] = topItems.map((it) => ({
-        menu_item_id: it.id || it.name,
-        item_name: it.name,
-        variant_id: it.id || null,
-        variant_name: null,
-        available: true,
-        modifier_option_ids: [],
-        resolved_modifiers: [],
-        unit_price_cents: it.price_cents,
-      }));
-      const list = topItems
-        .map((it) => `- **${it.name}**: Rs. ${(it.price_cents / 100).toFixed(0)}${it.category ? ` (${it.category})` : ''}`)
-        .join('\n');
-      return {
-        reply: `Here are our customer favorites and best sellers:\n\n${list}\n\nTap **Add to cart** on any item to order it!`,
-        resolvedCards: cards,
-      };
-    }
-  }
-
-  // 4. Budget queries (e.g. "under 1000", "under 500", "under Rs 2000", "budget")
-  const budgetMatch = q.match(/under\s+(?:rs\.?|pkr|\$)?\s*(\d+)/i) || q.match(/budget\s+(?:of\s+)?(?:rs\.?|pkr|\$)?\s*(\d+)/i);
-  if (budgetMatch && budgetMatch[1]) {
-    const budgetCents = parseInt(budgetMatch[1], 10) * 100;
-    if (budgetCents > 0 && items.length > 0) {
-      const affordable = items.filter((it) => it.price_cents <= budgetCents).sort((a, b) => b.price_cents - a.price_cents);
-      const picked: { variant_id: string; name: string; qty: number; unit_price_cents: number }[] = [];
-      let rem = budgetCents;
-      for (const it of affordable) {
-        if (it.price_cents <= rem) {
-          picked.push({
-            variant_id: it.id || it.name,
-            name: it.name,
-            qty: 1,
-            unit_price_cents: it.price_cents,
-          });
-          rem -= it.price_cents;
-          if (picked.length >= 3) break;
-        }
-      }
-      if (picked.length > 0) {
-        const subtotal = picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0);
-        const card: BudgetCard = {
-          items: picked,
-          deal: null,
-          subtotal_cents: subtotal,
-        };
-        const summary = picked.map((p) => `- 1× **${p.name}** (Rs. ${(p.unit_price_cents / 100).toFixed(0)})`).join('\n');
-        return {
-          reply: `Here is a great meal combination under Rs. ${budgetMatch[1]}:\n\n${summary}\n\n**Subtotal: Rs. ${(subtotal / 100).toFixed(0)}**\n\nTap **Add all to cart** below to order this combo!`,
-          budgetCard: card,
-        };
+    if (isBolded || (isMentioned && matchedCards.length < 3)) {
+      if (!matchedCards.some((c) => c.item_name.toLowerCase() === itemNameLower)) {
+        matchedCards.push({
+          menu_item_id: item.id || item.name,
+          item_name: item.name,
+          variant_id: item.id || null,
+          variant_name: null,
+          available: true,
+          modifier_option_ids: [],
+          resolved_modifiers: [],
+          unit_price_cents: item.price_cents,
+        });
       }
     }
+    if (matchedCards.length >= 3) break;
   }
 
-  // 5. Group recommendation (e.g. "for 4 people", "four people", "family")
-  if (/4 people|four people|family/i.test(q)) {
-    const familyDeal = deals.find((d) => /family|feast|jumbo|mega|party|4/i.test(d.name)) || deals[0];
-    if (familyDeal) {
-      return {
-        reply: `For 4 people, our top recommendation is the **${familyDeal.name}** (Rs. ${(familyDeal.price_cents / 100).toFixed(0)})${familyDeal.description ? ` — ${familyDeal.description}` : ''}! Tap **Use Deal** below to add it.`,
-        dealCards: [
-          {
-            deal_id: familyDeal.id || familyDeal.name,
-            deal_name: familyDeal.name,
-            status: 'eligible_now',
-            individual_total_cents: Math.round(familyDeal.price_cents * 1.3),
-            deal_total_cents: familyDeal.price_cents,
-            savings_cents: Math.round(familyDeal.price_cents * 0.3),
-          },
-        ],
-      };
+  // Match deals mentioned or bolded in the dynamic AI text
+  for (const deal of deals) {
+    const dealNameLower = deal.name.toLowerCase();
+    const isBolded = boldMatches.some((b) => b === dealNameLower || b.includes(dealNameLower) || dealNameLower.includes(b));
+    const isMentioned = replyLower.includes(dealNameLower);
+
+    if (isBolded || (isMentioned && matchedDeals.length < 2)) {
+      if (!matchedDeals.some((d) => d.deal_name.toLowerCase() === dealNameLower)) {
+        matchedDeals.push({
+          deal_id: deal.id || deal.name,
+          deal_name: deal.name,
+          status: 'eligible_now',
+          individual_total_cents: Math.round(deal.price_cents * 1.25),
+          deal_total_cents: deal.price_cents,
+          savings_cents: Math.round(deal.price_cents * 0.25),
+        });
+      }
     }
+    if (matchedDeals.length >= 2) break;
   }
 
-  return null;
+  return {
+    dealCards: matchedDeals.length > 0 ? matchedDeals : null,
+    resolvedCards: matchedCards.length > 0 ? matchedCards : null,
+  };
 }
 
 /**
- * Races models with streamed response: tries the fast model first, races the
- * next model if no chunk arrives within 2 seconds, and drops thinking overhead
- * with minimal thinkingConfig.
+ * Builds dynamic budget cards if the user specifically asked for an order under a budget.
+ */
+function extractDynamicBudget(
+  lastUserMsg: string,
+  items: MenuContextItem[],
+): BudgetCard | null {
+  const q = lastUserMsg.toLowerCase();
+  const match = q.match(/under\s+(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i) || q.match(/budget\s+(?:of\s+)?(?:rs\.?|pkr|\$|€|£)?\s*(\d+)/i);
+  if (!match || !match[1]) return null;
+
+  const budgetCents = parseInt(match[1], 10) * 100;
+  if (budgetCents <= 0 || items.length === 0) return null;
+
+  const affordable = items.filter((it) => it.price_cents <= budgetCents).sort((a, b) => b.price_cents - a.price_cents);
+  const picked: { variant_id: string; name: string; qty: number; unit_price_cents: number }[] = [];
+  let rem = budgetCents;
+
+  for (const it of affordable) {
+    if (it.price_cents <= rem) {
+      picked.push({
+        variant_id: it.id || it.name,
+        name: it.name,
+        qty: 1,
+        unit_price_cents: it.price_cents,
+      });
+      rem -= it.price_cents;
+      if (picked.length >= 3) break;
+    }
+  }
+
+  if (picked.length === 0) return null;
+
+  return {
+    items: picked,
+    deal: null,
+    subtotal_cents: picked.reduce((s, p) => s + p.unit_price_cents * p.qty, 0),
+  };
+}
+
+/**
+ * Races models with streamed response: tries the fastest model first, races the
+ * next model if no chunk arrives within 2 seconds, and uses minimal thinkingConfig.
  */
 async function raceGeminiStream(
   models: string[],
@@ -206,8 +177,8 @@ async function raceGeminiStream(
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents,
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 500,
+        temperature: 0.5,
+        maxOutputTokens: 600,
         ...(withThinking ? { thinkingConfig: { thinkingLevel: 'minimal' } } : {}),
       },
     };
@@ -342,7 +313,7 @@ export async function POST(req: Request) {
     const wantsStream: boolean = json.stream === true;
 
     if (!messages.length) {
-      const greeting = `How can I help with the ${restaurantName} menu today?`;
+      const greeting = `Hello! How can I help you choose from the ${restaurantName} menu today?`;
       if (wantsStream) {
         return new Response(`event: done\ndata: ${JSON.stringify({ reply: greeting })}\n\n`, {
           headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
@@ -353,58 +324,43 @@ export async function POST(req: Request) {
 
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
 
-    // Check instant local answers first (< 5ms response, zero AI latency)
-    const instant = checkInstantResponse(lastUser, restaurantName, items, deals);
-    if (instant) {
-      if (wantsStream) {
-        const stream = new ReadableStream({
-          start(controller) {
-            const encoder = new TextEncoder();
-            controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ text: instant.reply })}\n\n`));
-            controller.enqueue(
-              encoder.encode(
-                `event: done\ndata: ${JSON.stringify({
-                  reply: instant.reply,
-                  dealCards: instant.dealCards ?? null,
-                  resolvedCards: instant.resolvedCards ?? null,
-                  budgetCard: instant.budgetCard ?? null,
-                })}\n\n`,
-              ),
-            );
-            controller.close();
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            'X-Accel-Buffering': 'no',
-          },
-        });
-      }
-      return NextResponse.json(instant);
-    }
-
     // Fallback if no Gemini API key configured
     if (!GEMINI_API_KEY) {
-      const reply = 'The ordering assistant is temporarily unavailable — browse the menu above, everything you need is right there.';
+      const reply = `Welcome to **${restaurantName}**! Browse our categories above to view all dishes and deals, or let us know if you need any assistance.`;
+      if (wantsStream) {
+        return new Response(`event: done\ndata: ${JSON.stringify({ reply })}\n\n`, {
+          headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+        });
+      }
       return NextResponse.json({ reply });
     }
 
     const menuText = items
       .slice(0, 60)
-      .map((i) => `- ${i.name}${i.category ? ` (${i.category})` : ''}: Rs. ${(i.price_cents / 100).toFixed(0)}${i.description ? ` — ${i.description}` : ''}`)
+      .map((i) => `- ${i.name}${i.category ? ` (${i.category})` : ''}: ${(i.price_cents / 100).toFixed(2)}${i.description ? ` — ${i.description}` : ''}`)
       .join('\n');
     const dealsText = deals
-      .map((d) => `- ${d.name}: Rs. ${(d.price_cents / 100).toFixed(0)}${d.description ? ` — ${d.description}` : ''}`)
+      .map((d) => `- ${d.name}: ${(d.price_cents / 100).toFixed(2)}${d.description ? ` — ${d.description}` : ''}`)
       .join('\n');
 
-    const systemPrompt = `You are the ordering assistant for ${restaurantName}. Answer questions about the menu below using only what's listed — never invent a dish, price, or deal. You may also answer general food questions (what a dish is, typical spice level, what goes well together) from your own knowledge; for allergies, say recipes vary and to confirm with staff. Reply in the guest's language, short and friendly, with **bold** dish names. You cannot add anything to the cart yourself; tell the customer to tap "Add" on the item.
+    // Generic, dynamic ChatGPT-style concierge prompt
+    const systemPrompt = `You are the AI dining concierge and ordering assistant for ${restaurantName}, operating dynamically and conversationally just like ChatGPT.
+
+Persona & Dynamic Style:
+- Talk like ChatGPT: intelligent, witty when fitting, warm, perceptive, and natural. Never sound robotic, canned, or script-like.
+- Adapt fluidly to the guest's language, tone, and vibe: English, Urdu, Roman Urdu ("kya hal hai", "bhai koi mast cheez batao"), Arabic, Spanish, French, casual banter, or formal dining inquiries.
+- Give mouth-watering, descriptive details: explain flavor profiles (smoky, crispy, savory, creamy, tangy), textures, and aromas to help the guest choose.
+- Suggest delicious food pairings dynamically (e.g. recommend a refreshing drink or side that complements their chosen main).
+- Feel free to answer general culinary, dietary, cooking style, or ingredient questions from your broad food knowledge, while strictly grounding all restaurant dish names, prices, and combos in the real menu below.
+- Allergy & dietary guidance: offer helpful food knowledge, but kindly remind guests with serious allergies to confirm with restaurant staff before eating.
+- Highlight dish names and deal names in **bold** (e.g. **Classic Cheeseburger**, **Family Feast Combo**) so the user can easily spot them and our interface can attach interactive ordering cards.
+- You cannot charge cards or place the order yourself; guide the customer to tap the item or deal card to add it to their order.
+- Keep replies punchy, engaging, and easy to read on mobile.
 
 MENU:
 ${menuText || '(no items listed)'}
 
-DEALS:
+ACTIVE DEALS:
 ${dealsText || '(no active deals)'}`;
 
     const contents = messages.slice(-10).map((m) => ({
@@ -423,22 +379,35 @@ ${dealsText || '(no active deals)'}`;
               controller.enqueue(encoder.encode(`event: delta\ndata: ${JSON.stringify({ text: chunk })}\n\n`));
             });
             const reply = result.text.trim() || streamedText.trim() || 'What would you like to know about the menu?';
+            const dynamicCards = extractDynamicCards(reply, items, deals);
+            const dynamicBudget = extractDynamicBudget(lastUser, items);
+
             controller.enqueue(
               encoder.encode(
                 `event: done\ndata: ${JSON.stringify({
                   reply,
-                  dealCards: null,
-                  resolvedCards: null,
-                  budgetCard: null,
+                  dealCards: dynamicCards.dealCards,
+                  resolvedCards: dynamicCards.resolvedCards,
+                  budgetCard: dynamicBudget,
                 })}\n\n`,
               ),
             );
           } catch {
-            // Model failure fallback: answer gracefully from loaded menu
+            // Dynamic fallback if models face temporary spikes
             const fallbackReply = streamedText.trim()
               ? streamedText.trim()
-              : `I'm having a little trouble connecting right now, but feel free to browse our categories above — our top dishes and deals are listed there!`;
-            controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ reply: fallbackReply })}\n\n`));
+              : `I'd love to help you find something delicious at **${restaurantName}**! Take a look at our categories above, or let me know if you're in the mood for something savory, spicy, or sweet.`;
+            const dynamicCards = extractDynamicCards(fallbackReply, items, deals);
+            controller.enqueue(
+              encoder.encode(
+                `event: done\ndata: ${JSON.stringify({
+                  reply: fallbackReply,
+                  dealCards: dynamicCards.dealCards,
+                  resolvedCards: dynamicCards.resolvedCards,
+                  budgetCard: null,
+                })}\n\n`,
+              ),
+            );
           } finally {
             controller.close();
           }
@@ -454,17 +423,24 @@ ${dealsText || '(no active deals)'}`;
       });
     }
 
-    // Non-streaming response
+    // Non-streaming fallback
     let accumulated = '';
     try {
       const res = await raceGeminiStream(ORDER_AI_MODELS, systemPrompt, contents, (chunk) => {
         accumulated += chunk;
       });
       const reply = res.text.trim() || accumulated.trim() || 'What would you like to know about the menu?';
-      return NextResponse.json({ reply });
+      const dynamicCards = extractDynamicCards(reply, items, deals);
+      const dynamicBudget = extractDynamicBudget(lastUser, items);
+      return NextResponse.json({
+        reply,
+        dealCards: dynamicCards.dealCards,
+        resolvedCards: dynamicCards.resolvedCards,
+        budgetCard: dynamicBudget,
+      });
     } catch {
       return NextResponse.json({
-        reply: 'Browse the categories above — everything on the menu is listed there.',
+        reply: `Browse the categories above — everything on the **${restaurantName}** menu is right there!`,
       });
     }
   } catch {

@@ -220,7 +220,12 @@ export function CustomerAiChat({
     }
   }
 
-  const suggestions = ['What are your best sellers?', "What's the best deal right now?", 'Something under Rs. 1000?', 'What would you recommend for 4 people?'];
+  const suggestions = [
+    'What are your best sellers?',
+    "What's the best deal right now?",
+    'Can you recommend something for lunch?',
+    'What would you recommend for a group?',
+  ];
 
   return (
     <>
