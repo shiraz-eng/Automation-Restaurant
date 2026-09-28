@@ -169,9 +169,12 @@ async function runGemini(
       }
       turnText = true;
       streamed += text;
-      emit.delta(text);
     };
-    const content = await geminiTurn(contents, tools, system, onText);
+    const content = await geminiTurn(contents, tools, system, onText, {
+      temperature: 0.4,
+      maxOutputTokens: 600,
+      thinkingConfig: { thinkingLevel: 'minimal' },
+    });
     const calls = content.parts.filter((p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p);
     if (calls.length === 0) {
       const text = content.parts

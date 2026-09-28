@@ -21,15 +21,25 @@ export type GTool = { name: string; description: string; input_schema: { propert
 export type Emitter = { status: (label: string) => void; delta: (text: string) => void };
 export const noEmit: Emitter = { status: () => {}, delta: () => {} };
 
-// Models tried, fastest first. Measured 2026-09-28 on this key:
-// gemini-3.1-flash-lite starts answering in ~2s, while the
-// "gemini-flash-lite-latest" alias queued for 18-30s on the free tier, and
-// gemini-flash-latest often returned 503 "high demand". The next model is
-// raced in when the current one hasn't started answering after HEDGE_MS (or
-// fails), and whichever answers first wins.
-export const GEMINI_CHAT_MODELS = [...new Set(['gemini-3.1-flash-lite', env.GEMINI_MODEL, 'gemini-flash-latest'])];
-const HEDGE_MS = 4000;
-const MODEL_TIMEOUT_MS = 40_000;
+// Models tried, fastest first.
+// gemini-3.5-flash-lite and gemini-3.1-flash-lite are fastest, backed by
+// gemini-3.8-flash, gemini-3.7-flash and the configured GEMINI_MODEL.
+// The next model is raced in when the current one hasn't started answering
+// after HEDGE_MS (or fails/503s), and whichever streams first wins.
+export const GEMINI_CHAT_MODELS = [
+  ...new Set([
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    env.GEMINI_MODEL,
+    'gemini-flash-latest',
+    'gemini-flash-lite-latest',
+  ]),
+];
+const HEDGE_MS = 2000;
+const MODEL_TIMEOUT_MS = 15_000;
 
 /** Consecutive plain-text parts merged into one (anything carrying extra
  *  fields, e.g. a Gemini 3 thoughtSignature, is kept exactly as sent). */
@@ -46,12 +56,26 @@ function mergeTextParts(parts: GPart[]): GPart[] {
 
 /** One streamed generateContent call. onParts sees each chunk as it arrives. */
 async function geminiStreamOnce(model: string, body: object, signal: AbortSignal, onParts: (parts: GPart[]) => void): Promise<GContent> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-    body: JSON.stringify(body),
-    signal,
-  });
+  const sendFetch = (b: object) =>
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
+      body: JSON.stringify(b),
+      signal,
+    });
+
+  let res = await sendFetch(body);
+  const bodyObj = body as { generationConfig?: { thinkingConfig?: unknown } };
+  // If a model rejects thinkingConfig with 400, retry immediately without it
+  if (res.status === 400 && bodyObj?.generationConfig?.thinkingConfig) {
+    const fallbackBody = {
+      ...bodyObj,
+      generationConfig: { ...bodyObj.generationConfig },
+    };
+    delete (fallbackBody.generationConfig as Record<string, unknown>).thinkingConfig;
+    res = await sendFetch(fallbackBody);
+  }
+
   if (!res.ok || !res.body) {
     let message = `gemini ${res.status}`;
     try {
@@ -103,11 +127,16 @@ function geminiTurnOnce(contents: GContent[], tools: GTool[], system: string, on
     description: t.description,
     ...(Object.keys(t.input_schema.properties).length ? { parameters: t.input_schema } : {}),
   }));
+  const effectiveGenConfig = {
+    temperature: 0.4,
+    thinkingConfig: { thinkingLevel: 'minimal' },
+    ...generationConfig,
+  };
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
     ...(decls.length ? { tools: [{ functionDeclarations: decls }] } : {}),
-    ...(generationConfig ? { generationConfig } : {}),
+    generationConfig: effectiveGenConfig,
   };
   return new Promise<GContent>((resolve, reject) => {
     let winner = -1;

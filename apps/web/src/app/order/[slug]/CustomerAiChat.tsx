@@ -93,26 +93,61 @@ export function CustomerAiChat({
     setBusy(true);
     setStatus(null);
     scrollToBottom();
-    const useExpressApi = typeof window === 'undefined' || (API && !API.includes('localhost:4000'));
-    if (useExpressApi) {
-      // Streamed: the reply appears as it's written, with a short
-      // "Checking deals…" line while the menu is being looked up.
-      const replyIndex = next.length;
-      setMessages([...next, { role: 'assistant', content: '' }]);
-      const patch = (fn: (c: string) => string) =>
-        setMessages((all) => all.map((m, i) => (i === replyIndex ? { ...m, content: fn(m.content) } : m)));
-      try {
-        const result = await streamAiChat(
-          `${API}/api/public/ai/chat`,
-          { 'Content-Type': 'application/json' },
-          {
-            slug,
-            restaurant_name: restaurantName,
-            messages: next.slice(-10),
-            cart_lines: cartSnapshot,
-            session_id: guestSessionId(),
-            ...(conversationId ? { conversation_id: conversationId } : {}),
+    // Streamed: the reply appears as it's written, with a short
+    // progress line while the menu is being looked up.
+    const replyIndex = next.length;
+    setMessages([...next, { role: 'assistant', content: '' }]);
+    const patch = (fn: (c: string) => string) =>
+      setMessages((all) => all.map((m, i) => (i === replyIndex ? { ...m, content: fn(m.content) } : m)));
+
+    const payload = {
+      slug,
+      restaurant_name: restaurantName,
+      messages: next.slice(-10),
+      cart_lines: cartSnapshot,
+      session_id: guestSessionId(),
+      menu_items: products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        price_cents: p.price_cents,
+        category: p.category_id,
+      })),
+      menu_deals: deals.map((d) => ({
+        id: d.id,
+        name: d.name,
+        price_cents: d.price_cents,
+        description: d.description,
+      })),
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    };
+
+    const isLocalhostApi = Boolean(API && API.includes('localhost:4000'));
+    const isBrowser = typeof window !== 'undefined';
+    const tryExpress = !isLocalhostApi || !isBrowser;
+    const primaryUrl = tryExpress ? `${API}/api/public/ai/chat` : '/api/order/ai';
+    const fallbackUrl = '/api/order/ai';
+
+    try {
+      let result = await streamAiChat(
+        primaryUrl,
+        { 'Content-Type': 'application/json' },
+        payload,
+        {
+          status: (label) => setStatus(label),
+          delta: (text) => {
+            setStatus(null);
+            patch((c) => c + text);
+            scrollToBottom();
           },
+        },
+      );
+
+      // If primary Express call failed and fallback is available, try same-origin fallback
+      if (!result.ok && primaryUrl !== fallbackUrl) {
+        result = await streamAiChat(
+          fallbackUrl,
+          { 'Content-Type': 'application/json' },
+          payload,
           {
             status: (label) => setStatus(label),
             delta: (text) => {
@@ -122,73 +157,32 @@ export function CustomerAiChat({
             },
           },
         );
-        if (!result.ok) {
-          setError(result.error || "Couldn't reach the assistant.");
-          setMessages((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
-          return;
-        }
-        const body = result.done as {
-          reply?: string;
-          dealCards?: DealCard[] | null;
-          resolvedCards?: ResolvedCard[] | null;
-          budgetCard?: BudgetCard | null;
-          conversation_id?: string | null;
-        };
-        patch((c) => (c.trim() ? c : (body.reply ?? '')));
-        if (body.conversation_id) setConversationId(body.conversation_id);
-        // Structured evidence the backend's tool calls actually returned —
-        // rendered as real action cards, never re-derived from the model's prose.
-        if (body.dealCards) setDealCards((c) => ({ ...c, [replyIndex]: body.dealCards! }));
-        if (body.resolvedCards) setResolvedCards((c) => ({ ...c, [replyIndex]: body.resolvedCards! }));
-        if (body.budgetCard) setBudgetCards((c) => ({ ...c, [replyIndex]: body.budgetCard! }));
-        scrollToBottom();
-      } finally {
-        setBusy(false);
-        setStatus(null);
       }
-      return;
-    }
-    try {
-      // The full tool-calling assistant (deal matching, item resolution,
-      // budget proposals as action cards) lives behind the Express API —
-      // unreachable in production as a browser fetch (see guideAi.ts's
-      // same fix). Fall back to a same-origin, plain-text-only version
-      // using the menu data already loaded on this page, rather than
-      // showing "Network error" for every question.
-      const useExpress = typeof window === 'undefined' || (API && !API.includes('localhost:4000'));
-      const endpoint = useExpress ? `${API}/api/public/ai/chat` : '/api/order/ai';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          useExpress
-            ? { slug, restaurant_name: restaurantName, messages: next.slice(-10), cart_lines: cartSnapshot }
-            : {
-                restaurant_name: restaurantName,
-                messages: next.slice(-10),
-                menu_items: products.map((p) => ({ name: p.name, price_cents: p.price_cents })),
-                menu_deals: deals.map((d) => ({ name: d.name, price_cents: d.price_cents, description: d.description })),
-              },
-        ),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        setError(body.message ?? "Couldn't reach the assistant.");
-        setBusy(false);
+
+      if (!result.ok) {
+        setError(result.error || "Couldn't reach the assistant.");
+        setMessages((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
         return;
       }
-      const replyIndex = next.length; // index this assistant message will occupy
-      setMessages((m) => [...m, { role: 'assistant', content: body.reply }]);
-      // Structured evidence the backend's tool calls actually returned —
-      // rendered as real action cards, never re-derived from the model's prose.
-      if (body.dealCards) setDealCards((c) => ({ ...c, [replyIndex]: body.dealCards }));
-      if (body.resolvedCards) setResolvedCards((c) => ({ ...c, [replyIndex]: body.resolvedCards }));
-      if (body.budgetCard) setBudgetCards((c) => ({ ...c, [replyIndex]: body.budgetCard }));
+
+      const body = result.done as {
+        reply?: string;
+        dealCards?: DealCard[] | null;
+        resolvedCards?: ResolvedCard[] | null;
+        budgetCard?: BudgetCard | null;
+        conversation_id?: string | null;
+      };
+      patch((c) => (c.trim() ? c : (body.reply ?? '')));
+      if (body.conversation_id) setConversationId(body.conversation_id);
+      if (body.dealCards) setDealCards((c) => ({ ...c, [replyIndex]: body.dealCards! }));
+      if (body.resolvedCards) setResolvedCards((c) => ({ ...c, [replyIndex]: body.resolvedCards! }));
+      if (body.budgetCard) setBudgetCards((c) => ({ ...c, [replyIndex]: body.budgetCard! }));
       scrollToBottom();
     } catch {
       setError('Network error — try again.');
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
