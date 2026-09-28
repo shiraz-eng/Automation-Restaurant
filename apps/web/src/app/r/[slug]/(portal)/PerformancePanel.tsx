@@ -314,6 +314,9 @@ export function PerformancePanel({
   // Deals sold in the period (deal_sales, 0074) with cost/margin merged in
   // from deal_profitability when the viewer can see costs.
   const [dealRows, setDealRows] = useState<DealRow[]>([]);
+  // Tax collected on the same orders (period_tax, 0079) — shown next to net
+  // sales, never counted in it or in profit. null = not available.
+  const [taxInfo, setTaxInfo] = useState<{ tax_cents: number; sales_incl_tax_cents: number } | null>(null);
   const [topSort, setTopSort] = useState<'revenue_cents' | 'qty_sold'>('revenue_cents');
   const [feedback, setFeedback] = useState<FeedbackRow | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
@@ -424,13 +427,15 @@ export function PerformancePanel({
           setPrevProfit((prevProfitRes.data as Profitability[] | null)?.[0] ?? null);
         }
 
-        const [catRes, payRes, itemRes, fbRes] = await Promise.all([
+        const [catRes, payRes, itemRes, fbRes, taxRes] = await Promise.all([
           supabase.rpc('revenue_by_category', { p_from: from.toISOString(), p_to: to.toISOString() }),
           supabase.rpc('payment_mix', { p_from: from.toISOString(), p_to: to.toISOString() }),
           supabase.rpc('item_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
           supabase.rpc('feedback_summary', { p_from: from.toISOString(), p_to: to.toISOString() }),
+          supabase.rpc('period_tax', { p_from: from.toISOString(), p_to: to.toISOString() }),
         ]);
         if (cancelled) return;
+        setTaxInfo(taxRes.error ? null : ((taxRes.data as { tax_cents: number; sales_incl_tax_cents: number }[] | null)?.[0] ?? null));
         if (catRes.error) throw catRes.error;
         if (payRes.error) throw payRes.error;
         // item_profitability requires finance.view_profit/finance.view_cogs/
@@ -889,7 +894,20 @@ export function PerformancePanel({
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Kpi label="Net sales" value={formatCents(sales?.net_sales_cents ?? 0)} delta={sales && prevSales && <Delta curr={sales.net_sales_cents} prev={prevSales.net_sales_cents} />} />
+            <Kpi
+              label="Net sales (before tax)"
+              value={formatCents(sales?.net_sales_cents ?? 0)}
+              delta={
+                <>
+                  {sales && prevSales && <Delta curr={sales.net_sales_cents} prev={prevSales.net_sales_cents} />}
+                  {taxInfo && (
+                    <span className="block text-[11px] text-muted">
+                      + {formatCents(taxInfo.tax_cents)} tax = <span className="font-semibold text-body">{formatCents(taxInfo.sales_incl_tax_cents)}</span> with tax
+                    </span>
+                  )}
+                </>
+              }
+            />
             <Kpi label="Orders" value={String(sales?.orders_count ?? 0)} delta={sales && prevSales && <Delta curr={sales.orders_count} prev={prevSales.orders_count} />} />
             <Kpi label="AOV" value={formatCents(aov)} delta={prevAov > 0 && <Delta curr={aov} prev={prevAov} />} />
             <Kpi
@@ -928,6 +946,12 @@ export function PerformancePanel({
               <span>Refunds <span className="font-semibold text-body">-{formatCents(profit.refunded_cents)}</span></span>
               <span>COGS (theoretical) <span className="font-semibold text-body">-{formatCents(profit.theoretical_cogs_cents)}</span></span>
               <span>Expenses (all to date) <span className="font-semibold text-body">-{formatCents(profit.expenses_cents)}</span></span>
+              {taxInfo && (
+                <span>
+                  Tax collected <span className="font-semibold text-body">{formatCents(taxInfo.tax_cents)}</span> (owed to the tax authority, not
+                  profit)
+                </span>
+              )}
               {profit.cogs_lines_missing > 0 && (
                 <span className="text-warn font-semibold">
                   ⚠ {profit.cogs_lines_missing}/{profit.cogs_lines_total} sold line(s) missing a recipe — COGS understates the true figure
