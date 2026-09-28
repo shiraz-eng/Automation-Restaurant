@@ -1,0 +1,1281 @@
+[
+  {
+    "name": "get_restaurant_now",
+    "description": "A single live snapshot of the restaurant: today's net sales (same figure as the dashboard) and paid revenue, kitchen load, unpaid bills, occupied tables, low-stock count. Use this first for \"how are we doing / what's happening / what needs attention\" questions."
+  },
+  {
+    "name": "get_attention_items",
+    "description": "The single most important AI command: \"what needs my attention\". Scans stock, kitchen delays, missing staff check-outs, a customer-rating drop, an unavailable item that was still selling well, and a promotion ending soon — plus, for a caller with finance visibility, payment holds, overdue supplier payables, draft purchase orders awaiting approval, an unusually large expense, and recipe/COGS cost changes. Returns ONLY the real exceptions found, each with a severity, the evidence behind it, and which part of the app to open. Never invents an item; a category with nothing wrong (or nothing the caller has visibility into) is simply absent from the list."
+  },
+  {
+    "name": "get_health_score",
+    "description": "One plain-language \"how are we doing overall\" read — HEALTHY / WATCH / ATTENTION / CRITICAL — derived directly from the exact same exception list get_attention_items returns, banded by the worst severity present. Never a separately invented score, never an industry benchmark (there is no configured target to compare against, so none is assumed). Use for \"how healthy is my restaurant\" / \"give me the big picture\"."
+  },
+  {
+    "name": "get_daily_brief",
+    "description": "The morning AI Restaurant Brief (spec §17): yesterday's sales/orders/AOV/food cost/rating, today's low-stock count, pending supplier deliveries, total outstanding payables, today's missing staff check-outs, yesterday's customer feedback, and the same exception list as get_attention_items. Use for \"morning brief\" / \"how did we do yesterday and what's going on\" / \"give me today's brief\" — this is the one-call daily rollup, not a substitute for the deeper period tools when the owner asks a narrower question."
+  },
+  {
+    "name": "get_today_summary",
+    "description": "Today's net sales and completed orders (same figures as the dashboard), average order value, paid revenue including tax, and today's top sellers."
+  },
+  {
+    "name": "get_top_products",
+    "description": "Best-selling items by units and revenue over the last N days. This is SALES volume, not ratings — do not call it \"top rated\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "1-90, default 7"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_demand_forecast",
+    "description": "A trailing-14-day-average FORECAST of tomorrow's net sales and order count, from sales_by_day — the same authoritative daily series the Dashboard chart uses. Always labeled a forecast, never presented as a fact or a guarantee. Reports \"insufficient historical data\" rather than projecting anything when fewer than 5 of the last 14 days have any recorded orders. Use for \"what should I expect tomorrow\" / \"how busy will we be\" — this is NOT per-ingredient prep guidance, there is no tool for that yet."
+  },
+  {
+    "name": "get_kitchen_status",
+    "description": "Active kitchen orders by stage (new / preparing / ready) and the oldest ticket age."
+  },
+  {
+    "name": "get_low_stock",
+    "description": "Inventory items at or below their configured minimum threshold, with supplier."
+  },
+  {
+    "name": "get_inventory_value",
+    "description": "Total inventory value at current weighted-average cost, and which ingredients are driving it. Includes cost — not visible to roles without inventory.view_cost."
+  },
+  {
+    "name": "get_recipe_cost",
+    "description": "The ingredient (recipe) cost of a menu item, computed from current ingredient costs, with the estimated margin against its selling price. Clearly an operational estimate, not formal accounting. Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "item_name": {
+          "type": "string",
+          "description": "Menu item name, partial match OK"
+        }
+      },
+      "required": [
+        "item_name"
+      ]
+    }
+  },
+  {
+    "name": "list_recipes",
+    "description": "All active recipes with their current cost, food cost % against the linked menu item's price, and status. Use for \"which recipes cost me the most/least\", \"show recipes above X% food cost\", \"which menu item has the highest contribution\". Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "min_food_cost_pct": {
+          "type": "number",
+          "description": "Only recipes at or above this food cost %, e.g. 30"
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "cost_desc",
+            "cost_asc",
+            "food_cost_pct_desc",
+            "contribution_asc"
+          ],
+          "description": "Default cost_desc"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_recipe_detail",
+    "description": "Full detail for one named recipe: ingredients with per-line cost, yield, current version number, status, and profitability against its linked menu item's price. Use for \"what's in the recipe for X\" / \"food cost of my chicken burger\" when a fuller breakdown than get_recipe_cost is useful. Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "recipe_name": {
+          "type": "string",
+          "description": "Recipe name, partial match OK"
+        }
+      },
+      "required": [
+        "recipe_name"
+      ]
+    }
+  },
+  {
+    "name": "compare_recipes",
+    "description": "Side-by-side cost/food-cost comparison of two named recipes, e.g. \"compare regular and double chicken burger\". Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "recipe_name_a": {
+          "type": "string"
+        },
+        "recipe_name_b": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipe_name_a",
+        "recipe_name_b"
+      ]
+    }
+  },
+  {
+    "name": "explain_recipe_cost_change",
+    "description": "Why a recipe's cost recently changed: the logged cost delta plus which of its ingredients had a price change, so the answer can point at the actual cause rather than guessing. Use for \"why did my chicken burger cost increase\" questions. Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "recipe_name": {
+          "type": "string",
+          "description": "Recipe name, partial match OK"
+        }
+      },
+      "required": [
+        "recipe_name"
+      ]
+    }
+  },
+  {
+    "name": "get_food_cost_summary",
+    "description": "Food cost over a period: total ingredient cost consumed (from each order line's recorded recipe cost) vs. revenue, as a percentage. Estimated/operational, not formal accounting. Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "1-90, default 30"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_wastage_summary",
+    "description": "Ingredient waste recorded over a period, valued at current cost, by ingredient.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "1-90, default 30"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_ingredient_usage",
+    "description": "Which menu items use a given ingredient — for \"if chicken runs out, what does it affect?\" questions.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ingredient_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ingredient_name"
+      ]
+    }
+  },
+  {
+    "name": "get_menu",
+    "description": "The menu: categories, items, and each item's variants with price, the manual availability toggle, and — where the recipe-driven availability engine tracks it — the real computed status/producible quantity/reason. Use get_product_availability for a focused bottleneck-level explanation of one item."
+  },
+  {
+    "name": "get_product_availability",
+    "description": "The recipe-driven availability engine's authoritative read on menu items: computed status (available / low_stock / unavailable), producible quantity, and the real bottleneck ingredient when constrained. Always call this — never guess from the manual is_available toggle alone — when asked why an item is unavailable/low, or to check real producibility before promising something to a customer. Only covers items with a recipe or a required modifier group; absence from the result means the item isn't tracked by this engine.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "item_name": {
+          "type": "string",
+          "description": "Optional — filter to items whose name contains this (case-insensitive)."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_deals",
+    "description": "Active deals / combos: name, price, and the items each one includes."
+  },
+  {
+    "name": "get_reservations",
+    "description": "Upcoming reservations from right now onward (today and later), most imminent first. Use for \"what reservations do we have tonight/tomorrow/this week\", \"who's booked in\", \"how many covers tonight\"."
+  },
+  {
+    "name": "get_promotion_performance",
+    "description": "How each promotion/promo-code is performing: times redeemed, total discount given, and the revenue of the orders it was applied to — plus its usage cap and schedule if it has one. Use for \"how is SUMMER10 doing\", \"which promo gets used most\", \"how much have we discounted\" questions. Omit period for all-time totals.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ],
+          "description": "Omit for all-time totals."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_recent_orders",
+    "description": "The most recent orders (number, table/channel, status, total, time, any customer note).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "1-25, default 10"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_kitchen",
+            "ready",
+            "served",
+            "paid",
+            "void"
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "get_customer_feedback",
+    "description": "Restaurant-wide customer ratings (overall, food, service, speed, cleanliness, ambiance) over the last N days, plus recent comments. Ratings are NOT per-item.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "1-90, default 30"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_sales",
+    "description": "Paid revenue and order count per day between two dates (inclusive).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "YYYY-MM-DD"
+        },
+        "to": {
+          "type": "string",
+          "description": "YYYY-MM-DD"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "get_sales_summary",
+    "description": "Revenue, orders, AOV, discounts and refunds for a named period, automatically compared against the equivalent previous period (e.g. this week vs last week). Use this instead of get_sales/computing dates yourself whenever the question names a period like \"today\", \"this month\", etc.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "get_attendance_month_summary",
+    "description": "Every active staff member's attendance for a given month (default: current month) — scheduled days, present/absent/late/leave counts, attendance % and punctuality %, each with a plain-language band (Excellent/Good/Needs Attention/Needs Improvement). Use this for monthly attendance questions instead of get_attendance_summary, which is today only.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "year": {
+          "type": "integer",
+          "description": "default: current year"
+        },
+        "month": {
+          "type": "integer",
+          "description": "1-12, default: current month"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_attendance_summary",
+    "description": "Today's staff roster: who is present / late / absent / not marked, with check-in times."
+  },
+  {
+    "name": "get_recent_day_closes",
+    "description": "The last few closed business days: net sales, cash difference, order count.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "1-14, default 7"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_period_profitability",
+    "description": "P&L for a named period: gross/net sales, theoretical COGS (from recipes), gross profit & margin, food cost %, actual ingredient value consumed/wasted/adjusted (read off the stock ledger), the variance between theoretical and actual COGS, expenses, and net profit. This IS the profitability dashboard — use it for any \"how profitable\", \"what's our food cost\", \"margin\", \"net profit\" question naming a period.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "get_order_profitability",
+    "description": "Full profitability breakdown for one order by its order number: gross/net sales, COGS, food cost %, contribution and contribution margin — the order-level drilldown behind \"how profitable was Order #1052\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "order_number": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "order_number"
+      ]
+    }
+  },
+  {
+    "name": "get_item_profitability",
+    "description": "Every à la carte menu item/variant sold in a period, ranked by revenue, with units sold, COGS, contribution and contribution margin. Use for \"which item makes the most money\" / \"what has high food cost\" questions. Deal sales are not counted here — see get_deal_profitability for those.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "get_deal_profitability",
+    "description": "Every deal/combo sold in a period, ranked by revenue: units sold, revenue (the deal price actually charged, not the component list total), COGS from its actual components, contribution, contribution margin, and the customer's saving vs today's menu prices. Use for \"which deal is most profitable\" / \"which deal gives the biggest discount\" questions.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "get_menu_engineering",
+    "description": "Classifies each à la carte item sold in a period into Star / Plowhorse / Puzzle / Dog by comparing its sales volume and contribution-per-unit against the period's own averages — never by food-cost % alone. Use for \"what should I push / cut / reprice on the menu\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month"
+          ]
+        }
+      },
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "get_supplier_payable",
+    "description": "Accounts payable per supplier: invoiced, approved, on hold, paid, credited, outstanding, overdue. Omit supplier_name for every supplier ranked by outstanding balance (\"who do we owe the most\") — pass it to answer \"how much do we owe X\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "supplier_name": {
+          "type": "string",
+          "description": "Optional — partial match OK"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_payment_holds",
+    "description": "Every supplier invoice currently on payment hold, with the specific reason (quantity mismatch, price variance, missing PO link, etc.) and amount affected. Use for \"what's on hold\" / \"why is this invoice on hold\" questions."
+  },
+  {
+    "name": "get_supplier_statement",
+    "description": "One supplier's transaction history (invoices, credit notes, payments) between two dates, chronological — the evidence behind \"what did we buy from X\" / \"how much have we paid X\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "supplier_name": {
+          "type": "string"
+        },
+        "days": {
+          "type": "integer",
+          "description": "1-365, default 90"
+        }
+      },
+      "required": [
+        "supplier_name"
+      ]
+    }
+  },
+  {
+    "name": "get_supplier_communications",
+    "description": "The log of automatic low-stock reorder emails sent to suppliers (AI Management's low-stock automation) — evidence for \"did you email anyone about low stock\", \"which suppliers were contacted today\", \"what did we ask X for\". Every row is a real send attempt, never invented.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "description": "1-90, default 7"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_purchasing_summary",
+    "description": "What was purchased in a period: total purchase value, purchase orders by status, received vs still-pending value, spending by supplier and by ingredient, and any supplier price increases recorded in the window. Use for \"how much did I purchase\", \"what did I buy from X\", \"which ingredient got more expensive\" questions.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_supplier_performance",
+    "description": "Compares suppliers on price, fill rate (accepted vs ordered quantity), on-time delivery and lead time — never on price alone. Pass ingredient_name to narrow to suppliers who actually supply that ingredient (e.g. \"which supplier is better for chicken\"). Omit both filters for every supplier with purchase or catalog activity.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "supplier_name": {
+          "type": "string",
+          "description": "Optional — partial match OK"
+        },
+        "ingredient_name": {
+          "type": "string",
+          "description": "Optional — narrow to suppliers of this ingredient"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_money_flow",
+    "description": "Separates PROFIT (net sales minus COGS minus expenses — an accounting result) from actual CASH MOVEMENT (money that physically came in from customers and went out to suppliers/expenses) for a period. These are NOT the same number. Use for \"where did my money go\" / cash-flow questions — never to answer \"how profitable\", which is get_period_profitability.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_inventory_reconciliation",
+    "description": "Reconciles ingredient inventory movement for a period — real purchases, consumption, waste and physical stock-count variance, read from the stock ledger — against the current total inventory value. Flags a genuine reconciliation issue only when an actual physical stock count found a variance; never forces numbers to balance. Not visible to roles without inventory.view_cost.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_owner_activity",
+    "description": "What management actually did in a period, grouped by area (purchasing, suppliers, inventory, menu, promotions, expenses, supplier payments, staff) — every count comes from a real audit or activity record, never inferred from a data change alone. Use for \"what did I do this month\" questions.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_positive_highlights",
+    "description": "\"What am I doing well\" — real, period-over-period improvements only (net sales, margins, AOV, waste cost, customer rating), each with the actual before/after figures. Never invents an improvement; a metric that did not improve is simply absent from the list. Use to balance out get_attention_items so the AI isn't only a warning system.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_areas_to_review",
+    "description": "\"What could be improved\" — careful, evidence-based observations (never accusatory) such as discounts growing faster than sales, purchasing growing faster than sales, a deal/promotion with below-average margin, a supplier price increase, or a rating decline. Each item states the fact and a suggested next step, never a claim of blame or unproven causation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_kitchen_performance",
+    "description": "Historical kitchen speed for a period: average time from \"sent to kitchen\" to \"ready\" per order (and to \"served\"), how many orders ran past a delay threshold, and — where enough feedback exists — whether the trend moved together with the customer Speed rating over the same two periods. Built from the real kitchen.start/kitchen.ready/kitchen.complete audit trail (spec §14), not an estimate. Use for \"how is my kitchen performing\" / \"is food coming out slower\" questions; get_kitchen_status is the live snapshot, this is the trend.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_price_change_impact",
+    "description": "Management Decision Analysis for a single price change (spec §17): finds a menu item's most recent recorded price change (from the real audit trail — never guessed or assumed), then compares its units sold and revenue in two equal-length windows immediately before and after that change. Reports the change and the before/after numbers as facts; frame the result as \"After the change, sales/revenue changed X%\" — never claim the price change CAUSED the difference unless the data makes that unambiguous. Use for \"did raising/lowering [item]'s price work\" / \"what happened after I changed the price of X\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "item_name": {
+          "type": "string",
+          "description": "Menu item name, partial match OK"
+        }
+      },
+      "required": [
+        "item_name"
+      ]
+    }
+  },
+  {
+    "name": "get_owner_scorecard",
+    "description": "A per-domain health scorecard (Sales, Profitability, Inventory, Purchasing, Suppliers, Customers, Staff, Kitchen, Cash Flow) — each status backed by real evidence from the same tools/RPCs used elsewhere, never an arbitrary score. Use for \"how healthy is my restaurant across the board\" / \"give me a scorecard\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "analyze_restaurant",
+    "description": "THE master command for \"analyze my restaurant\" / \"how is my restaurant performing overall\" / \"give me my monthly management report\". Combines the executive P&L summary, the owner scorecard, the top attention items, the top positive highlights, the top areas to review, and a headline of management activity into one call — everything the model needs to write the full executive narrative without a second round of tool calls. Every figure inside is captured verbatim from the same authoritative tools/RPCs used elsewhere.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
+    "name": "set_menu_availability",
+    "description": "Mark a menu item's variant available or unavailable for ordering (e.g. \"we're out of the large fries\"). This is the MANUAL override toggle, separate from the recipe-driven availability engine (get_product_availability) — if get_product_availability already shows the item as unavailable due to a real ingredient shortage, restocking that ingredient (adjust_stock) fixes it automatically and this action isn't needed; only use this for a manual hide/show decision that isn't already explained by real stock. Proposes the change for the manager to confirm — never runs on its own.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "description": "The menu_variants.id to change."
+        },
+        "available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "variant_id",
+        "available"
+      ]
+    }
+  },
+  {
+    "name": "draft_recipe",
+    "description": "Propose a new DRAFT recipe for a menu item with a named ingredient list and quantities (spec: \"create a recipe draft for a chicken burger\"). NEVER activated automatically — it stays a draft until a manager reviews and activates it in Recipes. Every ingredient must match an existing inventory item; any that don't are reported back rather than invented.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "recipe_name": {
+          "type": "string"
+        },
+        "menu_item_name": {
+          "type": "string",
+          "description": "The menu item this recipe is for, partial match OK."
+        },
+        "variant_name": {
+          "type": "string",
+          "description": "Optional — the specific variant, if this recipe is variant-specific."
+        },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inventory_item_name": {
+                "type": "string"
+              },
+              "qty_base": {
+                "type": "number",
+                "description": "Quantity in that ingredient's own base/stock unit (e.g. grams for a gram-based item)."
+              }
+            },
+            "required": [
+              "inventory_item_name",
+              "qty_base"
+            ]
+          }
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Optional prep instructions."
+        }
+      },
+      "required": [
+        "recipe_name",
+        "menu_item_name",
+        "ingredients"
+      ]
+    }
+  },
+  {
+    "name": "adjust_stock",
+    "description": "Record a manual stock correction for one inventory item (e.g. \"we found 5kg of chicken we hadn't counted\", \"the last delivery didn't go through a PO, add it\"). NOT for wastage — use record_waste, which requires a reason and always deducts. NOT for a physical stock count — use submit_stock_count, which replaces the figure outright rather than adding a delta. Proposes the change for a manager to confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "inventory_item_name": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "number",
+          "description": "Signed change in the item's own base/stock unit (positive to add, negative to remove) — NOT necessarily the unit the person spoke in. Check the item's real unit first (get_low_stock / get_inventory_value show it) and convert: if they said kg but the item tracks grams, multiply by 1000; L but it tracks ml, multiply by 1000. Never pass their stated number unconverted unless their unit already matches."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "restock",
+            "adjustment"
+          ],
+          "description": "\"restock\" for stock that physically arrived outside a purchase order; \"adjustment\" for any other correction (miscount, damage, etc)."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional context recorded on the stock ledger."
+        }
+      },
+      "required": [
+        "inventory_item_name",
+        "delta",
+        "reason"
+      ]
+    }
+  },
+  {
+    "name": "record_waste",
+    "description": "Record ingredient wastage/spoilage for one inventory item, with a required reason (e.g. \"2kg of lettuce went off in the walk-in\"). Always deducts stock and always logs it as spoilage. Proposes the change for a manager to confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "inventory_item_name": {
+          "type": "string"
+        },
+        "qty": {
+          "type": "number",
+          "description": "Positive quantity wasted, in the item's own base/stock unit — NOT necessarily the unit the person spoke in. Check the item's real unit first (get_low_stock / get_inventory_value show it) and convert: kg stated but the item tracks grams -> x1000; L stated but it tracks ml -> x1000."
+        },
+        "note": {
+          "type": "string",
+          "description": "Required — why it was wasted."
+        }
+      },
+      "required": [
+        "inventory_item_name",
+        "qty",
+        "note"
+      ]
+    }
+  },
+  {
+    "name": "submit_stock_count",
+    "description": "Record a physical stock count for one inventory item — replaces the system's figure with what was actually counted and logs the variance against it (never a silent overwrite). Proposes the change for a manager to confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "inventory_item_name": {
+          "type": "string"
+        },
+        "counted_qty": {
+          "type": "number",
+          "description": "The physically counted quantity, in the item's own base/stock unit — NOT necessarily the unit the person spoke in. Check the item's real unit first (get_low_stock / get_inventory_value show it) and convert: kg stated but the item tracks grams -> x1000; L stated but it tracks ml -> x1000."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "inventory_item_name",
+        "counted_qty"
+      ]
+    }
+  },
+  {
+    "name": "draft_purchase_order",
+    "description": "Create a DRAFT purchase order for one supplier with one or more inventory items and quantities (e.g. \"order 10kg of chicken and 5 cases of buns from Metro Foods\"). It always stays a draft — a manager must still Approve and Send it in Purchasing before anything is actually ordered. Each line's price comes from that supplier's own catalog price for the item; any item with no price on file for this supplier is reported back rather than a price being invented, and nothing is created until every requested item resolves.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "supplier_name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inventory_item_name": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "number",
+                "description": "Quantity in the SUPPLIER's own purchase unit (e.g. cases), not necessarily the stock base unit."
+              }
+            },
+            "required": [
+              "inventory_item_name",
+              "qty"
+            ]
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "supplier_name",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "create_reservation",
+    "description": "Book a new reservation (e.g. \"book a table for 4 tonight at 7pm for John Smith\"). Resolve any relative date/time (\"tonight\", \"tomorrow\", \"this Friday\") against the current date/time you were given at the start of this conversation into a full date-time BEFORE calling this — never pass the relative wording through. Proposes the booking for a manager to confirm; nothing is booked until they do.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "customer_name": {
+          "type": "string"
+        },
+        "party_size": {
+          "type": "number"
+        },
+        "reserved_at_iso": {
+          "type": "string",
+          "description": "Date-time in \"YYYY-MM-DDTHH:mm:ss\" form (e.g. \"2026-09-13T19:00:00\") — the restaurant's own local WALL-CLOCK time, already resolved from any relative wording (\"tonight\", \"tomorrow\"). NEVER append \"Z\" or a +/-offset: the server converts this as local time in the restaurant's own configured timezone, so an offset you added yourself would be double-applied and get the actual booking time wrong."
+        },
+        "phone": {
+          "type": "string"
+        },
+        "table_label": {
+          "type": "string",
+          "description": "Optional — a specific table to assign, only if the person named one. Must be a real table; an unrecognised label is reported back rather than booked as-is."
+        },
+        "occasion": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_name",
+        "party_size",
+        "reserved_at_iso"
+      ]
+    }
+  },
+  {
+    "name": "update_supplier_price",
+    "description": "Update the price a specific supplier charges for one inventory item ALREADY in their catalog (e.g. \"Metro Foods now charges $0.85/kg for chicken\"). Only updates an existing catalog entry's price — it cannot add a new supplier/item pairing, which has other details (purchase unit, minimum order quantity) best set up in Suppliers first; if there's no catalog entry yet, this reports that rather than creating one. Proposes the change for a manager to confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "supplier_name": {
+          "type": "string"
+        },
+        "inventory_item_name": {
+          "type": "string"
+        },
+        "new_price": {
+          "type": "number",
+          "description": "The new price in the restaurant's normal currency units (e.g. 8.50 for $8.50), NOT cents — per the supplier's own purchase unit for this item (shown back in the proposal), not necessarily the item's stock base unit."
+        }
+      },
+      "required": [
+        "supplier_name",
+        "inventory_item_name",
+        "new_price"
+      ]
+    }
+  },
+  {
+    "name": "draft_deal",
+    "description": "Propose a new fixed-price deal/combo bundling specific menu items (e.g. \"create a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Soft Drinks for $25\"). Always created NOT available to customers — a manager must review it in Deals and turn it on, exactly like draft_recipe never auto-activates. Does not build \"choose one of\" Build-Your-Own-Combo option groups — those have their own dedicated setup in Deals and need a human's judgment on choice/pricing rules. Every item must match an existing menu item (and variant, if it has more than one); any that don't are reported back rather than invented, and nothing is created until every line resolves.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number",
+          "description": "The deal's total price in the restaurant's normal currency units (e.g. 25 for $25), NOT cents."
+        },
+        "description": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "menu_item_name": {
+                "type": "string"
+              },
+              "variant_name": {
+                "type": "string",
+                "description": "Optional — which size/variant, only needed if the item has more than one."
+              },
+              "qty": {
+                "type": "number",
+                "description": "How many of this item are included. Defaults to 1."
+              }
+            },
+            "required": [
+              "menu_item_name"
+            ]
+          }
+        }
+      },
+      "required": [
+        "name",
+        "price",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "create_shift",
+    "description": "Schedule a shift for one staff member (e.g. \"schedule Sarah for Friday 9am to 5pm\"). Resolve any relative date (\"Friday\", \"tomorrow\") against the current date/time you were given at the top of this conversation into real dates yourself before calling this — never pass relative wording through. Proposes the shift for a manager to confirm; nothing is scheduled until they do.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "staff_name": {
+          "type": "string"
+        },
+        "starts_at_iso": {
+          "type": "string",
+          "description": "Shift start as \"YYYY-MM-DDTHH:mm:ss\" — the restaurant's own local WALL-CLOCK time, already resolved from any relative wording. NEVER append \"Z\" or a +/-offset."
+        },
+        "ends_at_iso": {
+          "type": "string",
+          "description": "Shift end, same format, must be after the start."
+        },
+        "role_label": {
+          "type": "string",
+          "description": "Optional — what role/station they're covering (e.g. \"Cashier\", \"Kitchen\")."
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "staff_name",
+        "starts_at_iso",
+        "ends_at_iso"
+      ]
+    }
+  },
+  {
+    "name": "generate_report",
+    "description": "Build a real PDF performance report for a period (e.g. \"create my September report\", \"generate this month's report\", \"report for last 6 months\", or a custom date range) — the exact same PDF the Dashboard's own \"Generate Report\" button produces, from the exact same authoritative figures (period_profitability, sales_by_day, top-selling items, feedback_summary, attendance_roster, purchasing, supplier payables, management activity, attention items — nothing recomputed or estimated). Unlike every other action here, this one doesn't mutate anything: confirming it opens/downloads the PDF in your browser. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `domain` (one of: suppliers, purchasing, inventory, orders, expenses) for a report focused on just that section instead of the full restaurant report — e.g. \"generate a purchasing report for this month\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "suppliers",
+            "purchasing",
+            "inventory",
+            "orders",
+            "expenses"
+          ],
+          "description": "Default complete (the full report)."
+        }
+      }
+    }
+  },
+  {
+    "name": "export_excel_report",
+    "description": "Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst's detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. [\"Orders\",\"Inventory\"]) to export only specific sheets instead of the full workbook — the Executive Summary, Profit Summary and Verification sheets are always included regardless.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        },
+        "sheets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional — only include these sheets (by name: Daily Performance, Orders, Product Profitability, Deal Profitability, Promotions, Purchasing, Accounts Payable, Supplier Payments, Supplier Performance, Inventory, Expenses, Management Activity, AI Actions). Omit for the full workbook."
+        },
+        "domain": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "suppliers",
+            "purchasing",
+            "inventory",
+            "orders",
+            "expenses"
+          ],
+          "description": "Optional shortcut instead of naming sheets — a preset sheet list for that one section. Ignored if sheets is given explicitly. Default complete (the full workbook)."
+        }
+      }
+    }
+  },
+  {
+    "name": "draft_social_post",
+    "description": "Draft an Instagram post — a caption, and (when the reference has a photo on file) that photo — for a deal, promotion, or menu item, e.g. \"write an Instagram post for our new BBQ Combo deal\". Always created as a DRAFT: publishing is a completely separate, explicit human action on the Social page (routes/social.ts's /publish endpoint) that this action has no path to at all — never say a post has gone live.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "caption": {
+          "type": "string",
+          "description": "The post caption/copy to draft (max 2,200 characters, Instagram's own limit)."
+        },
+        "related_type": {
+          "type": "string",
+          "enum": [
+            "deal",
+            "promotion",
+            "menu_item"
+          ],
+          "description": "Optional — what this post is about, if anything."
+        },
+        "related_name": {
+          "type": "string",
+          "description": "The deal/promotion/menu item name, partial match OK. Required when related_type is given."
+        }
+      },
+      "required": [
+        "caption"
+      ]
+    }
+  }
+]

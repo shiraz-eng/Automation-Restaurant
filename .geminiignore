@@ -1,0 +1,14 @@
+# Keep secrets and bulky generated files away from Gemini CLI / Code Assist.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+dist/
+**/dist/
+.vercel/
+package-lock.json
