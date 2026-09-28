@@ -554,8 +554,8 @@ export async function runGemini(
         break;
       } catch (err) {
         const status = (err as { status?: number }).status;
-        if (turnText || attempt >= 1 || (status !== 429 && status !== 503)) throw err;
-        await new Promise((r) => setTimeout(r, 1500));
+        if (turnText || attempt >= 2 || (status !== 429 && status !== 503)) throw err;
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
       }
     }
     const calls = content.parts.filter(
@@ -856,7 +856,14 @@ aiRouter.post(
         send('done', payload(result));
       } catch (err) {
         console.error('[ai] chat failed:', err);
-        send('error', { error: 'ai_failed', message: 'The assistant could not complete the request — please try again.' });
+        const status = (err as { status?: number }).status;
+        send('error', {
+          error: 'ai_failed',
+          message:
+            status === 429 || status === 503
+              ? "Google's AI service is overloaded right now — please try again in a minute. (A paid Gemini key avoids this.)"
+              : 'The assistant could not complete the request — please try again.',
+        });
       }
       res.end();
       return;
