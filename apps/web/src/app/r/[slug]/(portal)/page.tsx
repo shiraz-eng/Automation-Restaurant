@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
 import { DashboardStat } from './DashboardStat';
@@ -9,6 +9,7 @@ import { DashboardClient } from './DashboardClient';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { getPlanByTier } from '@/lib/plans';
 import { can } from '@/lib/permissions';
+import { staffStartPath } from '@/lib/portals';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -33,6 +34,9 @@ export default async function DashboardPage({
   const supabase = t.client;
 
   const { user, role: viewerRole, perms: viewerPerms } = await gatePortalPage(supabase, slug, '');
+  // The business dashboard (sales, revenue, stock) is for staff holding
+  // analytics.view; everyone else starts on their own working page.
+  if (!can(viewerPerms, viewerRole, 'analytics.view')) redirect(staffStartPath(viewerPerms, viewerRole, slug));
   const canViewPortals = can(viewerPerms, viewerRole, 'portals.view');
 
   const now = new Date();

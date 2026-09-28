@@ -123,8 +123,7 @@ export function themeFromBrandKit(kit: BrandKit | null | undefined): ThemeState 
  * it into ThemeProvider's initial theme + the logo URL. Called once, from
  * the tenant root layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps
  * every route under a restaurant — the staff/owner portal, generated kiosk
- * portals, the dedicated role portals (kitchen/floor/finance/deliveries/
- * register/team), and the login/password-setup pages — so there is exactly
+ * portals, and the login/password-setup pages — so there is exactly
  * one Brand Kit->theme fetch per request tree, not one per layout.
  */
 export async function fetchPortalTheme(client: SupabaseClient): Promise<{ initialTheme: ThemeState; logoUrl: string | null }> {

@@ -11,6 +11,17 @@ const nextConfig = {
   ...(process.env.VERCEL ? {} : { output: 'standalone' }),
   transpilePackages: ['@automation-restaurant/shared'],
   outputFileTracingRoot: workspaceRoot,
+  // The fixed role pages were removed — every staff role now uses the main
+  // portal. Old bookmarks land on the matching main-portal page, whose own
+  // permission gate still applies.
+  async redirects() {
+    const moved = { kitchen: 'kds', floor: 'tables', finance: 'expenses', deliveries: 'orders', register: 'checkout', team: 'staff' };
+    return Object.entries(moved).map(([from, to]) => ({
+      source: `/r/:slug/${from}`,
+      destination: `/r/:slug/${to}`,
+      permanent: false,
+    }));
+  },
 };
 
 export default nextConfig;

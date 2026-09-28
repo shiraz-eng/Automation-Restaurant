@@ -11,9 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 /**
  * Wraps EVERY route under /r/[slug]/* — the staff/owner portal, generated
- * kiosk portals, the dedicated role portals (kitchen/floor/finance/
- * deliveries/register/team), the login page, and the portal-password-setup
- * page — in exactly one Brand Kit-derived theme and one restaurant identity
+ * kiosk portals, the login page, and the portal-password-setup page — in exactly one Brand Kit-derived theme and one restaurant identity
  * (browser title/favicon). A nested layout no longer fetches or applies its
  * own theme (that would double-apply the identical Brand Kit); it only
  * renders the logo where it wants one, using the same fetchPortalTheme.

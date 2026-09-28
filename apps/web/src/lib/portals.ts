@@ -1,5 +1,10 @@
+import { can } from '@/lib/permissions';
+
 /**
- * Which portal a staff role lands in. A waiter never sees the owner dashboard.
+ * Staff roles. Every staff login (whatever its role) uses the one main
+ * portal at /r/{slug}; what it sees there is decided by its permissions, not
+ * by the role name. Custom portals (Portal Management) are the only way to
+ * give a station its own screen.
  */
 
 export type StaffRole =
@@ -25,61 +30,29 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   delivery: 'Delivery',
 };
 
+export function roleLabel(role: string): string {
+  return ROLE_LABELS[role as StaffRole] ?? role;
+}
+
 /**
- * Standalone-portal home for a role. Roles that still have a dedicated legacy
- * surface return its path; everyone else (owner, manager, cashier since P4, and
- * any custom role) resolves to the Operations Portal root. The Operations layout
- * uses this to decide who to bounce out.
+ * Where a staff member without the business dashboard (analytics.view)
+ * starts in the main portal: the first page their permissions open, most
+ * hands-on first. [what the job is about, the key that page's own gate
+ * checks, page] — both must be held, so this never points at a page that
+ * bounces back to the dashboard (which would loop).
  */
-export function roleHome(role: string, slug: string): string {
-  switch (role) {
-    case 'chef':
-      return `/r/${slug}/kitchen`;
-    case 'waiter':
-    case 'host':
-      return `/r/${slug}/floor`;
-    case 'accountant':
-      return `/r/${slug}/finance`;
-    case 'delivery':
-      return `/r/${slug}/deliveries`;
-    default:
-      return `/r/${slug}`; // owner, manager, cashier (P4), hr (P6), custom roles
-  }
-}
+const START_PAGES: [string, string, string][] = [
+  ['kitchen.update_status', 'kitchen.view', 'kds'],
+  ['payments.accept', 'payments.view', 'checkout'],
+  ['finance.view', 'finance.view', 'expenses'],
+  ['staff.view', 'staff.view', 'staff'],
+  ['tables.update', 'tables.view', 'tables'],
+  ['orders.view', 'orders.view', 'orders'],
+  ['kitchen.view', 'kitchen.view', 'kds'],
+  ['menu.view', 'menu.view', 'menu'],
+];
 
-/** Preferred landing path after login, including Operations sub-routes. */
-export function roleLanding(role: string, slug: string): string {
-  if (role === 'cashier') return `/r/${slug}/checkout`;
-  return roleHome(role, slug);
-}
-
-export function isManagement(role: string): boolean {
-  return role === 'owner' || role === 'manager';
-}
-
-/** Roles allowed into the kitchen portal. */
-export function canSeeKitchen(role: string): boolean {
-  return role === 'chef' || isManagement(role);
-}
-
-/** Roles allowed into the cashier / register portal. */
-export function canSeeRegister(role: string): boolean {
-  return role === 'cashier' || isManagement(role);
-}
-
-/** Roles allowed into the waiter / floor portal. */
-export function canSeeFloor(role: string): boolean {
-  return role === 'waiter' || role === 'host' || isManagement(role);
-}
-
-export function canSeeFinance(role: string): boolean {
-  return role === 'accountant' || role === 'owner';
-}
-
-export function canSeeTeam(role: string): boolean {
-  return role === 'hr' || isManagement(role);
-}
-
-export function canSeeDeliveries(role: string): boolean {
-  return role === 'delivery' || isManagement(role);
+export function staffStartPath(perms: string[], role: string, slug: string): string {
+  const hit = START_PAGES.find(([job, gate]) => can(perms, role, job) && can(perms, role, gate));
+  return hit ? `/r/${slug}/${hit[2]}` : `/r/${slug}/guide`;
 }

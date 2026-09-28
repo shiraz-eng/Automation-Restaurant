@@ -4,7 +4,7 @@ import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ChangePasswordControl } from '@/components/ChangePasswordControl';
 import { NavLink } from '@/components/NavLink';
-import { roleHome } from '@/lib/portals';
+import { roleLabel } from '@/lib/portals';
 import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
 import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
@@ -30,7 +30,7 @@ import type { FeatureKey } from '@automation-restaurant/shared';
 // and routes as before; no route or permission here is new.
 type NavItem = [string, string, string?, boolean?, FeatureKey?];
 const NAV_GROUPS: [string, NavItem[]][] = [
-  ['Main', [['', 'Dashboard']]],
+  ['Main', [['', 'Dashboard', 'analytics.view']]],
   [
     'Operations',
     [
@@ -119,10 +119,9 @@ export default async function PortalLayout({
   } = await t.client.auth.getUser();
   if (!user) redirect(`/r/${slug}/login`);
 
-  // Operations Portal. A portal login goes to its own portal; roles with a
-  // dedicated surface (chef → kitchen, cashier → register, …) are bounced there;
-  // owner/manager and any permissioned role without a dedicated home may use
-  // Operations, gated per-page by permission.
+  // The main portal. A custom-portal login goes to its own portal; every
+  // staff login, whatever its role, uses this one — each nav item and page
+  // is gated by permission, never by role name.
   const meta = (user.app_metadata ?? {}) as {
     kind?: string;
     role?: string;
@@ -133,8 +132,6 @@ export default async function PortalLayout({
     redirect(meta.portal_route ? `/r/${slug}/portal/${meta.portal_route}` : `/r/${slug}/login`);
   }
   const role = meta.role ?? 'owner';
-  const home = roleHome(role, slug);
-  if (home !== `/r/${slug}`) redirect(home);
 
   const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
 
@@ -180,7 +177,7 @@ export default async function PortalLayout({
               {t.config.tier ? ` · ${t.config.tier}` : ''}
             </div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
-              {role === 'owner' ? 'Owner Admin' : 'Manager Portal'}
+              {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
             </div>
           </div>
           <nav className="flex-1 flex flex-col gap-4 px-3 pb-5">
@@ -210,7 +207,7 @@ export default async function PortalLayout({
           <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 md:px-10 h-16 shrink-0">
             <div className="min-w-0">
               <div className="text-[11px] text-muted truncate">
-                {t.config.restaurantName} / {role === 'owner' ? 'Owner' : 'Management'}
+                {t.config.restaurantName} / {roleLabel(role)}
               </div>
               <div className="font-bold text-body text-sm truncate">Command Center</div>
             </div>
