@@ -5,6 +5,8 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 import type { Period } from './PerformancePanel';
+import { Markdown } from '@/components/Markdown';
+import { streamAiChat } from '@/lib/aiStream';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -60,6 +62,7 @@ export function AskAi({
   const supabase = usePortalSupabase();
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
   const [tools, setTools] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -89,31 +92,41 @@ export function AskAi({
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res = await fetch(`${API}/api/ai/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({ slug, messages: [{ role: 'user', content: q }] }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(
-          body.error === 'ai_not_configured'
-            ? 'The assistant is not configured.'
-            : (body.message ?? body.error ?? 'The assistant failed.'),
-        );
+      let streamed = '';
+      const result = await streamAiChat(
+        `${API}/api/ai/chat`,
+        { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        { slug, messages: [{ role: 'user', content: q }] },
+        {
+          status: (label) => setStatus(label),
+          delta: (text) => {
+            setStatus(null);
+            streamed += text;
+            setReply(streamed);
+          },
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      const replyText = body.reply ?? '(no answer)';
+      const body = result.done as {
+        reply?: string;
+        tools?: { name: string }[];
+        profitCard?: ProfitCard | null;
+        orderCard?: OrderProfitRow | null;
+        dealCard?: { period: string; deals: DealProfitRow[] } | null;
+      };
+      const replyText = streamed.trim() ? streamed : (body.reply ?? '(no answer)');
       setReply(replyText);
-      setTools((body.tools ?? []).map((t: { name: string }) => t.name));
+      setTools((body.tools ?? []).map((t) => t.name));
       setProfitCard(body.profitCard ?? null);
       setOrderCard(body.orderCard ?? null);
       setDealCard(body.dealCard ?? null);
       onReply?.(replyText);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -159,9 +172,15 @@ export function AskAi({
         ))}
       </div>
       {error && <p className="text-danger text-xs">{error}</p>}
+      {busy && (status || !reply) && (
+        <p className="text-muted text-xs flex items-center gap-1.5 mb-2">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+          {status ?? 'Thinking…'}
+        </p>
+      )}
       {reply && (
-        <div className="rounded border border-border bg-main p-3 text-xs whitespace-pre-wrap leading-relaxed">
-          {reply}
+        <div className="rounded border border-border bg-main p-3 text-xs leading-relaxed">
+          <Markdown text={reply} />
           {tools.length > 0 && <p className="text-muted text-[10px] mt-2 not-italic">· {tools.join(' · ')}</p>}
         </div>
       )}

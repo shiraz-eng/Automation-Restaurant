@@ -3,6 +3,8 @@
 import { useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
+import { Markdown } from '@/components/Markdown';
+import { streamAiChat } from '@/lib/aiStream';
 import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -54,9 +56,9 @@ const SUGGESTIONS = [
   'How is my restaurant doing right now?',
   'What needs my attention?',
   'How are sales this month vs last month?',
-  'How is attendance this month?',
   'What are our best-selling items this week?',
-  'What are customers saying about speed?',
+  'Give me 5 ideas to increase weekday sales',
+  'Write a WhatsApp message announcing our new deal',
 ];
 
 export function AiChat({ slug }: { slug: string }) {
@@ -64,6 +66,8 @@ export function AiChat({ slug }: { slug: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // What the assistant is doing right now ("Checking today summary…").
+  const [status, setStatus] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drilldownCard, setDrilldownCard] = useState<ProfitCard | null>(null);
@@ -118,44 +122,54 @@ export function AiChat({ slug }: { slug: string }) {
     const attachment = pendingFile;
     setPendingFile(null);
     const next: Msg[] = [...msgs, { role: 'user', content: q, attachmentName: attachment?.name }];
-    setMsgs(next);
+    // The reply streams into this placeholder as it's written.
+    const replyIndex = next.length;
+    setMsgs([...next, { role: 'assistant', content: '' }]);
     setBusy(true);
+    setStatus(null);
+    scrollDown();
+    const patchReply = (patch: Partial<Msg> | ((m: Msg) => Partial<Msg>)) =>
+      setMsgs((all) => all.map((m, i) => (i === replyIndex ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch) } : m)));
+    // A failed request leaves no empty bubble behind (a partly written
+    // answer stays, with the error shown under it).
+    const dropEmptyReply = () =>
+      setMsgs((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
     try {
-      const res = await fetch(`${API}/api/ai/chat`, {
-        method: 'POST',
-        headers: await authHeader(),
-        body: JSON.stringify({
+      const result = await streamAiChat(
+        `${API}/api/ai/chat`,
+        await authHeader(),
+        {
           slug,
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           ...(attachment ? { attachment: { name: attachment.name, mimeType: attachment.mimeType, dataBase64: attachment.dataBase64 } } : {}),
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(
-          body.error === 'ai_not_configured'
-            ? 'The assistant is not configured — add a GEMINI_API_KEY or ANTHROPIC_API_KEY to the API server.'
-            : (body.message ?? body.error ?? 'The assistant failed.'),
-        );
+        },
+        {
+          status: (label) => setStatus(label),
+          delta: (text) => {
+            setStatus(null);
+            patchReply((m) => ({ content: m.content + text }));
+            scrollDown();
+          },
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        dropEmptyReply();
         return;
       }
-      setMsgs((m) => [
-        ...m,
-        {
-          role: 'assistant',
-          content: body.reply ?? '(no answer)',
-          tools: (body.tools ?? []).map((x: { name: string }) => x.name),
-          pendingAction: body.pendingAction ?? undefined,
-          profitCard: body.profitCard ?? undefined,
-          orderCard: body.orderCard ?? undefined,
-          dealCard: body.dealCard ?? undefined,
-        },
-      ]);
+      const data = result.done;
+      patchReply((m) => ({
+        content: m.content.trim() ? m.content : String(data.reply ?? '(no answer)'),
+        tools: ((data.tools as { name: string }[] | undefined) ?? []).map((x) => x.name),
+        pendingAction: (data.pendingAction as PendingAction | null) ?? undefined,
+        profitCard: (data.profitCard as ProfitCard | null) ?? undefined,
+        orderCard: (data.orderCard as OrderProfitRow | null) ?? undefined,
+        dealCard: (data.dealCard as { period: string; deals: DealProfitRow[] } | null) ?? undefined,
+      }));
       scrollDown();
-    } catch {
-      setError('Network error.');
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
@@ -271,15 +285,16 @@ export function AiChat({ slug }: { slug: string }) {
         ) : (
           msgs.map((m, i) => (
             <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
-              <div
-                className={`inline-block rounded-lg px-3 py-2 text-sm whitespace-pre-wrap max-w-[85%] ${
-                  m.role === 'user'
-                    ? 'bg-primary text-primary-fg'
-                    : 'bg-main border border-border'
-                }`}
-              >
-                {m.content}
-              </div>
+              {m.role === 'user' ? (
+                <div className="inline-block rounded-lg px-3 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-primary text-primary-fg text-left">
+                  {m.content}
+                </div>
+              ) : m.content ? (
+                <div className="inline-block rounded-lg px-3 py-2 text-sm max-w-[85%] bg-main border border-border">
+                  <Markdown text={m.content} />
+                  {busy && i === msgs.length - 1 && <span className="inline-block w-1.5 h-3.5 align-middle bg-current opacity-60 animate-pulse ml-0.5" />}
+                </div>
+              ) : null}
               {m.attachmentName && (
                 <div className="text-[10px] text-muted mt-1">📎 {m.attachmentName}</div>
               )}
@@ -394,7 +409,12 @@ export function AiChat({ slug }: { slug: string }) {
             </div>
           ))
         )}
-        {busy && <p className="text-muted text-xs">Thinking…</p>}
+        {busy && (status || !msgs[msgs.length - 1]?.content) && (
+          <p className="text-muted text-xs flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            {status ?? 'Thinking…'}
+          </p>
+        )}
         {error && <p className="text-danger text-xs">{error}</p>}
       </div>
       <form

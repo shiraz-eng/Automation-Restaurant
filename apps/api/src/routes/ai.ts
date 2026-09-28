@@ -210,6 +210,8 @@ const bodySchema = z.object({
     .min(1)
     .max(30),
   attachment: attachmentSchema.optional(),
+  /** true = reply as server-sent events: status / delta / done / error. */
+  stream: z.boolean().optional(),
 });
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 type AttachmentImage = { mimeType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; dataBase64: string };
@@ -343,13 +345,99 @@ async function callTool(
 
 // ── Gemini (direct REST — the SDK's role/shape assumptions vary by endpoint) ─
 type GPart =
-  | { text: string }
+  | { text: string; thought?: boolean }
   | { inlineData: { mimeType: string; data: string } }
   | { functionCall: { name: string; args?: Record<string, unknown> } }
   | { functionResponse: { name: string; response: object } };
 type GContent = { role: 'user' | 'model'; parts: GPart[] };
 
-async function geminiGenerate(contents: GContent[], tools: ToolLike[], system: string) {
+/** Live progress for a streamed chat: tool lookups and answer text as it arrives. */
+type Emitter = { status: (label: string) => void; delta: (text: string) => void };
+const noEmit: Emitter = { status: () => {}, delta: () => {} };
+
+// Models tried for chat, fastest first. Measured 2026-09-28 on this key:
+// gemini-3.1-flash-lite starts answering in ~2s, while the
+// "gemini-flash-lite-latest" alias queued for 18-30s on the free tier, and
+// gemini-flash-latest often returned 503 "high demand". The next model is
+// raced in when the current one hasn't started answering after HEDGE_MS (or
+// fails), and whichever answers first wins.
+const GEMINI_CHAT_MODELS = [...new Set(['gemini-3.1-flash-lite', env.GEMINI_MODEL, 'gemini-flash-latest'])];
+const HEDGE_MS = 4000;
+const MODEL_TIMEOUT_MS = 40_000;
+
+/** A friendly progress line for a tool the model is calling. */
+function toolLabel(name: string): string {
+  const words = name.replace(/^(get|list|compute|draft|create)_/, '').replace(/_/g, ' ');
+  return `Checking ${words}…`;
+}
+
+/** Consecutive plain-text parts merged into one (anything carrying extra
+ *  fields, e.g. a Gemini 3 thoughtSignature, is kept exactly as sent). */
+function mergeTextParts(parts: GPart[]): GPart[] {
+  const out: GPart[] = [];
+  for (const p of parts) {
+    const prev = out[out.length - 1];
+    const plain = (x: GPart | undefined) => !!x && 'text' in x && Object.keys(x).length === 1;
+    if (plain(p) && plain(prev)) (prev as { text: string }).text += (p as { text: string }).text;
+    else out.push({ ...p });
+  }
+  return out;
+}
+
+/** One streamed generateContent call. onParts sees each chunk as it arrives. */
+async function geminiStreamOnce(model: string, body: object, signal: AbortSignal, onParts: (parts: GPart[]) => void): Promise<GContent> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    let message = `gemini ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: { message?: string } };
+      message = j.error?.message ?? message;
+    } catch {
+      /* non-JSON error body */
+    }
+    const err = new Error(`${model}: ${message}`);
+    (err as { status?: number }).status = res.status;
+    throw err;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: GPart[] = [];
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const event = JSON.parse(line.slice(5)) as { candidates?: { content?: GContent }[]; error?: { code?: number; message?: string } };
+      if (event.error) {
+        const err = new Error(`${model}: ${event.error.message ?? 'stream error'}`);
+        (err as { status?: number }).status = event.error.code;
+        throw err;
+      }
+      const got = event.candidates?.[0]?.content?.parts ?? [];
+      if (got.length) {
+        parts.push(...got);
+        onParts(got);
+      }
+    }
+  }
+  return { role: 'model', parts: mergeTextParts(parts) };
+}
+
+/** One model turn, raced across GEMINI_CHAT_MODELS: the next model starts if
+ *  the current one hasn't produced anything after HEDGE_MS or fails; the
+ *  first to stream anything wins and the others are cancelled. onText only
+ *  ever receives the winner's text. */
+function geminiTurn(contents: GContent[], tools: ToolLike[], system: string, onText: (text: string) => void): Promise<GContent> {
   const decls = tools.map((t) => ({
     name: t.name,
     description: t.description,
@@ -360,27 +448,65 @@ async function geminiGenerate(contents: GContent[], tools: ToolLike[], system: s
     contents,
     ...(decls.length ? { tools: [{ functionDeclarations: decls }] } : {}),
   };
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-goog-api-key': env.GEMINI_API_KEY as string },
-      body: JSON.stringify(body),
-    },
-  );
-  const json = (await res.json()) as {
-    candidates?: { content?: GContent }[];
-    error?: { code?: number; message?: string };
-  };
-  if (!res.ok || json.error) {
-    const err = new Error(json.error?.message ?? `gemini ${res.status}`);
-    (err as { status?: number }).status = json.error?.code ?? res.status;
-    throw err;
-  }
-  return json.candidates?.[0]?.content ?? { role: 'model' as const, parts: [] };
+  return new Promise<GContent>((resolve, reject) => {
+    let winner = -1;
+    let settled = false;
+    let started = 0;
+    let failed = 0;
+    let lastErr: unknown = new Error('no model available');
+    let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
+    const ctrls: AbortController[] = [];
+    const cancelOthers = (keep: number) => ctrls.forEach((c, j) => j !== keep && c.abort());
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hedgeTimer);
+      fn();
+    };
+    const startNext = () => {
+      if (settled || winner >= 0 || started >= GEMINI_CHAT_MODELS.length) return;
+      const i = started++;
+      const ctrl = new AbortController();
+      ctrls[i] = ctrl;
+      let timedOut = false;
+      const kill = setTimeout(() => {
+        timedOut = true;
+        ctrl.abort();
+      }, MODEL_TIMEOUT_MS);
+      clearTimeout(hedgeTimer);
+      hedgeTimer = setTimeout(startNext, HEDGE_MS);
+      geminiStreamOnce(GEMINI_CHAT_MODELS[i]!, body, ctrl.signal, (parts) => {
+        if (winner < 0) {
+          winner = i;
+          clearTimeout(hedgeTimer);
+          cancelOthers(i);
+        }
+        if (winner !== i) return;
+        for (const p of parts) if ('text' in p && p.text && !p.thought) onText(p.text);
+      }).then(
+        (content) => {
+          clearTimeout(kill);
+          if (winner === i || winner < 0) {
+            cancelOthers(i);
+            finish(() => resolve(content));
+          }
+        },
+        (err) => {
+          clearTimeout(kill);
+          if (winner === i) return finish(() => reject(err));
+          if (ctrl.signal.aborted && !timedOut) return; // cancelled because another model won
+          failed++;
+          lastErr = err;
+          if (started < GEMINI_CHAT_MODELS.length) startNext();
+          else if (failed === started && winner < 0) finish(() => reject(lastErr));
+        },
+      );
+    };
+    startNext();
+  });
 }
 
-async function runGemini(
+export async function runGemini(
   messages: ChatMsg[],
   tools: AiTool[],
   actions: AiAction[],
@@ -388,6 +514,7 @@ async function runGemini(
   admin: SupabaseClient,
   actor: Actor,
   attachmentImage?: AttachmentImage | null,
+  emit: Emitter = noEmit,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -403,58 +530,81 @@ async function runGemini(
   }));
   const trace: AgentResult['trace'] = [];
   const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
+  // Everything streamed to the viewer so far, across turns (a lead-in like
+  // "Let me check today's sales" followed by the answer).
+  let streamed = '';
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const content = await withRetry(() => geminiGenerate(contents, declared, system));
+    let turnText = false;
+    const onText = (text: string) => {
+      if (!turnText && streamed && !streamed.endsWith('\n')) {
+        streamed += '\n\n';
+        emit.delta('\n\n');
+      }
+      turnText = true;
+      streamed += text;
+      emit.delta(text);
+    };
+    // Retry the whole turn on 429/503 across every model — but never after
+    // text has already reached the viewer (it would appear twice).
+    let content: GContent | undefined;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        content = await geminiTurn(contents, declared, system, onText);
+        break;
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        if (turnText || attempt >= 1 || (status !== 429 && status !== 503)) throw err;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
     const calls = content.parts.filter(
       (p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p,
     );
+    const text = content.parts
+      .filter((p): p is { text: string } => 'text' in p && !(p as { thought?: boolean }).thought)
+      .map((p) => p.text)
+      .join('')
+      .trim();
     if (calls.length === 0) {
-      const text = content.parts
-        .filter((p): p is { text: string } => 'text' in p)
-        .map((p) => p.text)
-        .join('\n')
-        .trim();
-      return { reply: text || '(no answer)', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
+      return { reply: streamed.trim() || text || '(no answer)', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
     }
 
-    const leadText = content.parts
-      .filter((p): p is { text: string } => 'text' in p)
-      .map((p) => p.text)
-      .join('\n')
-      .trim();
     const actionCall = calls.find((c) => actionByName.has(c.functionCall.name));
     if (actionCall) {
-      const pending = await proposeAction(
+      emit.status(toolLabel(actionCall.functionCall.name));
+      return proposeAction(
         actionByName.get(actionCall.functionCall.name)!,
         (actionCall.functionCall.args ?? {}) as Record<string, unknown>,
         admin,
-        leadText,
+        streamed.trim() || text,
         trace,
         actor,
       );
-      return pending;
     }
 
     contents.push(content);
-    const parts: GPart[] = [];
-    for (const c of calls) {
-      const out = await callTool(
-        byName.get(c.functionCall.name),
-        (c.functionCall.args ?? {}) as Record<string, unknown>,
-        admin,
-        userId,
-        trace,
-        c.functionCall.name,
-        capture,
-        actor,
-      );
-      const response =
-        out !== null && typeof out === 'object' && !Array.isArray(out)
-          ? (out as object)
-          : { result: out };
-      parts.push({ functionResponse: { name: c.functionCall.name, response } });
-    }
+    // Lookups asked for in the same turn run at the same time.
+    for (const c of calls) emit.status(toolLabel(c.functionCall.name));
+    const outs = await Promise.all(
+      calls.map((c) =>
+        callTool(
+          byName.get(c.functionCall.name),
+          (c.functionCall.args ?? {}) as Record<string, unknown>,
+          admin,
+          userId,
+          trace,
+          c.functionCall.name,
+          capture,
+          actor,
+        ),
+      ),
+    );
+    const parts: GPart[] = calls.map((c, k) => {
+      const out = outs[k];
+      const response = out !== null && typeof out === 'object' && !Array.isArray(out) ? (out as object) : { result: out };
+      return { functionResponse: { name: c.functionCall.name, response } };
+    });
     contents.push({ role: 'user', parts });
   }
   return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
@@ -523,6 +673,7 @@ async function runAnthropic(
   admin: SupabaseClient,
   actor: Actor,
   attachmentImage?: AttachmentImage | null,
+  emit: Emitter = noEmit,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -545,23 +696,26 @@ async function runAnthropic(
   const capture: { profitCard?: ProfitCard; orderCard?: OrderCard; dealCard?: DealCard } = {};
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const resp = await anthropic.messages.create({
-      model: env.AI_MODEL,
-      max_tokens: 1024,
-      system,
-      tools: declared.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.input_schema,
-      })),
-      messages: convo,
-    });
+    const resp = await withRetry(() =>
+      anthropic.messages.create({
+        model: env.AI_MODEL,
+        max_tokens: 4096,
+        system,
+        tools: declared.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        })),
+        messages: convo,
+      }),
+    );
     if (resp.stop_reason !== 'tool_use') {
       const text = resp.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
         .join('\n')
         .trim();
+      if (text) emit.delta(text);
       return { reply: text || '(no answer)', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
     }
 
@@ -585,25 +739,19 @@ async function runAnthropic(
     }
 
     convo.push({ role: 'assistant', content: resp.content });
-    const results: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of resp.content) {
-      if (block.type !== 'tool_use') continue;
-      const out = await callTool(
-        byName.get(block.name),
-        (block.input ?? {}) as Record<string, unknown>,
-        admin,
-        userId,
-        trace,
-        block.name,
-        capture,
-        actor,
-      );
-      results.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: JSON.stringify(out).slice(0, 12000),
-      });
-    }
+    // Lookups asked for in the same turn run at the same time.
+    const uses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    for (const u of uses) emit.status(toolLabel(u.name));
+    const outs = await Promise.all(
+      uses.map((block) =>
+        callTool(byName.get(block.name), (block.input ?? {}) as Record<string, unknown>, admin, userId, trace, block.name, capture, actor),
+      ),
+    );
+    const results: Anthropic.ToolResultBlockParam[] = uses.map((block, k) => ({
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: JSON.stringify(outs[k]).slice(0, 12000),
+    }));
     convo.push({ role: 'user', content: results });
   }
   return { reply: 'I ran out of steps before finishing — try a narrower question.', trace, profitCard: capture.profitCard, orderCard: capture.orderCard, dealCard: capture.dealCard };
@@ -679,21 +827,43 @@ aiRouter.post(
       : [];
     const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
     const actor: Actor = { userId, email, role, permissions };
+    const run = (emit: Emitter) =>
+      aiProvider === 'gemini'
+        ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage, emit)
+        : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage, emit);
+    const payload = (result: AgentResult) => ({
+      reply: result.reply,
+      tools: result.trace,
+      provider: aiProvider,
+      pendingAction: result.pendingAction ?? null,
+      profitCard: result.profitCard ?? null,
+      orderCard: result.orderCard ?? null,
+      dealCard: result.dealCard ?? null,
+    });
+
+    if (parsed.data.stream) {
+      // Server-sent events: the answer appears as it's written, with a
+      // progress line while data is being looked up.
+      res.status(200);
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+      const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      try {
+        const result = await run({ status: (label) => send('status', { label }), delta: (text) => send('delta', { text }) });
+        send('done', payload(result));
+      } catch (err) {
+        console.error('[ai] chat failed:', err);
+        send('error', { error: 'ai_failed', message: 'The assistant could not complete the request — please try again.' });
+      }
+      res.end();
+      return;
+    }
 
     try {
-      const result =
-        aiProvider === 'gemini'
-          ? await runGemini(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage)
-          : await runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, attachmentImage);
-      return res.json({
-        reply: result.reply,
-        tools: result.trace,
-        provider: aiProvider,
-        pendingAction: result.pendingAction ?? null,
-        profitCard: result.profitCard ?? null,
-        orderCard: result.orderCard ?? null,
-        dealCard: result.dealCard ?? null,
-      });
+      return res.json(payload(await run(noEmit)));
     } catch (err) {
       console.error('[ai] chat failed:', err);
       return res.status(502).json({ error: 'ai_failed', message: 'The assistant could not complete the request.' });
