@@ -684,6 +684,7 @@ export function StorefrontClient({
         restaurantName={restaurantName}
         products={products}
         deals={deals}
+        categories={categories}
         cartSnapshot={cartSnapshot}
         dealMatches={dealMatches}
         onAddPlain={(product, qty) => bump(product, qty)}

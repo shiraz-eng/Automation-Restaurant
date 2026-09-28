@@ -583,7 +583,35 @@ const getOrderStatus: CustomerAiTool = {
   },
 };
 
+const getMenuOverview: CustomerAiTool = {
+  name: 'get_menu_overview',
+  description:
+    'Returns all available menu categories and items with their prices. Call this whenever the customer asks what is on the menu, what categories exist, or asks for general or group recommendations.',
+  input_schema: { type: 'object', properties: {} },
+  async run(tenant) {
+    const [{ data: categories }, { data: items }, computed] = await Promise.all([
+      tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
+      tenant.from('menu_items').select('id, name, category_id, price_cents, is_available, description').eq('is_available', true),
+      computedAvailableItems(tenant),
+    ]);
+    const catMap = new Map(((categories ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+    const availableItems = ((items ?? []) as { id: string; name: string; category_id: string | null; price_cents: number; description?: string | null }[])
+      .filter((it) => computedAvailable(computed, it.id))
+      .map((it) => ({
+        name: it.name,
+        category: it.category_id ? catMap.get(it.category_id) ?? null : null,
+        price_cents: it.price_cents,
+        description: it.description ?? null,
+      }));
+    return {
+      categories: ((categories ?? []) as { name: string }[]).map((c) => c.name),
+      items: availableItems,
+    };
+  },
+};
+
 export const CUSTOMER_AI_TOOLS: CustomerAiTool[] = [
+  getMenuOverview,
   getBestSellers,
   getTrendingItems,
   getBestValueItems,
@@ -600,10 +628,17 @@ How to converse (dynamic like ChatGPT):
 - Speak naturally and conversationally — warm, engaging, and attentive. Never recite rigid scripts, repetitive canned phrases, or sound robotic.
 - Adapt fluidly to the guest's language, tone, and vibe: English, Urdu, Roman Urdu ("kya scene hai", "bhai koi mast cheez batao"), Arabic, Spanish, casual banter, or formal dining questions.
 - Be appetizing and descriptive: bring dishes to life with flavor notes (crispy, smoky, savory, zesty, creamy) and suggest delicious pairings dynamically (e.g. recommend a drink, side, or dip that complements their main).
-- Answer general culinary, dietary, cooking style, or ingredient questions from your broad food knowledge (what a dish is, spice levels, portion ideas for a group, flavor balance), while strictly grounding all restaurant dish names, prices, deals, and stock in the tool data.
+- Answer general culinary, dietary, cooking style, or ingredient questions from your broad food knowledge (what an ingredient is, spice levels, allergen definitions, cooking techniques), while strictly grounding all restaurant dish names, prices, deals, and stock in the tool data.
 - Allergy and dietary guidance: offer helpful food facts, but advise guests with serious allergies to confirm with restaurant staff before ordering.
 - Highlight specific dish names and deal names in **bold** (e.g. **Zinger Burger**, **Family Combo**).
 - Never mention function or tool names in your responses; simply provide the answer seamlessly.
+
+Strict Menu Grounding & Anti-Hallucination (CRITICAL):
+- You may ONLY recommend, mention, or suggest dishes, platters, meals, combos, drinks, or items that actually exist in the restaurant's menu or deals returned by tools.
+- Call relevant tools (get_menu_overview, get_best_sellers, get_active_deals, build_budget_order) BEFORE answering questions about the menu, recommendations, or group meals.
+- NEVER invent, assume, or hallucinate food items, categories, or platter types that are not on the menu. For example, do NOT suggest "BBQ platters", "curries", "kebabs", "tacos", "pizzas", "platters to share", or any other dish or category UNLESS that exact item or category is returned by a tool.
+- Group or recommendation requests (e.g. "What do you recommend for 4 people?", "recommend dinner for a family"): you MUST look at the real menu items/deals from tools and recommend specific quantities of real items. Never invent general food platters or cuisines the restaurant doesn't sell.
+- Off-menu requests: If the guest asks for an item, cuisine, or category that is NOT in the restaurant's menu, politely clarify that ${restaurantName} does not serve that item/category, and smoothly guide them to what IS available on the menu.
 
 Ground rules:
 - You NEVER add anything to the cart, change a price, apply a deal, or place an order yourself. You only recommend, explain, and propose. The customer always makes the final tap/click themselves in the UI.

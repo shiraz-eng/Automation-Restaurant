@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
-import type { Product, ModOption, DealMatch, DealLite } from './StorefrontClient';
+import type { Product, ModOption, DealMatch, DealLite, MenuCategory } from './StorefrontClient';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -22,6 +22,7 @@ export function CustomerAiChat({
   restaurantName,
   products,
   deals,
+  categories,
   cartSnapshot,
   dealMatches,
   onAddPlain,
@@ -35,6 +36,7 @@ export function CustomerAiChat({
   restaurantName: string;
   products: Product[];
   deals: DealLite[];
+  categories?: MenuCategory[];
   cartSnapshot: { variant_id: string; qty: number }[];
   dealMatches: DealMatch[];
   onAddPlain: (product: Product, qty: number) => void;
@@ -110,8 +112,10 @@ export function CustomerAiChat({
         id: p.id,
         name: p.name,
         price_cents: p.price_cents,
-        category: p.category_id,
+        category: categories?.find((c) => c.id === p.category_id)?.name ?? null,
+        description: p.description ?? null,
       })),
+      menu_categories: categories?.map((c) => c.name) ?? [],
       menu_deals: deals.map((d) => ({
         id: d.id,
         name: d.name,

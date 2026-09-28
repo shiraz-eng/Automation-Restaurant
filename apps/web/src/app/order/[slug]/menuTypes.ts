@@ -45,6 +45,7 @@ export type Product = {
   category_id: string | null;
   image_url: string | null;
   modifier_groups: ModGroup[];
+  description?: string | null;
 };
 
 /** What the customer actually browses: one card per menu item, not one per
@@ -132,6 +133,7 @@ export function toProducts(items: MenuItem[]): Product[] {
         category_id: it.category_id,
         image_url: it.image_url ?? null,
         modifier_groups: it.modifier_groups ?? [],
+        description: it.description ?? null,
       });
     }
   }
