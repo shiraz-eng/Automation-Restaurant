@@ -70,26 +70,45 @@ export default async function DashboardPage({
   const brandKitRow = Array.isArray(brandKitRes.data) ? brandKitRes.data[0] : brandKitRes.data;
   const logoUrl: string | null = (brandKitRow as { logo_url?: string | null } | null)?.logo_url ?? null;
 
-  const since = new Date();
-  since.setHours(0, 0, 0, 0);
-  const todayRes = await supabase
-    .from('orders')
-    .select('total_cents')
-    .gte('created_at', since.toISOString());
+  // Today and yesterday are the RESTAURANT's calendar days (this server runs
+  // in UTC), and use the same net-sales figure as Restaurant performance:
+  // served/paid orders, before tax, minus discounts and refunds.
+  const { data: tzRow } = await supabase.from('business_settings').select('timezone').eq('id', true).maybeSingle();
+  let tz = 'UTC';
+  try {
+    const candidate = (tzRow as { timezone?: string | null } | null)?.timezone;
+    if (candidate) {
+      new Intl.DateTimeFormat('en-US', { timeZone: candidate });
+      tz = candidate;
+    }
+  } catch {
+    /* unknown zone name — stay on UTC */
+  }
+  const ymd = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const todayYmd = ymd(now);
+  const yesterdayYmd = ymd(new Date(Date.parse(`${todayYmd}T12:00:00Z`) - 86400_000));
+  const { data: dayRows } = await supabase.rpc('sales_by_day', { p_from: yesterdayYmd, p_to: todayYmd });
+  const days = (dayRows ?? []) as { business_date: string; net_sales_cents: number; orders_count: number }[];
+  const todayRow = days.find((r) => r.business_date === todayYmd);
+  const yesterdayRow = days.find((r) => r.business_date === yesterdayYmd);
 
   const role = (membershipRes.data as { role?: string } | null)?.role ?? 'member';
   const orders = ordersRes.data ?? [];
   const menu = menuRes.data ?? [];
   const inventory = inventoryRes.data ?? [];
-  const todayOrders = todayRes.data ?? [];
   const firstError =
     membershipRes.error || ordersRes.error || menuRes.error || inventoryRes.error;
 
-  const todayCount = todayOrders.length;
-  const todayRevenue = todayOrders.reduce(
-    (s: number, o: { total_cents: number | null }) => s + (o.total_cents ?? 0),
-    0,
-  );
+  const todayCount = todayRow?.orders_count ?? 0;
+  const todayRevenue = todayRow?.net_sales_cents ?? 0;
+  const yesterdayRevenue = yesterdayRow?.net_sales_cents ?? 0;
+  const vsYesterday =
+    yesterdayRevenue > 0
+      ? (() => {
+          const pct = Math.round(((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 1000) / 10;
+          return `${pct >= 0 ? '↑' : '↓'} ${Math.abs(pct)}% vs yesterday (${formatCents(yesterdayRevenue)})`;
+        })()
+      : `Yesterday: ${formatCents(yesterdayRevenue)}`;
   const lowStock = inventory.filter(
     (i: { stock_qty: number; min_threshold: number }) =>
       Number(i.stock_qty) <= Number(i.min_threshold),
@@ -132,8 +151,8 @@ export default async function DashboardPage({
       )}
 
       <section className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <DashboardStat label="Today's sales" value={formatCents(todayRevenue)} hint="vs. yesterday" />
-        <DashboardStat label="Orders" value={todayCount} />
+        <DashboardStat label="Today's net sales" value={formatCents(todayRevenue)} hint={vsYesterday} />
+        <DashboardStat label="Orders today" value={todayCount} hint="served or paid" />
         <DashboardStat label="Average order value" value={formatCents(avgOrderValue)} />
         <DashboardStat
           label="Menu items"

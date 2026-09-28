@@ -172,7 +172,7 @@ export async function buildExcelWorkbook(
     admin
       .from('expenses')
       .select('expense_date, category, description, amount_cents')
-      .gte('expense_date', fromDate)
+      // Every expense up to the period end — same rule as period_profitability.
       .lte('expense_date', toDate)
       .order('expense_date', { ascending: false }),
     AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),

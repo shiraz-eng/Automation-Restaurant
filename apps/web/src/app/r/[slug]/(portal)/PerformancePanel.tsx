@@ -66,98 +66,92 @@ const EXCEL_OPTIONAL_SHEETS = [
   'Expenses', 'Management Activity', 'AI Actions',
 ] as const;
 
-export function periodRange(period: Period) {
-  const startOfDay = (d: Date) => {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  };
-  const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400_000);
-  const today0 = startOfDay(new Date());
-  const now = new Date();
+// ── Dates in the RESTAURANT'S timezone ──────────────────────────────────────
+// Periods ("Today", "This week"…) are the restaurant's calendar days
+// (business_settings.timezone), not the viewing computer's: a browser set to
+// another timezone used to start "Today" hours early or late.
+export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** Calendar parts of `d` as seen in `tz` (m is 0-based, dow 0 = Sunday). */
+function partsIn(d: Date, tz: string) {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short' }).formatToParts(d);
+  const get = (t: string) => p.find((x) => x.type === t)?.value ?? '';
+  return { y: Number(get('year')), m: Number(get('month')) - 1, d: Number(get('day')), dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday')) };
+}
+/** How far `tz` is ahead of UTC at instant `ms`. */
+function tzOffsetMs(ms: number, tz: string): number {
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(ms));
+  const g = (t: string) => Number(p.find((x) => x.type === t)?.value ?? 0);
+  return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second')) - Math.floor(ms / 1000) * 1000;
+}
+/** The instant calendar day (y, m, d) begins in `tz`; m and d may overflow
+ *  (d = 0 is the last day of the previous month, like Date.UTC). */
+function midnightIn(y: number, m: number, d: number, tz: string): Date {
+  const guess = Date.UTC(y, m, d);
+  const first = guess - tzOffsetMs(guess, tz);
+  return new Date(guess - tzOffsetMs(first, tz)); // second pass settles DST changes
+}
+/** 'YYYY-MM-DD' of `d` in `tz`. */
+export const dateIn = (d: Date, tz: string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+
+export function periodRange(period: Period, tz: string = browserTimeZone()) {
+  const { y, m, d, dow } = partsIn(new Date(), tz);
+  const day = (n: number) => midnightIn(y, m, n, tz); // a day of this month (n may overflow)
+  const month = (k: number) => midnightIn(y, m + k, 1, tz); // 1st of a month relative to this one
+  const tomorrow = day(d + 1);
+  const monOff = (dow + 6) % 7; // Monday = 0
   switch (period) {
-    case 'yesterday': {
-      const from = addDays(today0, -1);
-      return { from, to: today0, prevFrom: addDays(from, -1), prevTo: from };
-    }
-    case 'this_week': {
-      const dow = (today0.getDay() + 6) % 7;
-      const from = addDays(today0, -dow);
-      return { from, to: addDays(today0, 1), prevFrom: addDays(from, -7), prevTo: from };
-    }
-    case 'last_week': {
-      const dow = (today0.getDay() + 6) % 7;
-      const thisWeekFrom = addDays(today0, -dow);
-      const from = addDays(thisWeekFrom, -7);
-      return { from, to: thisWeekFrom, prevFrom: addDays(from, -7), prevTo: from };
-    }
-    case 'this_month': {
-      const from = new Date(now.getFullYear(), now.getMonth(), 1);
-      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
-    }
-    case 'last_month': {
-      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const to = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from, to, prevFrom: new Date(now.getFullYear(), now.getMonth() - 2, 1), prevTo: from };
-    }
-    case 'last_3_months': {
-      const from = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
-    }
-    case 'last_6_months': {
-      const from = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-      const prevFrom = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
-    }
-    case 'this_year': {
-      const from = new Date(now.getFullYear(), 0, 1);
-      const prevFrom = new Date(now.getFullYear() - 1, 0, 1);
-      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
-    }
-    case 'last_year': {
-      const from = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-      const prevFrom = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
-      return { from, to: addDays(today0, 1), prevFrom, prevTo: from };
-    }
-    default: {
-      const from = today0;
-      return { from, to: addDays(today0, 1), prevFrom: addDays(from, -1), prevTo: from };
-    }
+    case 'yesterday':
+      return { from: day(d - 1), to: day(d), prevFrom: day(d - 2), prevTo: day(d - 1) };
+    case 'this_week':
+      return { from: day(d - monOff), to: tomorrow, prevFrom: day(d - monOff - 7), prevTo: day(d - monOff) };
+    case 'last_week':
+      return { from: day(d - monOff - 7), to: day(d - monOff), prevFrom: day(d - monOff - 14), prevTo: day(d - monOff - 7) };
+    case 'this_month':
+      return { from: month(0), to: tomorrow, prevFrom: month(-1), prevTo: month(0) };
+    case 'last_month':
+      return { from: month(-1), to: month(0), prevFrom: month(-2), prevTo: month(-1) };
+    case 'last_3_months':
+      return { from: month(-3), to: tomorrow, prevFrom: month(-6), prevTo: month(-3) };
+    case 'last_6_months':
+      return { from: month(-6), to: tomorrow, prevFrom: month(-12), prevTo: month(-6) };
+    case 'this_year':
+      return { from: midnightIn(y, 0, 1, tz), to: tomorrow, prevFrom: midnightIn(y - 1, 0, 1, tz), prevTo: midnightIn(y, 0, 1, tz) };
+    case 'last_year':
+      return { from: midnightIn(y - 1, m, d, tz), to: tomorrow, prevFrom: midnightIn(y - 2, m, d, tz), prevTo: midnightIn(y - 1, m, d, tz) };
+    default:
+      return { from: day(d), to: tomorrow, prevFrom: day(d - 1), prevTo: day(d) };
   }
 }
-// Whole dates are read from LOCAL components: toISOString() is UTC and put
-// every date a day early for restaurants east of UTC (e.g. Pakistan).
-const asDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-/** Ranges here have an exclusive `to` (the next midnight); whole-date
- *  queries (sales_by_day, expense_date) need the inclusive last day. */
-const lastDay = (to: Date) => new Date(to.getTime() - 86400_000);
-function rangeCaption(from: Date, to: Date): string {
-  const end = lastDay(to);
-  const fmt = (d: Date, withYear: boolean) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
-  return from.getTime() >= end.getTime() ? fmt(from, true) : `${fmt(from, from.getFullYear() !== end.getFullYear())} – ${fmt(end, true)}`;
+/** Ranges have an exclusive `to` (the next midnight); whole-date queries
+ *  (sales_by_day, expense_date) need the last day INSIDE the range. */
+const lastDayIn = (to: Date, tz: string) => dateIn(new Date(to.getTime() - 1), tz);
+function rangeCaption(from: Date, to: Date, tz: string): string {
+  const end = new Date(to.getTime() - 1);
+  const fmt = (x: Date, withYear: boolean) =>
+    x.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+  if (dateIn(from, tz) === dateIn(end, tz)) return fmt(from, true);
+  return `${fmt(from, dateIn(from, tz).slice(0, 4) !== dateIn(end, tz).slice(0, 4))} – ${fmt(end, true)}`;
 }
 
 export type CustomRange = { from: string; to: string };
 /** An owner-chosen date range from the two <input type="date"> fields
- *  below (spec §1's "Custom Period") — mirrors the API's own
- *  customRange() (apps/api/src/lib/aiTools.ts) exactly, including the
- *  previous-period comparison window being the immediately preceding
- *  range of the SAME length, so % changes stay meaningful. Built from
- *  local Y-M-D date-input values throughout (no toISOString() on a
- *  shifted boundary) — the API side found and fixed a timezone bug from
- *  exactly that pattern; this mirrors the fixed version, not the original. */
-function resolveRange(period: Period, custom: CustomRange | null): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
+ *  below (spec §1's "Custom Period") — the previous-period comparison
+ *  window is the immediately preceding range of the SAME length, so %
+ *  changes stay meaningful. Both dates are the restaurant's calendar days. */
+function resolveRange(period: Period, custom: CustomRange | null, tz: string): { from: Date; to: Date; prevFrom: Date; prevTo: Date } {
   if (custom && custom.from && custom.to) {
-    const from = new Date(`${custom.from}T00:00:00`);
-    const toInclusive = new Date(`${custom.to}T00:00:00`);
-    const to = new Date(toInclusive.getTime() + 86400_000);
+    const [fy, fm, fd] = custom.from.split('-').map(Number) as [number, number, number];
+    const [ty, tm, td] = custom.to.split('-').map(Number) as [number, number, number];
+    const from = midnightIn(fy, fm - 1, fd, tz);
+    const to = midnightIn(ty, tm - 1, td + 1, tz);
     const spanMs = Math.max(to.getTime() - from.getTime(), 86400_000);
     return { from, to, prevFrom: new Date(from.getTime() - spanMs), prevTo: from };
   }
-  return periodRange(period);
+  return periodRange(period, tz);
 }
 function customRangeLabel(custom: CustomRange): string {
   const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -330,6 +324,34 @@ export function PerformancePanel({
   // once-a-minute re-read while the tab is visible, bumps refreshTick; the
   // loader below then re-reads quietly (no loading state, no flicker).
   const [refreshTick, setRefreshTick] = useState(0);
+  // The restaurant's timezone (business_settings.timezone); null until read.
+  const [restaurantTz, setRestaurantTz] = useState<string | null>(null);
+  const tz = restaurantTz ?? browserTimeZone();
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('business_settings')
+      .select('timezone')
+      .eq('id', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const candidate = (data as { timezone?: string | null } | null)?.timezone;
+        let valid = browserTimeZone();
+        try {
+          if (candidate) {
+            new Intl.DateTimeFormat('en-US', { timeZone: candidate });
+            valid = candidate;
+          }
+        } catch {
+          /* unknown zone name — keep the browser's */
+        }
+        setRestaurantTz(valid);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const lastRangeKey = useRef('');
   useEffect(() => {
@@ -354,18 +376,19 @@ export function PerformancePanel({
   }, [supabase]);
 
   useEffect(() => {
+    if (!restaurantTz) return; // wait for the restaurant's timezone
     let cancelled = false;
-    const rangeKey = `${period}|${customRange?.from ?? ''}|${customRange?.to ?? ''}`;
+    const rangeKey = `${period}|${customRange?.from ?? ''}|${customRange?.to ?? ''}|${restaurantTz}`;
     const quiet = lastRangeKey.current === rangeKey;
     lastRangeKey.current = rangeKey;
     if (!quiet) {
       setLoading(true);
       setError(null);
     }
-    const { from, to, prevFrom, prevTo } = resolveRange(period, customRange);
+    const { from, to, prevFrom, prevTo } = resolveRange(period, customRange, restaurantTz);
 
     async function fetchDays(from: Date, to: Date) {
-      const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: asDate(from), p_to: asDate(lastDay(to)) });
+      const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: dateIn(from, restaurantTz!), p_to: lastDayIn(to, restaurantTz!) });
       if (err) throw err;
       return (data as { business_date: string; net_sales_cents: number; orders_count: number }[]) ?? [];
     }
@@ -493,7 +516,7 @@ export function PerformancePanel({
     return () => {
       cancelled = true;
     };
-  }, [period, customRange, supabase, refreshTick]);
+  }, [period, customRange, supabase, refreshTick, restaurantTz]);
 
   // Today's attendance is always "today", independent of the period picker
   // (spec §13's own framing) — fetched once.
@@ -527,12 +550,12 @@ export function PerformancePanel({
     // actually generating a report, rather than on every page load.
     let expenseRecords: { category: string; description: string | null; amount_cents: number; expense_date: string }[] | undefined;
     if (canSeeProfit && profit) {
-      const { from, to } = resolveRange(period, customRange);
+      // Every expense up to the period end — same rule as period_profitability.
+      const { to } = resolveRange(period, customRange, tz);
       const { data } = await supabase
         .from('expenses')
         .select('category, description, amount_cents, expense_date')
-        .gte('expense_date', asDate(from))
-        .lte('expense_date', asDate(lastDay(to)));
+        .lte('expense_date', lastDayIn(to, tz));
       expenseRecords = data ?? [];
     }
 
@@ -701,12 +724,12 @@ export function PerformancePanel({
           <h2 className="font-bold">Restaurant performance</h2>
           <p className="text-muted text-[11px] mt-0.5 flex items-center gap-1.5">
             {(() => {
-              const r = resolveRange(period, customRange);
-              return rangeCaption(r.from, r.to);
+              const r = resolveRange(period, customRange, tz);
+              return rangeCaption(r.from, r.to, tz);
             })()}
             <span className="inline-flex items-center gap-1">
               · <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Live
-              {updatedAt && ` · updated ${updatedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+              {updatedAt && ` · updated ${updatedAt.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })}`}
             </span>
           </p>
         </div>
@@ -851,9 +874,9 @@ export function PerformancePanel({
       {!loading && !error && sales && sales.orders_count === 0 && (
         <p className="rounded-lg border border-border bg-main px-3 py-2 text-xs text-muted">
           No completed orders between {(() => {
-            const r = resolveRange(period, customRange);
-            return rangeCaption(r.from, r.to);
-          })()}. Expenses dated in this period still count toward net profit.
+            const r = resolveRange(period, customRange, tz);
+            return rangeCaption(r.from, r.to, tz);
+          })()}. Net profit still subtracts every expense recorded up to the end of this period.
         </p>
       )}
 
@@ -904,7 +927,7 @@ export function PerformancePanel({
               <span>Discounts <span className="font-semibold text-body">-{formatCents(profit.discount_cents)}</span></span>
               <span>Refunds <span className="font-semibold text-body">-{formatCents(profit.refunded_cents)}</span></span>
               <span>COGS (theoretical) <span className="font-semibold text-body">-{formatCents(profit.theoretical_cogs_cents)}</span></span>
-              <span>Expenses <span className="font-semibold text-body">-{formatCents(profit.expenses_cents)}</span></span>
+              <span>Expenses (all to date) <span className="font-semibold text-body">-{formatCents(profit.expenses_cents)}</span></span>
               {profit.cogs_lines_missing > 0 && (
                 <span className="text-warn font-semibold">
                   ⚠ {profit.cogs_lines_missing}/{profit.cogs_lines_total} sold line(s) missing a recipe — COGS understates the true figure
@@ -1103,8 +1126,9 @@ export function PerformancePanel({
       {drilldownLevel && profit && (
         <ProfitDrilldownModal
           profit={profit}
-          from={resolveRange(period, customRange).from}
-          to={resolveRange(period, customRange).to}
+          from={resolveRange(period, customRange, tz).from}
+          to={resolveRange(period, customRange, tz).to}
+          timeZone={tz}
           periodLabel={periodLabel}
           initialLevel={drilldownLevel}
           onClose={() => setDrilldownLevel(null)}

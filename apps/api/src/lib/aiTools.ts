@@ -2153,7 +2153,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('payments').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('refunds').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', fromIso).lt('paid_at', toIso),
-        admin.from('expenses').select('amount_cents').gte('expense_date', forwardRange({ from, to }).from).lte('expense_date', forwardRange({ from, to }).to),
+        admin.from('expenses').select('amount_cents').lte('expense_date', forwardRange({ from, to }).to),
       ]);
       const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
       const canSeeProfit = !profitRes.error && !!profit;
@@ -4032,7 +4032,7 @@ async function buildReportData(
     admin
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
-      .gte('expense_date', days.from)
+      // Every expense up to the period end — same rule as period_profitability.
       .lte('expense_date', days.to),
     // Restaurant Performance & Owner Activity Intelligence sections (spec
     // §28) — reuse the exact same tool run()s the AI chat calls, never a

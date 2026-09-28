@@ -316,7 +316,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       'staff' role with no permissions of its own.
 //   v76 Restaurant Performance dates follow the restaurant's timezone
 //       (expenses, sales_by_day); expenses published for live updates.
-const SCHEMA_VERSION = 76;
+//   v77 Net profit subtracts every expense recorded up to the end of the
+//       period (not only expenses dated inside it).
+const SCHEMA_VERSION = 77;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

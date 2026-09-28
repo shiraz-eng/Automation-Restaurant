@@ -80,6 +80,7 @@ export function ProfitDrilldownModal({
   periodLabel,
   onClose,
   initialLevel = 'net_profit',
+  timeZone,
 }: {
   profit: ProfitRow;
   from: Date;
@@ -87,6 +88,8 @@ export function ProfitDrilldownModal({
   periodLabel: string;
   onClose: () => void;
   initialLevel?: 'net_profit' | 'gross_profit' | 'expenses';
+  /** The restaurant's timezone, for turning `to` into an expense date. */
+  timeZone?: string;
 }) {
   const [stack, setStack] = useState<Level[]>([{ kind: initialLevel }]);
   const current = stack[stack.length - 1]!;
@@ -160,7 +163,7 @@ export function ProfitDrilldownModal({
           </div>
         )}
 
-        {current.kind === 'expenses' && <ExpensesLevel from={from} to={to} totalCents={profit.expenses_cents} />}
+        {current.kind === 'expenses' && <ExpensesLevel to={to} totalCents={profit.expenses_cents} timeZone={timeZone} />}
         {current.kind === 'cogs' && (
           <CogsLevel from={from} to={to} totalCents={profit.theoretical_cogs_cents} onSelectItem={(l) => push(l)} />
         )}
@@ -170,21 +173,22 @@ export function ProfitDrilldownModal({
   );
 }
 
-function ExpensesLevel({ from, to, totalCents }: { from: Date; to: Date; totalCents: number }) {
+function ExpensesLevel({ to, totalCents, timeZone }: { to: Date; totalCents: number; timeZone?: string }) {
   const supabase = usePortalSupabase();
   const [rows, setRows] = useState<{ category: string; description: string | null; amount_cents: number; expense_date: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    // Same rule as period_profitability: local date of `from` through the
-    // local date of the last instant before `to` (works for a midnight `to`
-    // and for `to` = now).
-    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // Same rule as period_profitability: every expense dated up to the local
+    // date of the last instant before `to` (all earlier expenses included).
+    const ymd = (d: Date) =>
+      timeZone
+        ? new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+        : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     supabase
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
-      .gte('expense_date', ymd(from))
       .lte('expense_date', ymd(new Date(to.getTime() - 1)))
       .order('amount_cents', { ascending: false })
       .then(({ data, error: err }) => {
@@ -196,12 +200,12 @@ function ExpensesLevel({ from, to, totalCents }: { from: Date; to: Date; totalCe
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from.getTime(), to.getTime(), supabase]);
+  }, [to.getTime(), timeZone, supabase]);
 
   if (error) return <p className="text-danger text-xs">{error}</p>;
   if (!rows) return <p className="text-muted text-xs">Loading expense records…</p>;
   if (rows.length === 0) {
-    return <p className="text-muted text-xs">No expense records dated in this period. Net Profit above reflects $0 in expenses.</p>;
+    return <p className="text-muted text-xs">No expenses recorded up to the end of this period. Net Profit above reflects $0 in expenses.</p>;
   }
 
   const byCategory = rows.reduce<Record<string, number>>((acc, r) => {
