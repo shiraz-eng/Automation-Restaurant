@@ -5,6 +5,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
+import { downloadTextPdf } from '@/lib/textToPdf';
 import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -40,17 +41,33 @@ type Msg = {
   profitCard?: ProfitCard;
   orderCard?: OrderProfitRow;
   dealCard?: { period: string; deals: DealProfitRow[] };
-  attachmentName?: string;
+  /** The file attached to this (user) message, stored in the 'ai-chat' bucket. */
+  attachment?: FileRef;
+  /** A PDF the assistant wrote on request (create_pdf_document). */
+  document?: { title: string; content: string };
 };
+type FileRef = { name: string; mimeType: string; storagePath: string };
 
-// Mirrors routes/ai.ts's IMAGE_MIME_TYPES/TEXT_MIME_TYPES + application/pdf,
-// and its MAX_ATTACHMENT_BYTES — checked here too so a rejection is instant
-// rather than a round trip to the server.
+// Mirrors routes/ai.ts's FILE_MIME_TYPES and MAX_FILE_BYTES (and the
+// 'ai-chat' bucket's own limits, tenant-migrations/0080) — checked here too
+// so a rejection is instant rather than a round trip.
 const ACCEPTED_ATTACHMENT_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/csv', 'text/plain',
 ]);
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
-type PendingFile = { name: string; mimeType: string; dataBase64: string };
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+type PendingFile = { file: File; name: string; mimeType: string };
+
+/** A PDF title for an answer: the question that prompted it, shortened. */
+function pdfTitleFor(msgs: Msg[], index: number): string {
+  for (let j = index - 1; j >= 0; j--) {
+    const m = msgs[j]!;
+    if (m.role === 'user') {
+      const q = m.content.replace(/\s+/g, ' ').trim();
+      return q.length > 70 ? `${q.slice(0, 67)}…` : q || 'AI Assistant answer';
+    }
+  }
+  return 'AI Assistant answer';
+}
 
 const SUGGESTIONS = [
   'How is my restaurant doing right now?',
@@ -59,6 +76,7 @@ const SUGGESTIONS = [
   'What are our best-selling items this week?',
   'Give me 5 ideas to increase weekday sales',
   'Write a WhatsApp message announcing our new deal',
+  'Make a PDF kitchen hygiene checklist',
 ];
 
 export function AiChat({ slug }: { slug: string }) {
@@ -83,21 +101,29 @@ export function AiChat({ slug }: { slug: string }) {
     if (!file) return;
     setError(null);
     if (file.size > MAX_ATTACHMENT_BYTES) {
-      setError('That file is too large — attachments are limited to 5MB.');
+      setError('That file is too large — attachments are limited to 10 MB.');
       return;
     }
-    const mimeType = file.type || (file.name.toLowerCase().endsWith('.csv') ? 'text/csv' : '');
+    const lower = file.name.toLowerCase();
+    const mimeType = file.type || (lower.endsWith('.csv') ? 'text/csv' : lower.endsWith('.txt') ? 'text/plain' : '');
     if (!ACCEPTED_ATTACHMENT_TYPES.has(mimeType)) {
-      setError('Unsupported file — attach an image (JPEG/PNG/GIF/WEBP), a PDF, a CSV, or a plain text file.');
+      setError('Unsupported file — attach a PDF, an image (JPEG/PNG/GIF/WEBP), a CSV, or a plain text file.');
       return;
     }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    setPendingFile({ name: file.name, mimeType, dataBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+    setPendingFile({ file, name: file.name, mimeType });
+  }
+
+  /** Uploads a file to the viewer's own folder in the private 'ai-chat' bucket. */
+  async function uploadAttachment(p: PendingFile): Promise<FileRef> {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('Your session expired — sign in again.');
+    const safe = p.name.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(-80);
+    const storagePath = `${user.id}/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from('ai-chat').upload(storagePath, p.file, { contentType: p.mimeType });
+    if (upErr) throw new Error(upErr.message);
+    return { name: p.name, mimeType: p.mimeType, storagePath };
   }
 
   function scrollDown() {
@@ -112,16 +138,29 @@ export function AiChat({ slug }: { slug: string }) {
   }
 
   async function send(text: string) {
-    const q = text.trim();
+    const pending = pendingFile;
+    const q = text.trim() || (pending ? `Please read "${pending.name}" and tell me what it contains.` : '');
     if (!q || busy) return;
     setError(null);
+    // The file is uploaded once; its message keeps the reference, so later
+    // questions about it still reach the model (the server loads the few
+    // most recent attachments each turn).
+    let attachment: FileRef | undefined;
+    if (pending) {
+      setBusy(true);
+      setStatus(`Uploading ${pending.name}…`);
+      try {
+        attachment = await uploadAttachment(pending);
+      } catch (err) {
+        setBusy(false);
+        setStatus(null);
+        setError(`Couldn't upload "${pending.name}": ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
     setInput('');
-    // The attachment rides along with THIS request only — resending it on
-    // every later turn (the way msgs' own text is resent) would make every
-    // follow-up message in the conversation grow without bound.
-    const attachment = pendingFile;
     setPendingFile(null);
-    const next: Msg[] = [...msgs, { role: 'user', content: q, attachmentName: attachment?.name }];
+    const next: Msg[] = [...msgs, { role: 'user', content: q, attachment }];
     // The reply streams into this placeholder as it's written.
     const replyIndex = next.length;
     setMsgs([...next, { role: 'assistant', content: '' }]);
@@ -140,8 +179,9 @@ export function AiChat({ slug }: { slug: string }) {
         await authHeader(),
         {
           slug,
-          messages: next.map((m) => ({ role: m.role, content: m.content })),
-          ...(attachment ? { attachment: { name: attachment.name, mimeType: attachment.mimeType, dataBase64: attachment.dataBase64 } } : {}),
+          messages: next
+            .filter((m) => m.content.trim())
+            .map((m) => ({ role: m.role, content: m.content, ...(m.attachment ? { attachment: m.attachment } : {}) })),
         },
         {
           status: (label) => setStatus(label),
@@ -165,6 +205,7 @@ export function AiChat({ slug }: { slug: string }) {
         profitCard: (data.profitCard as ProfitCard | null) ?? undefined,
         orderCard: (data.orderCard as OrderProfitRow | null) ?? undefined,
         dealCard: (data.dealCard as { period: string; deals: DealProfitRow[] } | null) ?? undefined,
+        document: (data.document as { title: string; content: string } | null) ?? undefined,
       }));
       scrollDown();
     } finally {
@@ -295,12 +336,34 @@ export function AiChat({ slug }: { slug: string }) {
                   {busy && i === msgs.length - 1 && <span className="inline-block w-1.5 h-3.5 align-middle bg-current opacity-60 animate-pulse ml-0.5" />}
                 </div>
               ) : null}
-              {m.attachmentName && (
-                <div className="text-[10px] text-muted mt-1">📎 {m.attachmentName}</div>
+              {m.attachment && (
+                <div className="text-[10px] text-muted mt-1">📎 {m.attachment.name}</div>
               )}
-              {m.tools && m.tools.length > 0 && (
-                <div className="text-[10px] text-muted mt-1">
-                  · {m.tools.join(' · ')}
+              {m.document && (
+                <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[10px] text-muted font-semibold uppercase tracking-wide">PDF document</div>
+                    <div className="text-sm font-semibold truncate">{m.document.title}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => downloadTextPdf(m.document!.title, m.document!.content)}
+                    className="shrink-0 rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs"
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              )}
+              {m.role === 'assistant' && m.content && !(busy && i === msgs.length - 1) && (
+                <div className="text-[10px] text-muted mt-1 flex items-center gap-2">
+                  {m.tools && m.tools.length > 0 && <span>· {m.tools.join(' · ')}</span>}
+                  <button
+                    type="button"
+                    onClick={() => downloadTextPdf(pdfTitleFor(msgs, i), m.content)}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Save as PDF
+                  </button>
                 </div>
               )}
               {m.profitCard && (
@@ -449,7 +512,7 @@ export function AiChat({ slug }: { slug: string }) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={busy}
-            title="Attach a file (image, PDF, CSV, or text)"
+            title="Attach a PDF, image, CSV or text file (up to 10 MB)"
             className="rounded border border-border px-3 py-2 text-sm hover:border-primary disabled:opacity-50"
           >
             📎
@@ -457,12 +520,12 @@ export function AiChat({ slug }: { slug: string }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask the assistant…"
+            placeholder={pendingFile ? `Ask about ${pendingFile.name}… (or just press Ask)` : 'Ask anything — or attach a PDF to read, summarise or extract…'}
             className="flex-1 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <button
             type="submit"
-            disabled={busy || !input.trim()}
+            disabled={busy || (!input.trim() && !pendingFile)}
             className="rounded bg-primary text-primary-fg font-semibold px-4 py-2 text-sm disabled:opacity-50"
           >
             Ask

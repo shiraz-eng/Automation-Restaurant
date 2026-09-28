@@ -321,7 +321,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v78 Tax settings (business_settings.tax_enabled/tax_rate_bps); place_order
 //       charges the setting, never a caller-supplied rate.
 //   v79 period_tax(): tax collected and sales incl. tax, for Restaurant Performance.
-const SCHEMA_VERSION = 79;
+//   v80 Private ai-chat storage bucket for AI Assistant attachments.
+const SCHEMA_VERSION = 80;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
