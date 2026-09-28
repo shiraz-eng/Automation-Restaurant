@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
+import { createClient } from '@supabase/supabase-js';
 import { createTenantServerClient } from './supabase/tenant-server';
+import { getTenantConfig } from './tenant';
 import type { BrandKit } from './theme';
 
 /**
@@ -23,6 +25,38 @@ export async function buildPortalMetadata(slug: string): Promise<Metadata> {
 
   return {
     title: { default: identity, template: `${identity} — %s` },
+    ...(kit?.logo_url ? { icons: { icon: kit.logo_url } } : {}),
+  };
+}
+
+/**
+ * Customer storefront identity (browser <title>, favicon, meta tags, og tags)
+ * for /order/[slug] and /order/[slug]/track/[orderId].
+ */
+export async function buildOrderMetadata(slug: string): Promise<Metadata> {
+  const config = await getTenantConfig(slug);
+  if (!config) return { title: 'Order Online — Automation Restaurant' };
+
+  let kit: BrandKit | null = null;
+  try {
+    const client = createClient(config.url, config.anonKey);
+    const { data: rows } = await client.rpc('get_brand_kit');
+    kit = (Array.isArray(rows) ? rows[0] : rows) as BrandKit | null;
+  } catch {
+    /* fallback to tenant config */
+  }
+
+  const identity = kit?.meta_title?.trim() || config.restaurantName;
+  const description = `Order online from ${identity}. View menu, deals, and order fresh food.`;
+
+  return {
+    title: { default: `${identity} — Order Online`, template: `%s — ${identity}` },
+    description,
+    openGraph: {
+      title: `${identity} — Order Online`,
+      description,
+      ...(kit?.logo_url ? { images: [{ url: kit.logo_url }] } : {}),
+    },
     ...(kit?.logo_url ? { icons: { icon: kit.logo_url } } : {}),
   };
 }

@@ -1,8 +1,10 @@
+import type { Metadata } from 'next';
 import { createClient } from '@supabase/supabase-js';
 import { getTenantConfig } from '@/lib/tenant';
 import { TrackClient, type TrackedOrder } from './TrackClient';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = { title: 'Track Order' };
 
 export default async function TrackPage({
   params,

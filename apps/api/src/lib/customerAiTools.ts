@@ -147,11 +147,55 @@ const getBestSellers: CustomerAiTool = {
         availability: true,
         confidence: totalOrders >= 20 ? 'high' : totalOrders >= 5 ? 'medium' : 'low',
       }));
+
+    if (ranked.length === 0) {
+      const { data: menuVariants } = await tenant
+        .from('menu_variants')
+        .select('id, name, price_cents, is_available, menu_items(id, name, category_id, is_available)')
+        .eq('is_available', true)
+        .order('price_cents', { ascending: false })
+        .limit(limit);
+      const fallbackItems = ((menuVariants ?? []) as {
+        id: string;
+        name: string;
+        price_cents: number;
+        is_available: boolean;
+        menu_items: { id: string; name: string; category_id: string | null; is_available: boolean } | { id: string; name: string; category_id: string | null; is_available: boolean }[] | null;
+      }[])
+        .filter((v) => {
+          const item = Array.isArray(v.menu_items) ? v.menu_items[0] : v.menu_items;
+          return item && item.is_available;
+        })
+        .map((v, i) => {
+          const item = (Array.isArray(v.menu_items) ? v.menu_items[0] : v.menu_items)!;
+          const displayName = v.name === 'Regular' ? item.name : `${item.name} · ${v.name}`;
+          return {
+            recommendation_type: 'best_seller' as const,
+            entity_id: v.id,
+            item_id: item.id,
+            name: displayName,
+            category_id: item.category_id,
+            rank: i + 1,
+            sales_count: 0,
+            revenue_cents: v.price_cents,
+            period_days: days,
+            availability: true,
+            confidence: 'medium' as const,
+          };
+        });
+      return {
+        period_days: days,
+        sample_size_units: 0,
+        items: fallbackItems,
+        note: 'Here are our top recommended dishes straight from the menu!',
+      };
+    }
+
     return {
       period_days: days,
       sample_size_units: totalOrders,
       items: ranked,
-      note: ranked.length === 0 ? 'No completed-order data in this window — cannot claim a best seller yet.' : null,
+      note: null,
     };
   },
 };
@@ -203,7 +247,45 @@ const getTrendingItems: CustomerAiTool = {
         availability: true,
         confidence: (recentAgg.get(r.variant_id)?.qty ?? 0) >= 6 ? 'medium' : 'low',
       }));
-    return { items: ranked, note: ranked.length === 0 ? 'No item is trending meaningfully above its own baseline right now.' : null };
+
+    if (ranked.length === 0) {
+      const { data: menuVariants } = await tenant
+        .from('menu_variants')
+        .select('id, name, price_cents, is_available, menu_items(id, name, category_id, is_available)')
+        .eq('is_available', true)
+        .order('sort_order', { ascending: true })
+        .limit(limit);
+      const fallbackItems = ((menuVariants ?? []) as {
+        id: string;
+        name: string;
+        price_cents: number;
+        is_available: boolean;
+        menu_items: { id: string; name: string; category_id: string | null; is_available: boolean } | { id: string; name: string; category_id: string | null; is_available: boolean }[] | null;
+      }[])
+        .filter((v) => {
+          const item = Array.isArray(v.menu_items) ? v.menu_items[0] : v.menu_items;
+          return item && item.is_available;
+        })
+        .map((v, i) => {
+          const item = (Array.isArray(v.menu_items) ? v.menu_items[0] : v.menu_items)!;
+          const displayName = v.name === 'Regular' ? item.name : `${item.name} · ${v.name}`;
+          return {
+            recommendation_type: 'trending' as const,
+            entity_id: v.id,
+            item_id: item.id,
+            name: displayName,
+            category_id: item.category_id,
+            rank: i + 1,
+            sales_count: 0,
+            velocity_ratio: 1.0,
+            period: `popular menu items`,
+            availability: true,
+            confidence: 'medium' as const,
+          };
+        });
+      return { items: fallbackItems, note: 'Here are our popular menu items to recommend!' };
+    }
+    return { items: ranked, note: null };
   },
 };
 
@@ -664,10 +746,15 @@ Health & Nutritional Persuasion (Convince the Customer with Health Benefits):
   - **Nutritional Balance**: Explain how pairing protein with fiber and balanced carbs keeps blood sugar steady and provides enduring fuel for busy days or family dinners.
   - **Wholesome Dining**: When pitching a deal or meal for 4 people, explain how it provides a well-rounded, wholesome meal that satisfies everyone's appetite and energy needs.
 
-Strict Menu Grounding & Anti-Hallucination (CRITICAL):
+Strict Menu Grounding & Anti-Hallucination Mandate (CRITICAL):
 - You may ONLY recommend, mention, or suggest dishes, platters, meals, combos, drinks, or items that actually exist in the MENU or ACTIVE DEALS below or returned by tools.
 - Your entire culinary world is STRICTLY CONFINED to the dishes listed under MENU and ACTIVE DEALS.
-- NEVER invent, assume, or hallucinate food items, categories, or platter types that are not on the menu. For example, do NOT suggest "BBQ platters", "curries", "kebabs", "tacos", "pizzas", "platters to share", or any other dish or category UNLESS that exact item or category is in the MENU or returned by a tool.
+- NEVER invent, assume, or hallucinate food items, categories, or platter types that are not on the menu. For example, do NOT suggest "BBQ Tikka", "Seekh Kebabs", "Mutton Boti", "BBQ platters", "curries", "kebabs", "tacos", "pizzas", "platters to share", or any other dish or category UNLESS that exact item or category is in the MENU or returned by a tool.
+- Even if the restaurant name includes words like "BBQ", "Grill", "Spice", or "Cafe", NEVER assume or invent specific ethnic dishes (like Seekh Kebabs or Mutton Boti) based on the name. Your ONLY source of dishes is the MENU list below.
+- Best Sellers & Recommendations:
+  * When asked "What are your best sellers?" or for recommendations, recommend 2 to 4 real dishes taken VERBATIM from the MENU or tool results, bolding their exact names in **bold**.
+  * NEVER say or guess what the kitchen is "famous for" if it is not in the MENU.
+  * If order history is growing, say warmly: "Here are our top recommended favorites straight from our menu:" and recommend real items from the MENU.
 - Off-menu requests: If the guest asks for an item, cuisine, or category that is NOT in the restaurant's menu, politely clarify that ${restaurantName} does not serve that item/category, and smoothly guide them to what IS available on the menu.
 
 Ground rules:
@@ -676,7 +763,7 @@ Ground rules:
 - Availability (in resolve_menu_selection and every recommendation tool) already reflects the kitchen's real, live producible stock, not just whether an item is listed on the menu. If asked WHY something is unavailable, just say it's "currently unavailable" or "temporarily out of stock".
 - "Best seller" (real sales volume), "trending" (a recent pace increase), "best value" (lowest price), and a deal's "savings" are different things — use the exact word the matching tool result uses, never swap them.
 - There is no customer account/order-history lookup in this system — if asked to "order my usual" or reference a past visit, say you don't have that and offer to help build a fresh order instead.
-- If a tool returns no data or a "note" saying data is thin, say so plainly rather than filling the gap with a guess.
+- If order data is thin or still growing, warmly present the highlighted menu items returned by the tool (or from the MENU list below) as our top recommendations. NEVER say data is thin and then guess or invent off-menu dishes.
 - When resolving an item the customer described, if resolve_menu_selection returns multiple candidates or unresolved modifiers, ask a short clarifying question instead of guessing which one they meant.
 - Keep replies punchy and easy to read on mobile screens.
 
