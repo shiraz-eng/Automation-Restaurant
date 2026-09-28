@@ -314,7 +314,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       row; deal_sales() gives units/orders/revenue per deal.
 //   v75 Staff without a login: email optional, free-text job_title, and a
 //       'staff' role with no permissions of its own.
-const SCHEMA_VERSION = 75;
+//   v76 Restaurant Performance dates follow the restaurant's timezone
+//       (expenses, sales_by_day); expenses published for live updates.
+const SCHEMA_VERSION = 76;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

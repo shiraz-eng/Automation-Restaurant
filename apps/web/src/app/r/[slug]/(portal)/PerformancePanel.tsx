@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { saveAndStoreReportPdf } from '@/lib/generateReport';
@@ -127,7 +127,18 @@ export function periodRange(period: Period) {
     }
   }
 }
-const asDate = (d: Date) => d.toISOString().slice(0, 10);
+// Whole dates are read from LOCAL components: toISOString() is UTC and put
+// every date a day early for restaurants east of UTC (e.g. Pakistan).
+const asDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** Ranges here have an exclusive `to` (the next midnight); whole-date
+ *  queries (sales_by_day, expense_date) need the inclusive last day. */
+const lastDay = (to: Date) => new Date(to.getTime() - 86400_000);
+function rangeCaption(from: Date, to: Date): string {
+  const end = lastDay(to);
+  const fmt = (d: Date, withYear: boolean) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+  return from.getTime() >= end.getTime() ? fmt(from, true) : `${fmt(from, from.getFullYear() !== end.getFullYear())} – ${fmt(end, true)}`;
+}
 
 export type CustomRange = { from: string; to: string };
 /** An owner-chosen date range from the two <input type="date"> fields
@@ -316,14 +327,46 @@ export function PerformancePanel({
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | null>(null);
 
+  // Live figures: any order, payment or expense change (debounced), plus a
+  // once-a-minute re-read while the tab is visible, bumps refreshTick; the
+  // loader below then re-reads quietly (no loading state, no flicker).
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const lastRangeKey = useRef('');
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setRefreshTick((t) => t + 1), 1500);
+    };
+    let ch = supabase.channel('performance-live');
+    for (const table of ['orders', 'payments', 'expenses']) {
+      ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, bump);
+    }
+    ch.subscribe();
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') setRefreshTick((t) => t + 1);
+    }, 60_000);
+    return () => {
+      if (timer) clearTimeout(timer);
+      clearInterval(poll);
+      supabase.removeChannel(ch);
+    };
+  }, [supabase]);
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const rangeKey = `${period}|${customRange?.from ?? ''}|${customRange?.to ?? ''}`;
+    const quiet = lastRangeKey.current === rangeKey;
+    lastRangeKey.current = rangeKey;
+    if (!quiet) {
+      setLoading(true);
+      setError(null);
+    }
     const { from, to, prevFrom, prevTo } = resolveRange(period, customRange);
 
     async function fetchDays(from: Date, to: Date) {
-      const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: asDate(from), p_to: asDate(to) });
+      const { data, error: err } = await supabase.rpc('sales_by_day', { p_from: asDate(from), p_to: asDate(lastDay(to)) });
       if (err) throw err;
       return (data as { business_date: string; net_sales_cents: number; orders_count: number }[]) ?? [];
     }
@@ -415,6 +458,10 @@ export function PerformancePanel({
             },
           ),
         );
+        if (!cancelled) {
+          setError(null);
+          setUpdatedAt(new Date());
+        }
       } catch (e) {
         // Supabase RPC errors are plain {message, code, ...} objects, not
         // Error instances — String(e) on one of those prints "[object
@@ -447,7 +494,7 @@ export function PerformancePanel({
     return () => {
       cancelled = true;
     };
-  }, [period, customRange, supabase]);
+  }, [period, customRange, supabase, refreshTick]);
 
   // Today's attendance is always "today", independent of the period picker
   // (spec §13's own framing) — fetched once.
@@ -460,7 +507,7 @@ export function PerformancePanel({
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [supabase, refreshTick]);
 
   const aov = sales && sales.orders_count > 0 ? Math.round(sales.net_sales_cents / sales.orders_count) : 0;
   const prevAov = prevSales && prevSales.orders_count > 0 ? Math.round(prevSales.net_sales_cents / prevSales.orders_count) : 0;
@@ -485,8 +532,8 @@ export function PerformancePanel({
       const { data } = await supabase
         .from('expenses')
         .select('category, description, amount_cents, expense_date')
-        .gte('expense_date', from.toISOString().slice(0, 10))
-        .lte('expense_date', to.toISOString().slice(0, 10));
+        .gte('expense_date', asDate(from))
+        .lte('expense_date', asDate(lastDay(to)));
       expenseRecords = data ?? [];
     }
 
@@ -651,7 +698,19 @@ export function PerformancePanel({
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-bold">Restaurant performance</h2>
+        <div>
+          <h2 className="font-bold">Restaurant performance</h2>
+          <p className="text-muted text-[11px] mt-0.5 flex items-center gap-1.5">
+            {(() => {
+              const r = resolveRange(period, customRange);
+              return rangeCaption(r.from, r.to);
+            })()}
+            <span className="inline-flex items-center gap-1">
+              · <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Live
+              {updatedAt && ` · updated ${updatedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
+            </span>
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           <div className="flex gap-1 rounded-lg border border-border bg-main p-1">
             {PERIODS.map((p) => (
@@ -790,6 +849,14 @@ export function PerformancePanel({
       )}
 
       {error && <p className="text-danger text-xs">{error}</p>}
+      {!loading && !error && sales && sales.orders_count === 0 && (
+        <p className="rounded-lg border border-border bg-main px-3 py-2 text-xs text-muted">
+          No completed orders between {(() => {
+            const r = resolveRange(period, customRange);
+            return rangeCaption(r.from, r.to);
+          })()}. Expenses dated in this period still count toward net profit.
+        </p>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

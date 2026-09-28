@@ -2153,7 +2153,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('payments').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('refunds').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', fromIso).lt('paid_at', toIso),
-        admin.from('expenses').select('amount_cents').gte('expense_date', fromIso.slice(0, 10)).lt('expense_date', toIso.slice(0, 10)),
+        admin.from('expenses').select('amount_cents').gte('expense_date', forwardRange({ from, to }).from).lte('expense_date', forwardRange({ from, to }).to),
       ]);
       const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
       const canSeeProfit = !profitRes.error && !!profit;
@@ -4013,13 +4013,15 @@ async function buildReportData(
     return { ok: false, error: 'A period is required (today, yesterday, this_week, last_week, this_month, last_month, last_3_months, last_6_months, last_year) or a custom from/to date range.' };
   }
   const { from, to, label } = resolvePeriod(args);
+  // sales_by_day and expense_date take whole dates with an INCLUSIVE end.
+  const days = forwardRange({ from, to });
 
   const [
     profitRes, dailyRes, feedbackRes, attendanceRes, itemProfRes, expensesRes, purchasingRes, payableRes, activityRes,
     attentionItems, dealProfRes, promoRes, inventoryRecRes, positivesRes, areasRes, inventoryItemsRes, stockLedgerRes,
   ] = await Promise.all([
     admin.rpc('period_profitability', { p_from: from.toISOString(), p_to: to.toISOString() }),
-    admin.rpc('sales_by_day', { p_from: from.toISOString().slice(0, 10), p_to: to.toISOString().slice(0, 10) }),
+    admin.rpc('sales_by_day', { p_from: days.from, p_to: days.to }),
     admin.rpc('feedback_summary', { p_from: from.toISOString(), p_to: to.toISOString() }),
     admin.rpc('attendance_roster', {}),
     // Same authoritative RPC the Dashboard/Finance/AI-chat product tables
@@ -4030,8 +4032,8 @@ async function buildReportData(
     admin
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
-      .gte('expense_date', from.toISOString().slice(0, 10))
-      .lte('expense_date', to.toISOString().slice(0, 10)),
+      .gte('expense_date', days.from)
+      .lte('expense_date', days.to),
     // Restaurant Performance & Owner Activity Intelligence sections (spec
     // §28) — reuse the exact same tool run()s the AI chat calls, never a
     // second calculation for the PDF. Forwarded as an exact from/to range

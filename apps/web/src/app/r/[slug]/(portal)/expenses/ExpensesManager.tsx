@@ -35,13 +35,19 @@ type ProfitRow = {
 
 const CATEGORIES = ['Rent', 'Utilities', 'Labor', 'Marketing', 'Maintenance', 'Supplies', 'Other'];
 
-const EMPTY = {
+// Today's LOCAL date — toISOString() is UTC and gave yesterday's date in
+// the early hours for restaurants east of UTC.
+const todayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const emptyForm = () => ({
   category: CATEGORIES[0],
   description: '',
   amount: '',
-  expense_date: new Date().toISOString().slice(0, 10),
+  expense_date: todayLocal(),
   supplier_id: '',
-};
+});
 
 const pct = (n: number | null) => (n == null ? '—' : `${n}%`);
 
@@ -70,12 +76,12 @@ export function ExpensesManager({
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | 'expenses' | null>(null);
 
-  const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
     setBusy(true);
@@ -119,7 +125,7 @@ export function ExpensesManager({
       editId ? supabase.from('expenses').update(row).eq('id', editId) : supabase.from('expenses').insert(row),
     );
     if (ok) {
-      setForm(EMPTY);
+      setForm(emptyForm());
       setEditId(null);
     }
   }
@@ -231,7 +237,7 @@ export function ExpensesManager({
                   variant="ghost"
                   onClick={() => {
                     setEditId(null);
-                    setForm(EMPTY);
+                    setForm(emptyForm());
                   }}
                 >
                   Cancel

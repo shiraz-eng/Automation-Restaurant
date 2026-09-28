@@ -132,8 +132,8 @@ export async function buildExcelWorkbook(
   const { from, to, label } = resolvePeriod(rangeArgs);
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
-  const fromDate = fromIso.slice(0, 10);
-  const toDate = toIso.slice(0, 10);
+  // Whole-date bounds, both INCLUSIVE (sales_by_day and expense_date).
+  const { from: fromDate, to: toDate } = forwardRange({ from, to });
   // Forwarded to get_owner_activity below as an exact range, not a bare
   // period name — reuses aiTools.ts's own forwardRange() (not a
   // re-inlined "-1ms then UTC slice", which shifts the date on a
@@ -173,7 +173,7 @@ export async function buildExcelWorkbook(
       .from('expenses')
       .select('expense_date, category, description, amount_cents')
       .gte('expense_date', fromDate)
-      .lt('expense_date', toDate)
+      .lte('expense_date', toDate)
       .order('expense_date', { ascending: false }),
     AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),
     // Gated at reports.export (not orders.view) and this workbook already

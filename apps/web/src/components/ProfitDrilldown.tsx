@@ -177,11 +177,15 @@ function ExpensesLevel({ from, to, totalCents }: { from: Date; to: Date; totalCe
 
   useEffect(() => {
     let cancelled = false;
+    // Same rule as period_profitability: local date of `from` through the
+    // local date of the last instant before `to` (works for a midnight `to`
+    // and for `to` = now).
+    const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     supabase
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
-      .gte('expense_date', from.toISOString().slice(0, 10))
-      .lte('expense_date', to.toISOString().slice(0, 10))
+      .gte('expense_date', ymd(from))
+      .lte('expense_date', ymd(new Date(to.getTime() - 1)))
       .order('amount_cents', { ascending: false })
       .then(({ data, error: err }) => {
         if (cancelled) return;
