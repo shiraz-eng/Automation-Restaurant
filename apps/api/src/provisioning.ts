@@ -312,7 +312,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //       tracking now goes through track_order(order_id) only.
 //   v74 Deals in Restaurant Performance: revenue_by_category adds a "Deals"
 //       row; deal_sales() gives units/orders/revenue per deal.
-const SCHEMA_VERSION = 74;
+//   v75 Staff without a login: email optional, free-text job_title, and a
+//       'staff' role with no permissions of its own.
+const SCHEMA_VERSION = 75;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

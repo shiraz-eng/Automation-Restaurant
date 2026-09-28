@@ -403,7 +403,7 @@ export default async function PortalHome({
       ? t.client.from('menu_items').select(MENU_PICK_SELECT).order('name')
       : Promise.resolve({ data: null }),
     includeStaff
-      ? t.client.from('memberships').select('id, email, full_name, role, status, created_at, shift_start_time').order('created_at', { ascending: true })
+      ? t.client.from('memberships').select('id, email, full_name, job_title, role, status, created_at, shift_start_time').order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
     includeScheduling
       ? t.client.from('memberships').select('id, full_name, email, role').order('full_name')
@@ -508,7 +508,6 @@ export default async function PortalHome({
     levelAllocationRes,
     managedPortalsRes,
     catalogRes,
-    rolesRes,
     policiesRes,
     myMembershipRes,
   ] = await Promise.all([
@@ -547,7 +546,6 @@ export default async function PortalHome({
     includePortals
       ? t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp')
       : Promise.resolve({ data: null }),
-    includePortals ? t.client.from('roles').select('key, name, permissions').order('name') : Promise.resolve({ data: null }),
     includeSettings
       ? t.client.from('business_settings').select('max_refund_without_approval_cents').eq('id', true).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -1048,7 +1046,6 @@ export default async function PortalHome({
                 <StaffManager
                   staff={staffRes.data ?? []}
                   canAdd={has('staff.create')}
-                  canChangeRole={has('permissions.assign')}
                   canEditShift={has('staff.update')}
                   canRemove={has('staff.delete')}
                 />
@@ -1084,7 +1081,6 @@ export default async function PortalHome({
                 }}
                 callerPermissions={perms}
                 selfPortalId={portal.id}
-                roles={(rolesRes.data ?? []) as { key: string; name: string; permissions: string[] }[]}
               />
             </section>
           )}

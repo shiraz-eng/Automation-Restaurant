@@ -6,9 +6,9 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const MAX_BYTES = 10 * 1024 * 1024;
 
-type DiffStaffRow = { full_name: string | null; email: string; role_raw: string; matched_role: string | null; status: 'ready' | 'exists' | 'blocked'; issues: string[] };
+type DiffStaffRow = { full_name: string; email: string | null; job_title: string; status: 'ready' | 'exists' | 'blocked'; issues: string[] };
 type StaffImportDiff = { summary: { staff: number; ready: number; exists: number; blocked: number }; staff: DiffStaffRow[] };
-type CreatedStaff = { email: string; full_name: string | null; role: string; temp_password: string };
+type CreatedStaff = { full_name: string; job_title: string };
 type ApplyResult = { created: CreatedStaff[]; skipped: string[] };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -18,12 +18,10 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 /**
- * The staff-domain twin of the other AI import panels — the one that
- * creates real login accounts, so the review step matters more than
- * anywhere else. Only "ready" rows (a recognized role you yourself have
- * permission to grant, and an email that doesn't already exist) can be
- * approved. Each new account's temporary password is shown here ONCE,
- * right after creation — copy it down now, it is never shown again.
+ * The staff-domain twin of the other AI import panels. Each approved row
+ * becomes a staff record (name + job as printed) — no login, no password,
+ * no permissions; the same as the Staff page's Add staff form. People
+ * already on the staff list are left alone.
  */
 export function StaffImportPanel({
   slug,
@@ -87,9 +85,7 @@ export function StaffImportPanel({
       }
       setDraftId(body.draftId);
       setDiff(body.diff);
-      // Nothing is pre-checked here — creating a login account is
-      // deliberately never a default-on action, unlike every other domain.
-      setApproved(new Set());
+      setApproved(new Set((body.diff as StaffImportDiff).staff.flatMap((r, i) => (r.status === 'ready' ? [String(i)] : []))));
       setStage('review');
     } catch {
       setError('Network error.');
@@ -162,9 +158,8 @@ export function StaffImportPanel({
       {stage === 'idle' && (
         <div>
           <p className="text-xs text-muted mb-2">
-            Upload a staff roster (CSV, text, or PDF): name, email, role. This creates a real login for each
-            approved person — review carefully. You can only approve a role you yourself have permission to grant,
-            and an email that already exists is left untouched.
+            Upload a staff roster (CSV, text, or PDF) with each person&apos;s name and job. Everyone you approve is
+            added to the staff list — no email or password needed. People already on the list are left untouched.
           </p>
           <input
             ref={fileInputRef}
@@ -208,9 +203,9 @@ export function StaffImportPanel({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-semibold">{row.full_name ?? row.email}</span>
-                      <span className="text-muted">{row.email}</span>
-                      <span className="text-muted">{row.matched_role ?? row.role_raw}</span>
+                      <span className="font-semibold">{row.full_name}</span>
+                      <span className="text-muted">{row.job_title || '—'}</span>
+                      {row.email && <span className="text-muted">{row.email}</span>}
                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
                     {row.issues.length > 0 && <div className="text-[11px] text-danger">{row.issues.join(' · ')}</div>}
@@ -225,7 +220,7 @@ export function StaffImportPanel({
               disabled={approved.size === 0 || stage === 'applying'}
               className="rounded bg-primary text-primary-fg font-bold px-3 py-1.5 text-xs disabled:opacity-50"
             >
-              {stage === 'applying' ? 'Creating…' : `Create ${approved.size} Account(s)`}
+              {stage === 'applying' ? 'Adding…' : `Add ${approved.size} to staff`}
             </button>
             <button onClick={reject} disabled={stage === 'applying'} className="rounded border border-danger text-danger px-3 py-1.5 text-xs font-semibold">
               Reject All
@@ -236,16 +231,11 @@ export function StaffImportPanel({
 
       {stage === 'done' && applyResult && (
         <div className="space-y-2 text-xs">
-          <p className="text-ok font-semibold">{applyResult.created.length} account(s) created.</p>
+          <p className="text-ok font-semibold">
+            {applyResult.created.length} {applyResult.created.length === 1 ? 'person' : 'people'} added to staff.
+          </p>
           {applyResult.created.length > 0 && (
-            <div className="rounded border border-primary/40 bg-surface p-2 space-y-1">
-              <p className="font-bold text-primary">Temporary passwords — shown once, copy these down now:</p>
-              {applyResult.created.map((c, i) => (
-                <div key={i} className="font-mono">
-                  {c.email} ({c.role}): <span className="font-bold">{c.temp_password}</span>
-                </div>
-              ))}
-            </div>
+            <div className="text-muted">{applyResult.created.map((c) => `${c.full_name} (${c.job_title})`).join(', ')}</div>
           )}
           {applyResult.skipped.length > 0 && <div className="text-muted">Skipped: {applyResult.skipped.join(', ')}</div>}
           <button onClick={onClose} className="rounded border border-border px-3 py-1.5 text-xs font-semibold mt-1">

@@ -65,7 +65,6 @@ export function PortalsManager({
   caps = { create: true, update: true, disable: true, credentials: true },
   callerPermissions = ['*'],
   selfPortalId = null,
-  roles = [],
 }: {
   slug: string;
   restaurantName: string;
@@ -79,8 +78,6 @@ export function PortalsManager({
   callerPermissions?: string[];
   /** A portal viewing Portal Management never sees controls for itself. */
   selfPortalId?: string | null;
-  /** Role presets offered as a starting point when creating a portal. */
-  roles?: { key: string; name: string; permissions: string[] }[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -217,12 +214,6 @@ export function PortalsManager({
       return n;
     });
   }
-  function startFromRole(key: string) {
-    const r = roles.find((x) => x.key === key);
-    if (!r) return;
-    setSelected(new Set(r.permissions.filter((k) => k !== '*' && grantable(k))));
-  }
-
   async function createPortal(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -522,27 +513,6 @@ export function PortalsManager({
                     </button>
                   ))}
                 </div>
-                {!editId && roles.length > 0 && (
-                  <div className="mb-2">
-                    <select
-                      defaultValue=""
-                      onChange={(e) => {
-                        startFromRole(e.target.value);
-                        e.target.value = '';
-                      }}
-                      className="rounded border border-border bg-surface px-2 py-1 text-[11px] outline-none focus:border-primary"
-                    >
-                      <option value="">Start from a role…</option>
-                      {roles
-                        .filter((r) => r.key !== 'owner')
-                        .map((r) => (
-                          <option key={r.key} value={r.key}>
-                            {r.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
                 <div className="flex gap-3 mb-2 text-[10px]">
                   <button type="button" onClick={() => setVisible(true)} className="font-semibold text-primary hover:underline">
                     Select visible

@@ -9,8 +9,7 @@ import {
   validateParsedStaff,
   diffStaffImport,
   fetchStaffImportContext,
-  canGrantRole,
-  generateTempPassword,
+  staffAlreadyExists,
   type ParsedStaff,
   type StaffImportDiff,
 } from '../lib/staffImport';
@@ -41,7 +40,7 @@ staffImportRouter.post('/staff-import', express.json(), requirePortalPerm('staff
   }
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
-  const { admin, userId, email, role, permissions } = req.tenant!;
+  const { admin, userId, email, role } = req.tenant!;
   const { storagePath, filename } = parsed.data;
 
   const { data: fileBlob, error: dlErr } = await admin.storage.from('ai-imports').download(storagePath);
@@ -70,7 +69,7 @@ staffImportRouter.post('/staff-import', express.json(), requirePortalPerm('staff
   if (structured.staff.length === 0) return res.status(422).json({ error: 'validation_failed', issues });
 
   const ctx = await fetchStaffImportContext(admin);
-  const diff: StaffImportDiff = diffStaffImport(structured, ctx, permissions);
+  const diff: StaffImportDiff = diffStaffImport(structured, ctx);
 
   const { data: draft, error: insErr } = await admin
     .from('staff_import_drafts')
@@ -94,19 +93,15 @@ staffImportRouter.post('/staff-import', express.json(), requirePortalPerm('staff
 const applySchema = z.object({ slug: z.string().min(1), draftId: z.string().uuid(), approvedItemKeys: z.array(z.string()).min(1).max(500) });
 
 /**
- * POST /api/ai/staff-import/apply — creates a real Auth account + an
- * 'active' membership per approved row, exactly like POST /api/staff.
- * Re-checks BOTH that the email still doesn't exist AND that the
- * APPLYING user's own current permissions cover the target role (the
- * approver's permissions at apply time, not whoever drafted it) before
- * creating anything — the same anti-escalation rule /api/staff/access
- * enforces. Returns each new account's generated temp password ONCE;
- * it is never stored in the draft row or the audit log.
+ * POST /api/ai/staff-import/apply — adds an 'active' staff record per
+ * approved row, exactly like POST /api/staff: name, job title, optional
+ * email — no login and no permissions. Re-checks at apply time that the
+ * person still isn't on the staff list.
  */
 staffImportRouter.post('/staff-import/apply', express.json(), requirePortalPerm('staff.create'), async (req: Request, res: Response) => {
   const parsed = applySchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
-  const { admin, userId, email, role, permissions } = req.tenant!;
+  const { admin, userId, email, role } = req.tenant!;
   const { draftId, approvedItemKeys } = parsed.data;
 
   const { data: draft, error: fetchErr } = await admin.from('staff_import_drafts').select('*').eq('id', draftId).maybeSingle();
@@ -115,56 +110,40 @@ staffImportRouter.post('/staff-import/apply', express.json(), requirePortalPerm(
 
   const diff = draft.diff_json as StaffImportDiff;
   const approvedSet = new Set(approvedItemKeys);
-  const { data: rolesData } = await admin.from('roles').select('key, permissions');
-  const rolePermissions = new Map(((rolesData ?? []) as { key: string; permissions: string[] }[]).map((r) => [r.key, r.permissions ?? []]));
+  const ctx = await fetchStaffImportContext(admin);
 
-  const created: { email: string; full_name: string | null; role: string; temp_password: string }[] = [];
+  const created: { full_name: string; job_title: string }[] = [];
   const skipped: string[] = [];
 
   try {
     for (let i = 0; i < diff.staff.length; i++) {
-      const key = String(i);
-      if (!approvedSet.has(key)) continue;
+      if (!approvedSet.has(String(i))) continue;
       const row = diff.staff[i]!;
-      if (!row.matched_role) {
-        skipped.push(`${row.email} — no valid role`);
+      // Drafts made before staff records dropped logins carry role_raw instead of job_title.
+      const jobTitle = (row.job_title ?? (row as unknown as { role_raw?: string }).role_raw ?? '').trim().slice(0, 60);
+      if (!row.full_name || !jobTitle) {
+        skipped.push(`${row.full_name || row.email || 'Unnamed'} — no name or job`);
         continue;
       }
-      const rolePerms = rolePermissions.get(row.matched_role) ?? [];
-      if (!canGrantRole(permissions, rolePerms)) {
-        skipped.push(`${row.email} — exceeds your own permissions`);
-        continue;
-      }
-      const { data: liveExisting } = await admin.from('memberships').select('id').ilike('email', row.email).maybeSingle();
-      if (liveExisting) {
-        skipped.push(`${row.email} — already exists`);
-        continue;
-      }
-
-      const tempPassword = generateTempPassword();
-      const { data: authUser, error: cErr } = await admin.auth.admin.createUser({
-        email: row.email,
-        password: tempPassword,
-        email_confirm: true,
-        app_metadata: { role: row.matched_role },
-        user_metadata: row.full_name ? { full_name: row.full_name } : {},
-      });
-      if (cErr || !authUser?.user) {
-        skipped.push(`${row.email} — ${cErr?.message ?? 'account creation failed'}`);
+      if (staffAlreadyExists({ full_name: row.full_name, email: row.email ?? null }, ctx)) {
+        skipped.push(`${row.full_name} — already on the staff list`);
         continue;
       }
       const { error: mErr } = await admin.from('memberships').insert({
-        user_id: authUser.user.id,
-        email: row.email,
+        user_id: null,
+        email: row.email ?? null,
         full_name: row.full_name,
-        role: row.matched_role,
+        job_title: jobTitle,
+        role: 'staff',
         status: 'active',
       });
       if (mErr) {
-        skipped.push(`${row.email} — ${mErr.message}`);
+        skipped.push(`${row.full_name} — ${mErr.message}`);
         continue;
       }
-      created.push({ email: row.email, full_name: row.full_name, role: row.matched_role, temp_password: tempPassword });
+      ctx.existingNames.add(row.full_name.trim().toLowerCase().replace(/\s+/g, ' '));
+      if (row.email) ctx.existingEmails.add(row.email);
+      created.push({ full_name: row.full_name, job_title: jobTitle });
     }
   } catch (err) {
     console.error('[staff-import] apply failed partway:', err);
@@ -173,11 +152,10 @@ staffImportRouter.post('/staff-import/apply', express.json(), requirePortalPerm(
   }
 
   await admin.from('staff_import_drafts').update({ status: 'applied', applied_at: new Date().toISOString(), applied_by: userId }).eq('id', draftId);
-  // Audited WITHOUT the temp passwords — those exist only in this one response.
   await admin.from('audit_logs').insert({
     actor_id: userId, actor_email: email, actor_role: role,
     action: 'ai.staff_import_applied', entity: 'staff_import_drafts', entity_id: draftId,
-    after: { staff_created: created.map((c) => ({ email: c.email, role: c.role })), skipped },
+    after: { staff_created: created, skipped },
   });
 
   return res.json({ ok: true, result: { created, skipped } });

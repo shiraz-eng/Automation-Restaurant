@@ -67,7 +67,7 @@ const SETUP = `
    saved on their own; then on the **Menu**, open each dish and **Link a recipe** (optionally per size) — nothing
    links automatically. Linking switches on automatic food availability and real food cost. A dish with no
    linked recipe shows "No limit" in the kitchen.
-6. **Staff**: add team members and roles; logins are generated and shown once — hand them over securely.
+6. **Staff**: add team members with a name and a typed job (e.g. Waiter) and optional shift start — no email or password; give people a screen through **Portals**.
 7. **Portals**: create station logins (e.g. "Counter", "Kitchen") and tick only the permissions each needs.
 8. Optional: **Menu → Priority Allocation** (share scarce ingredients by %), **Deals & Combos**, **Suppliers & Purchasing**, **Day close**.
 9. Do a **test order**: scan a QR code on your phone, place an order, watch it arrive on the Kitchen display, take payment at Checkout.

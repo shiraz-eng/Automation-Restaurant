@@ -16,7 +16,8 @@ export type StaffRole =
   | 'host'
   | 'hr'
   | 'accountant'
-  | 'delivery';
+  | 'delivery'
+  | 'staff';
 
 export const ROLE_LABELS: Record<StaffRole, string> = {
   owner: 'Owner',
@@ -28,6 +29,7 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   hr: 'HR',
   accountant: 'Accountant',
   delivery: 'Delivery',
+  staff: 'Staff',
 };
 
 export function roleLabel(role: string): string {

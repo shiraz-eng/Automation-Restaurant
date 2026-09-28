@@ -20,14 +20,13 @@ export default async function PortalsPage({
 
   await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
 
-  const [{ data: portals, error }, permsRes, { data: brandKitRows }, { data: roles }] = await Promise.all([
+  const [{ data: portals, error }, permsRes, { data: brandKitRows }] = await Promise.all([
     t.client
       .from('portals')
       .select('id, name, type, route_key, status, permissions, email, last_login_at, last_logout_at, created_at')
       .order('created_at'),
     t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp'),
     t.client.rpc('get_brand_kit'),
-    t.client.from('roles').select('key, name, permissions').order('name'),
   ]);
   // A tenant that hasn't received 0057 yet has no type/risk_level columns —
   // fall back to the base columns so the checkbox list still works (just
@@ -61,7 +60,6 @@ export default async function PortalsPage({
           logoUrl={logoUrl}
           portals={(portals ?? []) as Portal[]}
           perms={perms ?? []}
-          roles={(roles ?? []) as { key: string; name: string; permissions: string[] }[]}
         />
       )}
     </div>

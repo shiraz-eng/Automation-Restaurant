@@ -33,9 +33,9 @@ When a dish can't be made, it disappears from the customer menu and the till by 
   },
   {
     keys: ['Can each station or staff member get their own login with limited access?', 'Can my staff each get their own login?'],
-    answer: `Yes — two ways:
-- **Staff accounts** — each person gets a login with a role (cashier, chef, waiter, manager…).
-- **Portals** — a shared login for a station (e.g. "Counter 1", "Kitchen", "Attendance kiosk"). You tick exactly which permissions it has, and a **live preview** shows what it will see before you create it.
+    answer: `Yes — with **Portals**. A portal is a login for a station or a person (e.g. "Counter 1", "Kitchen", "Attendance kiosk"). You tick exactly which permissions it has, and a **live preview** shows what it will see before you create it.
+
+The **Staff** list itself is just names and jobs (for shifts and attendance) — adding someone there doesn't create a login.
 
 Permissions are enforced by the database itself, not just hidden on screen — a counter login can't approve refunds or see profit unless you allow it.
 [[SUGGEST]] Walk me through setup step by step | Is my data safe and mine? | Which plan fits my restaurant?`,
@@ -177,7 +177,7 @@ There's no setup fee.
     keys: ['How do I create logins for my counter and kitchen?', 'Create logins for my stations', 'How do I create a portal?'],
     answer: `Go to **Portals → Create Custom Portal**:
 1. Enter a name (e.g. "Counter 1"), and optionally a login email and password.
-2. Tick the permissions it needs. **Start from a role** fills in a sensible set.
+2. Tick the permissions it needs — search, or filter by Read / Write / Approval / Export.
 3. Check the **Live portal preview** on the right. It shows exactly what the station will see.
 4. Click **Create portal** and copy the URL, email and password shown. The password appears only once.
 [[SUGGEST]] Create a counter login | Test a portal safely | I get a permission error`,
@@ -241,7 +241,7 @@ A browser keeps one login per restaurant across all its tabs. If you sign in as 
     keys: ['I get a "doesn\'t have permission" error. What\'s wrong?', 'I get a permission error', 'Permission error after signing in'],
     answer: `The message names the account that made the request ("Signed in as …"):
 - **It names a portal or someone else** → a different login is active in this browser, often a portal you tested in another tab. Sign out, sign in again as yourself, and test portals in an incognito window.
-- **It's the right account** → that login doesn't have the permission. The owner can add it under **Portals → Edit access** (for a portal) or **Staff** (for a person).
+- **It's the right account** → that login doesn't have the permission. The owner can add it under **Portals → Edit access**.
 [[SUGGEST]] Test a portal safely | Create a counter login | Restaurant not loading`,
   },
   {
@@ -328,15 +328,15 @@ Nothing links automatically. Linking turns the recipe on: you see the dish's cos
   },
   {
     keys: ['How do I add a staff member and give them a login?', 'Add a team member', 'How do I invite a new employee?'],
-    answer: `**Staff → Add staff**: enter their name, choose a **role** (cashier, chef, waiter, manager…) and optionally a shift start time.
+    answer: `**Staff → Add staff**: type their name, their job (e.g. "Waiter", "Tandoor chef") and optionally a shift start time. No email or password is needed — the staff list is for shifts and attendance. You can also import a roster with **AI → Smart Import**.
 
-A login email and password are generated and **shown once**; give them to the person securely. They sign in at your restaurant's login page. Their role decides what they can do.
-[[SUGGEST]] Roles vs portals | Create a counter login | Test a portal safely`,
+To give someone a screen to work on, create a **Portal** for them (**Portals → Create Custom Portal**) and tick exactly what it can do. The portal's login is shown once when you create it.
+[[SUGGEST]] Staff vs portals | Create a counter login | Test a portal safely`,
   },
   {
-    keys: ['What is the difference between staff roles and portals?', 'Roles vs portals'],
-    answer: `- **Staff role** = a **person's** own login. Their access comes from the role (cashier, chef, manager…). Use it for people.
-- **Portal** = a **station's** shared login (Counter 1, Kitchen screen, Attendance kiosk). You tick its exact permissions and preview it first. Use it for devices that several people share.
+    keys: ['What is the difference between staff and portals?', 'Staff vs portals', 'Roles vs portals'],
+    answer: `- **Staff** = the people who work for you: name, job and shift start. Used for shifts and attendance. No login.
+- **Portal** = a login with exactly the permissions you tick (Counter 1, Kitchen screen, Attendance kiosk, or one person's own screen). Preview it before you create it.
 [[SUGGEST]] Create a counter login | Add a team member | Test a portal safely`,
   },
   {

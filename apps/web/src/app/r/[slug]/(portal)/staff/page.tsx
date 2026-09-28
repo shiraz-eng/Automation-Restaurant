@@ -14,7 +14,7 @@ export default async function StaffPage({ params }: { params: Promise<{ slug: st
 
   const { data, error } = await t.client
     .from('memberships')
-    .select('id, email, full_name, role, status, created_at, shift_start_time')
+    .select('id, email, full_name, job_title, role, status, created_at, shift_start_time')
     .order('created_at', { ascending: true });
 
   return (
@@ -28,7 +28,6 @@ export default async function StaffPage({ params }: { params: Promise<{ slug: st
         <StaffManager
           staff={data ?? []}
           canAdd={can(perms, role, 'staff.create')}
-          canChangeRole={can(perms, role, 'permissions.assign')}
           canEditShift={can(perms, role, 'staff.update')}
           canRemove={can(perms, role, 'staff.delete')}
         />
