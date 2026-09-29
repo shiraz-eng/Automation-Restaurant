@@ -796,7 +796,7 @@ export function PerformancePanel({
         <div className="rounded-lg border border-border bg-main p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-muted">
-              Export sheets — Executive Summary, Profit Summary &amp; Verification always included
+              Export sheets — Executive Summary &amp; Profit Summary always included
             </span>
             <button onClick={() => setSelectedSheets(null)} className="text-[11px] text-primary hover:underline">
               Select all

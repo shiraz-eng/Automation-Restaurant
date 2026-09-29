@@ -3496,7 +3496,7 @@ export const AI_ACTIONS: AiAction[] = [
       const pd = resolved.data.profitDetail;
       return {
         ok: true,
-        summary: `Generate a PDF report for ${resolved.data.periodLabel}: ${k.orders_count} orders, ${formatCentsPlain(k.net_sales_cents)} net sales${pd ? `, ${formatCentsPlain(pd.net_profit_cents)} net profit` : ''}${k.avg_rating != null ? `, ${k.avg_rating.toFixed(1)}★ average rating` : ''}. Includes the full profit & loss breakdown and calculation verification. Opens as a real PDF in your browser — nothing is changed or saved anywhere.`,
+        summary: `Generate a PDF report for ${resolved.data.periodLabel}: ${k.orders_count} orders, ${formatCentsPlain(k.net_sales_cents)} net sales${pd ? `, ${formatCentsPlain(pd.net_profit_cents)} net profit` : ''}${k.avg_rating != null ? `, ${k.avg_rating.toFixed(1)}★ average rating` : ''}. Includes the full profit & loss breakdown. Opens as a real PDF in your browser — nothing is changed or saved anywhere.`,
       };
     },
     async run(admin, args) {
@@ -3508,7 +3508,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'export_excel_report',
     description:
-      'Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst\'s detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. ["Orders","Inventory"]) to export only specific sheets instead of the full workbook — the Executive Summary, Profit Summary and Verification sheets are always included regardless.',
+      'Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, and AI actions. This is an accountant/analyst\'s detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. ["Orders","Inventory"]) to export only specific sheets instead of the full workbook — the Executive Summary and Profit Summary sheets are always included regardless.',
     needs: 'reports.export',
     input_schema: {
       type: 'object',
@@ -3537,7 +3537,7 @@ export const AI_ACTIONS: AiAction[] = [
       if (error) return { ok: false, error: error.message };
       const row = (data as { orders_count: number; net_sales_cents: number }[] | null)?.[0];
       const sheets = Array.isArray(args.sheets) ? (args.sheets as unknown[]).filter((s): s is string => typeof s === 'string') : undefined;
-      const scope = sheets && sheets.length > 0 ? `${sheets.join(', ')} (plus the summary/verification sheets)` : '16 sheets: profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions, and a verification sheet';
+      const scope = sheets && sheets.length > 0 ? `${sheets.join(', ')} (plus the summary sheets)` : '15 sheets: profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, and AI actions';
       return {
         ok: true,
         summary: `Export a detailed Excel workbook (${scope}) for ${r.label}${row ? `: ${row.orders_count} orders, ${formatCentsPlain(row.net_sales_cents)} net sales` : ''}. Downloads as a real .xlsx file — nothing is changed or saved anywhere.`,

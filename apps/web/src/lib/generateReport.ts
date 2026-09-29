@@ -220,14 +220,14 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
   purchasing: ['purchasing'],
   inventory: ['inventory'],
   orders: ['products', 'deals', 'promotions'],
-  expenses: ['expenses'],
+  expenses: ['sales_trend', 'expenses'],
 };
 const DOMAIN_REPORT_TITLES: Record<string, string> = {
   suppliers: 'Supplier Payments Report',
   purchasing: 'Purchasing Report',
   inventory: 'Inventory Report',
   orders: 'Orders Report',
-  expenses: 'Expenses Report',
+  expenses: 'Financial Profit & Expenses Report',
 };
 
 /**
@@ -277,14 +277,12 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
   y += 8;
 
-  // ── Executive summary — whole-restaurant KPIs, so it only belongs on
-  // the complete report, not a domain-scoped one (spec: a domain report
-  // should show only that section's own records). ─────────────────────
-  if (!isDomainReport) {
+  // ── Executive / Financial summary ─────────────────────────────────────
+  if (!isDomainReport || opts?.domain === 'expenses') {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
     doc.setTextColor(...BODY);
-    doc.text('Executive Summary', MARGIN, y);
+    doc.text(opts?.domain === 'expenses' ? 'Financial Performance Summary' : 'Executive Summary', MARGIN, y);
     y += 3;
 
     const summaryRows: [string, string][] = [
@@ -295,10 +293,11 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
     if (data.kpis.gross_profit_cents != null) summaryRows.push(['Gross Profit', formatCents(data.kpis.gross_profit_cents)]);
     if (data.kpis.food_cost_pct != null) summaryRows.push(['Food Cost %', `${data.kpis.food_cost_pct}%`]);
     if (data.profitDetail) {
+      summaryRows.push(['Operating Expenses', formatCents(data.profitDetail.expenses_cents)]);
       summaryRows.push(['Net Profit', formatCents(data.profitDetail.net_profit_cents)]);
       summaryRows.push(['Net Profit Margin', data.profitDetail.net_profit_margin_pct != null ? `${data.profitDetail.net_profit_margin_pct}%` : 'N/A']);
     }
-    if (data.kpis.avg_rating != null) summaryRows.push(['Customer Rating', `${data.kpis.avg_rating.toFixed(1)} / 5`]);
+    if (data.kpis.avg_rating != null && !isDomainReport) summaryRows.push(['Customer Rating', `${data.kpis.avg_rating.toFixed(1)} / 5`]);
 
     autoTable(doc, {
       startY: y,
@@ -312,24 +311,15 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Profit & Loss waterfall + verification (spec §3, §7, §37) ────────
-  // Every value below comes straight from period_profitability() — the
-  // SAME authoritative RPC the dashboard, /finance, and the AI assistant
-  // already call. This section never recomputes anything; it only lays
-  // the bridge out so it can be checked line by line. Whole-restaurant
-  // P&L, same reasoning as Executive Summary above — complete report only.
-  if (data.profitDetail && !isDomainReport) {
+  // ── Profit & Loss waterfall ──────────────────────────────────────────
+  if (data.profitDetail && (!isDomainReport || opts?.domain === 'expenses')) {
     const pd = data.profitDetail;
     y = ensureSpace(doc, y, 60);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
     doc.setTextColor(...BODY);
-    doc.text('Profit & Loss', MARGIN, y);
+    doc.text('Profit & Loss (P&L) Statement', MARGIN, y);
     y += 3;
-    // Plain ASCII hyphens, not U+2212 MINUS SIGN — jsPDF's standard 14
-    // fonts only cover WinAnsiEncoding (~Latin-1 + cp1252 extras like em
-    // dash), which does NOT include the mathematical minus sign; that
-    // glyph would silently fail to render rather than throw.
     const bridgeRows: [string, string, boolean][] = [
       ['Gross Sales', formatCents(pd.gross_sales_cents), true],
       ['- Discounts', `-${formatCents(pd.discount_cents)}`, false],
@@ -337,7 +327,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       ['= Net Sales', formatCents(pd.net_sales_cents), true],
       ['- COGS (theoretical, from recipes)', `-${formatCents(pd.theoretical_cogs_cents)}`, false],
       ['= Gross Profit', formatCents(pd.gross_profit_cents), true],
-      ['- Expenses (all recorded)', `-${formatCents(pd.expenses_cents)}`, false],
+      ['- Operating Expenses (all recorded)', `-${formatCents(pd.expenses_cents)}`, false],
       ['= NET PROFIT', formatCents(pd.net_profit_cents), true],
     ];
     autoTable(doc, {
@@ -361,42 +351,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       MARGIN,
       y + 4,
     );
-    y += 12;
-
-    // Verification — an honest checklist, never a claim the data doesn't
-    // actually support (spec §26-27).
-    y = ensureSpace(doc, y, 40);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(...BODY);
-    doc.text('Profit Calculation Verification', MARGIN, y);
-    y += 5;
-    const checks: [boolean, string][] = [
-      [true, `Sales scoped to ${data.periodLabel} — served/paid orders only.`],
-      [pd.cogs_lines_missing === 0, pd.cogs_lines_missing === 0
-        ? 'Every sold line had a recipe configured — COGS reflects the full period.'
-        : `${pd.cogs_lines_missing} of ${pd.cogs_lines_total} sold line(s) have no recipe configured — COGS and gross profit understate the true figure.`],
-      [true, `Actual ingredient value consumed/wasted/adjusted (stock ledger): ${formatCents(pd.actual_cogs_cents)}${pd.cogs_variance_cents !== 0 ? `, ${pd.cogs_variance_cents > 0 ? 'above' : 'below'} the recipe-based figure by ${formatCents(Math.abs(pd.cogs_variance_cents))}.` : ', matching the recipe-based figure.'}`],
-      [true, `Expenses included: ${formatCents(pd.expenses_cents)} across all recorded expense records dated in this period.`],
-      [false, 'Labor/payroll cost is not separately tracked — only reflected above if entered as an expense record. Net Profit may overstate true profit if it was not.'],
-    ];
-    const fullyCalculated = checks.every(([ok]) => ok);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(...(fullyCalculated ? OK : WARN));
-    doc.text(fullyCalculated ? 'Status: Fully calculated from recorded data' : 'Status: Partially calculated — see below', MARGIN, y);
-    y += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    checks.forEach(([ok, text]) => {
-      y = ensureSpace(doc, y, 10);
-      doc.setTextColor(...(ok ? BODY : WARN));
-      // Same WinAnsi constraint as above — no checkmark/warning glyphs.
-      const lines = doc.splitTextToSize(`${ok ? '[OK]' : '[!]'} ${text}`, CONTENT_W);
-      doc.text(lines, MARGIN, y);
-      y += lines.length * 4 + 1.5;
-    });
-    y += 4;
+    y += 10;
   }
 
   // ── Sales trend (hand-drawn vector bars — not a screenshot) ─────────

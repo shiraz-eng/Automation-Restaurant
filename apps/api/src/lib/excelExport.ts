@@ -95,15 +95,13 @@ const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? nu
 const centsToDollars = (c: number | null | undefined) => (typeof c === 'number' ? c / 100 : null);
 
 // Every optional sheet this workbook can build, in the order it builds
-// them — the "Custom Export" domain picker (spec §37) selects from this
-// list. Executive Summary, Profit Summary and Verification are always
-// included regardless of selection: they're the reconciliation backbone
-// the other sheets exist to support, not a domain someone would opt out of.
-export const EXCEL_ANCHOR_SHEETS = ['Executive Summary', 'Profit Summary', 'Verification'] as const;
+// them — the "Custom Export" domain picker selects from this list.
+// Executive Summary and Profit Summary are always included regardless of selection.
+export const EXCEL_ANCHOR_SHEETS = ['Executive Summary', 'Profit Summary'] as const;
 export const EXCEL_OPTIONAL_SHEETS = [
   'Daily Performance', 'Orders', 'Product Profitability', 'Deal Profitability', 'Promotions',
   'Purchasing', 'Accounts Payable', 'Supplier Payments', 'Supplier Performance', 'Inventory',
-  'Expenses', 'Management Activity', 'AI Actions',
+  'Expenses', 'Management Activity', 'AI Actions', 'Verification',
 ] as const;
 
 // Per-section export (Suppliers/Purchasing/Inventory/Orders/Expenses each
@@ -667,49 +665,51 @@ export async function buildExcelWorkbook(
     'No AI-proposed actions in this period.',
   );
 
-  // ── 13 Verification (spec §33) ───────────────────────────────────────
-  const verification = wb.addWorksheet('Verification');
-  const netSalesCheck = profit.gross_sales_cents - profit.discount_cents - profit.refunded_cents === profit.net_sales_cents;
-  const grossProfitCheck = profit.net_sales_cents - profit.theoretical_cogs_cents === profit.gross_profit_cents;
-  const netProfitCheck = profit.gross_profit_cents - profit.expenses_cents === profit.net_profit_cents;
-  const attentionCount = attentionItems.length;
-  const verificationRows = [
-    { check: 'Net Sales = Gross Sales - Discounts - Refunds', result: netSalesCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.gross_sales_cents)} - ${centsToDollars(profit.discount_cents)} - ${centsToDollars(profit.refunded_cents)} = ${centsToDollars(profit.net_sales_cents)}` },
-    { check: 'Gross Profit = Net Sales - COGS', result: grossProfitCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.net_sales_cents)} - ${centsToDollars(profit.theoretical_cogs_cents)} = ${centsToDollars(profit.gross_profit_cents)}` },
-    { check: 'Net Profit = Gross Profit - Expenses', result: netProfitCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.gross_profit_cents)} - ${centsToDollars(profit.expenses_cents)} = ${centsToDollars(profit.net_profit_cents)}` },
-    {
-      check: 'Recipe coverage on sold lines',
-      result: profit.cogs_lines_missing === 0 ? 'PASS' : 'REVIEW',
-      detail: profit.cogs_lines_missing === 0 ? 'Every sold line had a recipe configured.' : `${profit.cogs_lines_missing} of ${profit.cogs_lines_total} sold line(s) have no recipe — COGS understates the true figure.`,
-    },
-    {
-      check: 'Theoretical vs actual COGS variance',
-      result: Math.abs(profit.cogs_variance_cents) === 0 ? 'PASS' : 'REVIEW',
-      detail: `Actual (ledger) COGS ${centsToDollars(profit.actual_cogs_cents)} vs theoretical (recipe) COGS ${centsToDollars(profit.theoretical_cogs_cents)}.`,
-    },
-    {
-      check: 'Attention items open',
-      result: attentionCount === 0 ? 'PASS' : 'REVIEW',
-      detail: attentionCount === 0 ? 'No open exceptions.' : `${attentionCount} open exception(s) — see get_attention_items / the Attention page for detail.`,
-    },
-    { check: 'Labor/payroll cost', result: 'REVIEW', detail: 'Not separately tracked — only reflected in Net Profit if entered as an expense record.' },
-  ];
-  addTable(
-    verification,
-    [
-      { header: 'Check', key: 'check', width: 40 },
-      { header: 'Result', key: 'result', width: 10 },
-      { header: 'Detail', key: 'detail', width: 60 },
-    ],
-    verificationRows,
-  );
-  verification.eachRow((row, num) => {
-    if (num === 1) return;
-    const cell = row.getCell(2);
-    if (cell.value === 'PASS') cell.font = { color: { argb: 'FF16A34A' }, bold: true };
-    else if (cell.value === 'FAIL') cell.font = { color: { argb: 'FFDC2626' }, bold: true };
-    else if (cell.value === 'REVIEW') cell.font = { color: { argb: 'FFD97706' }, bold: true };
-  });
+  // ── 13 Verification (spec §33) — only if explicitly requested ────────
+  if (includeSheets?.includes('Verification')) {
+    const verification = wb.addWorksheet('Verification');
+    const netSalesCheck = profit.gross_sales_cents - profit.discount_cents - profit.refunded_cents === profit.net_sales_cents;
+    const grossProfitCheck = profit.net_sales_cents - profit.theoretical_cogs_cents === profit.gross_profit_cents;
+    const netProfitCheck = profit.gross_profit_cents - profit.expenses_cents === profit.net_profit_cents;
+    const attentionCount = attentionItems.length;
+    const verificationRows = [
+      { check: 'Net Sales = Gross Sales - Discounts - Refunds', result: netSalesCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.gross_sales_cents)} - ${centsToDollars(profit.discount_cents)} - ${centsToDollars(profit.refunded_cents)} = ${centsToDollars(profit.net_sales_cents)}` },
+      { check: 'Gross Profit = Net Sales - COGS', result: grossProfitCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.net_sales_cents)} - ${centsToDollars(profit.theoretical_cogs_cents)} = ${centsToDollars(profit.gross_profit_cents)}` },
+      { check: 'Net Profit = Gross Profit - Expenses', result: netProfitCheck ? 'PASS' : 'FAIL', detail: `${centsToDollars(profit.gross_profit_cents)} - ${centsToDollars(profit.expenses_cents)} = ${centsToDollars(profit.net_profit_cents)}` },
+      {
+        check: 'Recipe coverage on sold lines',
+        result: profit.cogs_lines_missing === 0 ? 'PASS' : 'REVIEW',
+        detail: profit.cogs_lines_missing === 0 ? 'Every sold line had a recipe configured.' : `${profit.cogs_lines_missing} of ${profit.cogs_lines_total} sold line(s) have no recipe — COGS understates the true figure.`,
+      },
+      {
+        check: 'Theoretical vs actual COGS variance',
+        result: Math.abs(profit.cogs_variance_cents) === 0 ? 'PASS' : 'REVIEW',
+        detail: `Actual (ledger) COGS ${centsToDollars(profit.actual_cogs_cents)} vs theoretical (recipe) COGS ${centsToDollars(profit.theoretical_cogs_cents)}.`,
+      },
+      {
+        check: 'Attention items open',
+        result: attentionCount === 0 ? 'PASS' : 'REVIEW',
+        detail: attentionCount === 0 ? 'No open exceptions.' : `${attentionCount} open exception(s) — see get_attention_items / the Attention page for detail.`,
+      },
+      { check: 'Labor/payroll cost', result: 'REVIEW', detail: 'Not separately tracked — only reflected in Net Profit if entered as an expense record.' },
+    ];
+    addTable(
+      verification,
+      [
+        { header: 'Check', key: 'check', width: 40 },
+        { header: 'Result', key: 'result', width: 10 },
+        { header: 'Detail', key: 'detail', width: 60 },
+      ],
+      verificationRows,
+    );
+    verification.eachRow((row, num) => {
+      if (num === 1) return;
+      const cell = row.getCell(2);
+      if (cell.value === 'PASS') cell.font = { color: { argb: 'FF16A34A' }, bold: true };
+      else if (cell.value === 'FAIL') cell.font = { color: { argb: 'FFDC2626' }, bold: true };
+      else if (cell.value === 'REVIEW') cell.font = { color: { argb: 'FFD97706' }, bold: true };
+    });
+  }
 
   if (includeSheets && includeSheets.length > 0) {
     const keep = new Set([...EXCEL_ANCHOR_SHEETS, ...includeSheets]);

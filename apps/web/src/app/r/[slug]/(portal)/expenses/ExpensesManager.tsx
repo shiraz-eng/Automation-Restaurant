@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
@@ -10,12 +10,14 @@ import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import { ExpenseCalculator } from './ExpenseCalculator';
 import {
   ResponsiveContainer,
-  AreaChart,
+  ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
 } from 'recharts';
 
 export type Expense = {
@@ -63,6 +65,28 @@ const CATEGORY_COLORS: Record<string, string> = {
   Supplies: '#14b8a6',
   Other: '#64748b',
 };
+
+// Date string helpers (YYYY-MM-DD)
+const normalizeDateStr = (s?: string | null) => (s ? s.split('T')[0] : '');
+
+function getDatesInRange(startStr?: string, endStr?: string): string[] {
+  const dates: string[] = [];
+  if (!startStr || !endStr) return dates;
+  const s = normalizeDateStr(startStr);
+  const e = normalizeDateStr(endStr);
+  if (!s || !e) return dates;
+  const cur = new Date(`${s}T00:00:00`);
+  const end = new Date(`${e}T00:00:00`);
+  if (isNaN(cur.getTime()) || isNaN(end.getTime()) || cur > end) return dates;
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, '0');
+    const d = String(cur.getDate()).padStart(2, '0');
+    dates.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
 
 // Today's LOCAL date
 const todayLocal = () => {
@@ -117,6 +141,7 @@ export function ExpensesManager({
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -126,6 +151,93 @@ export function ExpensesManager({
   const [chartMode, setChartMode] = useState<'daily' | 'cumulative'>('daily');
   const [customRangeFrom, setCustomRangeFrom] = useState(fromStr || '');
   const [customRangeTo, setCustomRangeTo] = useState(toStr || '');
+
+  // Realtime subscription to live updates (expenses, orders, payments)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const bump = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        router.refresh();
+      }, 700);
+    };
+    let ch = supabase.channel('expenses-manager-live');
+    for (const table of ['expenses', 'orders', 'payments']) {
+      ch = ch.on('postgres_changes', { event: '*', schema: 'public', table }, bump);
+    }
+    ch.subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(ch);
+    };
+  }, [supabase, router]);
+
+  async function handleDownloadPdf() {
+    setDownloadingPdf(true);
+    setError(null);
+    try {
+      const { generateReportPdf } = await import('@/lib/generateReport');
+      const reportData = {
+        restaurantName: restaurantName || 'Restaurant',
+        periodLabel,
+        kpis: {
+          net_sales_cents: profit?.net_sales_cents ?? 0,
+          orders_count: profit?.orders_count ?? 0,
+          aov_cents: profit && profit.orders_count > 0 ? Math.round(profit.net_sales_cents / profit.orders_count) : 0,
+          gross_profit_cents: profit?.gross_profit_cents ?? 0,
+          food_cost_pct:
+            profit && profit.net_sales_cents > 0
+              ? Math.round((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100)
+              : null,
+          avg_rating: null,
+        },
+        profitDetail: profit
+          ? {
+              gross_sales_cents: profit.gross_sales_cents,
+              discount_cents: profit.discount_cents,
+              refunded_cents: profit.refunded_cents,
+              net_sales_cents: profit.net_sales_cents,
+              theoretical_cogs_cents: profit.theoretical_cogs_cents,
+              cogs_lines_total: (profit as unknown as { cogs_lines_total?: number }).cogs_lines_total ?? 0,
+              cogs_lines_missing: (profit as unknown as { cogs_lines_missing?: number }).cogs_lines_missing ?? 0,
+              gross_profit_cents: profit.gross_profit_cents,
+              gross_margin_pct: profit.gross_margin_pct,
+              actual_cogs_cents: (profit as unknown as { actual_cogs_cents?: number }).actual_cogs_cents ?? profit.theoretical_cogs_cents,
+              cogs_variance_cents: (profit as unknown as { cogs_variance_cents?: number }).cogs_variance_cents ?? 0,
+              expenses_cents: profit.expenses_cents,
+              net_profit_cents: profit.net_profit_cents,
+              net_profit_margin_pct: profit.net_profit_margin_pct,
+            }
+          : null,
+        dailySales: (dailySales || []).map((d) => ({
+          business_date: d.business_date,
+          net_sales_cents: d.net_sales_cents,
+        })),
+        topProducts: [],
+        expenseRecords: expenses.map((e) => ({
+          category: e.category,
+          description: e.description,
+          amount_cents: e.amount_cents,
+          expense_date: e.expense_date,
+        })),
+        categoryMix: [],
+        paymentMix: [],
+        feedback: null,
+        attendance: null,
+        aiSummary: null,
+      };
+
+      await generateReportPdf(reportData, {
+        sections: ['sales_trend', 'expenses'],
+        domain: 'expenses',
+      });
+    } catch (err) {
+      console.error('Failed to generate PDF:', err);
+      setError('Could not generate the Profit & Financial PDF.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -210,18 +322,39 @@ export function ExpensesManager({
     router.push(`/r/${slug}/expenses?period=custom&from=${customRangeFrom}&to=${customRangeTo}`);
   }
 
-  // Daily expenses aggregated
+  // Daily expenses aggregated with date normalization
   const expensesByDate = useMemo(() => {
     const map = new Map<string, number>();
     for (const ex of expenses) {
-      map.set(ex.expense_date, (map.get(ex.expense_date) ?? 0) + ex.amount_cents);
+      const k = normalizeDateStr(ex.expense_date);
+      if (k) map.set(k, (map.get(k) ?? 0) + ex.amount_cents);
     }
     return map;
   }, [expenses]);
 
+  // Daily sales map with date normalization
+  const salesByDate = useMemo(() => {
+    const map = new Map<string, DaySalesRow>();
+    for (const d of dailySales) {
+      const k = normalizeDateStr(d.business_date);
+      if (k) map.set(k, d);
+    }
+    return map;
+  }, [dailySales]);
+
+  // All calendar dates across active period
+  const allPeriodDates = useMemo(() => {
+    const range = getDatesInRange(fromStr, toStr);
+    if (range.length > 0) return range;
+    if (dailySales && dailySales.length > 0) {
+      return dailySales.map((d) => normalizeDateStr(d.business_date)).filter(Boolean);
+    }
+    return [];
+  }, [fromStr, toStr, dailySales]);
+
   // Combined chart dataset
   const chartData = useMemo(() => {
-    if (!dailySales || dailySales.length === 0) return [];
+    if (allPeriodDates.length === 0) return [];
     let runningNetSales = 0;
     let runningExpenses = 0;
     let runningProfit = 0;
@@ -229,9 +362,10 @@ export function ExpensesManager({
     const cogsRatio =
       profit && profit.net_sales_cents > 0 ? profit.theoretical_cogs_cents / profit.net_sales_cents : 0.3;
 
-    return dailySales.map((d) => {
-      const daySales = d.net_sales_cents / 100;
-      const dayExpenses = (expensesByDate.get(d.business_date) ?? 0) / 100;
+    return allPeriodDates.map((dateKey) => {
+      const d = salesByDate.get(dateKey);
+      const daySales = d ? d.net_sales_cents / 100 : 0;
+      const dayExpenses = (expensesByDate.get(dateKey) ?? 0) / 100;
       const dayCogs = daySales * cogsRatio;
       const dayNetProfit = daySales - dayCogs - dayExpenses;
 
@@ -239,21 +373,52 @@ export function ExpensesManager({
       runningExpenses += dayExpenses;
       runningProfit += dayNetProfit;
 
-      const dateObj = new Date(`${d.business_date}T00:00:00`);
-      const shortDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const dateObj = new Date(`${dateKey}T00:00:00`);
+      const shortDate = isNaN(dateObj.getTime())
+        ? dateKey
+        : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
       return {
         date: shortDate,
-        fullDate: d.business_date,
-        netSales: Math.round(daySales),
-        expenses: Math.round(dayExpenses),
-        netProfit: Math.round(dayNetProfit),
-        cumNetSales: Math.round(runningNetSales),
-        cumExpenses: Math.round(runningExpenses),
-        cumNetProfit: Math.round(runningProfit),
+        fullDate: dateKey,
+        netSales: Math.round(daySales * 100) / 100,
+        expenses: Math.round(dayExpenses * 100) / 100,
+        netProfit: Math.round(dayNetProfit * 100) / 100,
+        cumNetSales: Math.round(runningNetSales * 100) / 100,
+        cumExpenses: Math.round(runningExpenses * 100) / 100,
+        cumNetProfit: Math.round(runningProfit * 100) / 100,
       };
     });
-  }, [dailySales, expensesByDate, profit]);
+  }, [allPeriodDates, salesByDate, expensesByDate, profit]);
+
+  const yDomain = useMemo(() => {
+    if (!chartData || chartData.length === 0) return [0, 100];
+    const keys =
+      chartMode === 'daily'
+        ? (['netSales', 'expenses', 'netProfit'] as const)
+        : (['cumNetSales', 'cumExpenses', 'cumNetProfit'] as const);
+    let min = 0;
+    let max = 0;
+    for (const d of chartData) {
+      for (const k of keys) {
+        const val = Number(d[k]) || 0;
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+    }
+    if (min === 0 && max === 0) {
+      return [0, 100];
+    }
+    const range = max - min;
+    const pad = Math.max(10, Math.ceil(range * 0.15));
+    const lower = min < 0 ? Math.floor((min - pad) / 10) * 10 : 0;
+    const upper = Math.ceil((max + pad) / 10) * 10;
+    return [lower, upper];
+  }, [chartData, chartMode]);
+
+  const hasChartActivity = useMemo(() => {
+    return chartData.some((d) => d.netSales > 0 || d.expenses > 0 || d.netProfit !== 0);
+  }, [chartData]);
 
   // Expense breakdown by category
   const categoryTotals = useMemo(() => {
@@ -339,8 +504,19 @@ export function ExpensesManager({
           </form>
         )}
 
-        <div className="text-xs text-muted font-medium">
-          Active range: <span className="text-body font-bold">{periodLabel}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="text-xs text-muted font-medium">
+            Active range: <span className="text-body font-bold">{periodLabel}</span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleDownloadPdf}
+            disabled={downloadingPdf}
+            className="text-xs py-1.5 px-3 h-auto border border-border bg-surface hover:bg-main font-semibold shadow-sm flex items-center gap-1.5"
+          >
+            <span>{downloadingPdf ? '⏳ Generating PDF…' : '📄 Download Profit PDF'}</span>
+          </Button>
         </div>
       </div>
 
@@ -441,29 +617,35 @@ export function ExpensesManager({
 
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: 10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.35} />
                     <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" fontSize={11} tickLine={false} />
+                <XAxis
+                  dataKey="date"
+                  stroke="rgba(255,255,255,0.4)"
+                  fontSize={11}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={20}
+                />
                 <YAxis
                   stroke="rgba(255,255,255,0.4)"
                   fontSize={11}
                   tickLine={false}
-                  tickFormatter={(v) => `$${v}`}
+                  width={65}
+                  domain={yDomain}
+                  tickFormatter={(v) => (v < 0 ? `-$${Math.abs(v)}` : `$${v}`)}
                 />
+                <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload || payload.length === 0) return null;
@@ -516,14 +698,14 @@ export function ExpensesManager({
                       fillOpacity={1}
                       fill="url(#expenseGrad)"
                     />
-                    <Area
+                    <Line
                       type="monotone"
                       dataKey="netProfit"
                       name="Net Profit"
                       stroke="#6366f1"
                       strokeWidth={2.5}
-                      fillOpacity={1}
-                      fill="url(#profitGrad)"
+                      dot={{ r: 2, fill: '#6366f1' }}
+                      activeDot={{ r: 5 }}
                     />
                   </>
                 ) : (
@@ -539,18 +721,33 @@ export function ExpensesManager({
                     />
                     <Area
                       type="monotone"
+                      dataKey="cumExpenses"
+                      name="Cumulative Expenses"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#expenseGrad)"
+                    />
+                    <Line
+                      type="monotone"
                       dataKey="cumNetProfit"
                       name="Cumulative Profit"
                       stroke="#6366f1"
                       strokeWidth={2.5}
-                      fillOpacity={1}
-                      fill="url(#profitGrad)"
+                      dot={{ r: 2, fill: '#6366f1' }}
+                      activeDot={{ r: 5 }}
                     />
                   </>
                 )}
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
+
+          {!hasChartActivity && (
+            <div className="mt-3 text-center text-xs text-muted/80 bg-main/40 border border-border/50 rounded-lg py-2">
+              No revenue or expense records found for this period yet. Data automatically plots live as sales and expenses are recorded.
+            </div>
+          )}
 
           <div className="flex items-center justify-center gap-6 mt-3 text-xs">
             <div className="flex items-center gap-1.5">
@@ -572,11 +769,20 @@ export function ExpensesManager({
       {/* Professional P&L Statement Breakdown Table */}
       {canViewProfit && profit && (
         <Card className="p-0 overflow-hidden">
-          <div className="p-4 border-b border-border bg-main/30 flex items-center justify-between">
+          <div className="p-4 border-b border-border bg-main/30 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="font-bold text-sm">Profit & Loss (P&L) Statement</h2>
+              <h2 className="font-bold text-sm">Profit &amp; Loss (P&amp;L) Statement</h2>
               <p className="text-muted text-xs">Authoritative accounting waterfall for {periodLabel}.</p>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              className="text-xs py-1 px-3 h-auto border border-border bg-surface hover:bg-main font-medium flex items-center gap-1.5"
+            >
+              <span>{downloadingPdf ? '⏳ Generating…' : '📄 Export P&L PDF'}</span>
+            </Button>
           </div>
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border bg-main/50">
