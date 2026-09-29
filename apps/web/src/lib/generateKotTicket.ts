@@ -34,12 +34,22 @@ const X_LEFT = MARGIN;
 const X_CENTER = WIDTH / 2;
 
 export function buildKotTicketDoc(data: KotTicketData): jsPDF {
-  let h = 45;
-  for (const l of data.lines) h += 7 + (l.variantName ? 4 : 0) + (l.modifiers?.length ?? 0) * 4 + (l.note ? 4 : 0);
-  if (data.orderNote) h += 10;
-  h += 14; // "KITCHEN COPY" footer
+  const measureDoc = new jsPDF({ unit: 'mm' });
+  measureDoc.setFont('helvetica', 'bold');
+  measureDoc.setFontSize(11);
+  let h = 48;
+  for (const l of data.lines) {
+    const text = measureDoc.splitTextToSize(`${l.qty} × ${l.name.toUpperCase()}`, WIDTH - MARGIN * 2);
+    h += text.length * 4.5 + 1.5 + (l.variantName ? 4 : 0) + (l.modifiers?.length ?? 0) * 4 + (l.note ? 4 : 0) + 2;
+  }
+  if (data.orderNote) {
+    measureDoc.setFontSize(10);
+    const noteText = measureDoc.splitTextToSize(data.orderNote.toUpperCase(), WIDTH - MARGIN * 2);
+    h += noteText.length * 4.5 + 8;
+  }
+  h += 16; // "KITCHEN COPY" footer + safety padding
 
-  const doc = new jsPDF({ unit: 'mm', format: [WIDTH, h] });
+  const doc = new jsPDF({ unit: 'mm', format: [WIDTH, Math.max(h, 60)] });
   let y = 8;
 
   doc.setFont('helvetica', 'bold');

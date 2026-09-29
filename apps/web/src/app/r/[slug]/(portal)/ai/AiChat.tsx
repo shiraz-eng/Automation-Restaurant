@@ -573,6 +573,98 @@ export function AiChat({ slug }: { slug: string }) {
               {m.pendingAction && (
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
+                  {m.pendingAction.name === 'add_inventory_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
+                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-muted border-b border-border/60">
+                            <th className="pb-1 font-semibold">Item</th>
+                            <th className="pb-1 font-semibold">Unit</th>
+                            <th className="pb-1 font-semibold text-right">Stock</th>
+                            <th className="pb-1 font-semibold text-right">Cost</th>
+                            <th className="pb-1 font-semibold text-right">Min</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {((m.pendingAction.args as { items: Array<{ name: string; unit?: string; stock_qty?: number; cost_cents_per_unit?: number; min_threshold?: number }> }).items).map((it, idx) => (
+                            <tr key={idx} className="border-b border-border/30 last:border-0">
+                              <td className="py-1 font-medium">{it.name}</td>
+                              <td className="py-1 text-muted">{it.unit ?? 'unit'}</td>
+                              <td className="py-1 text-right">{it.stock_qty ?? 0}</td>
+                              <td className="py-1 text-right font-mono">{it.cost_cents_per_unit != null ? formatCents(it.cost_cents_per_unit) : '—'}</td>
+                              <td className="py-1 text-right text-muted">{it.min_threshold ?? 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {m.pendingAction.name === 'add_menu_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
+                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-muted border-b border-border/60">
+                            <th className="pb-1 font-semibold">Dish</th>
+                            <th className="pb-1 font-semibold">Category</th>
+                            <th className="pb-1 font-semibold text-right">Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {((m.pendingAction.args as { items: Array<{ name: string; category_name?: string; price_cents: number }> }).items).map((it, idx) => (
+                            <tr key={idx} className="border-b border-border/30 last:border-0">
+                              <td className="py-1 font-medium">{it.name}</td>
+                              <td className="py-1 text-muted">{it.category_name ?? 'Mains'}</td>
+                              <td className="py-1 text-right font-mono font-bold">{formatCents(it.price_cents)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {m.pendingAction.name === 'record_expenses' && Array.isArray((m.pendingAction.args as { expenses?: unknown[] })?.expenses) && (
+                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-muted border-b border-border/60">
+                            <th className="pb-1 font-semibold">Category</th>
+                            <th className="pb-1 font-semibold">Description</th>
+                            <th className="pb-1 font-semibold text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {((m.pendingAction.args as { expenses: Array<{ category: string; description?: string; amount_cents: number }> }).expenses).map((ex, idx) => (
+                            <tr key={idx} className="border-b border-border/30 last:border-0">
+                              <td className="py-1 font-semibold">{ex.category}</td>
+                              <td className="py-1 text-muted">{ex.description || '—'}</td>
+                              <td className="py-1 text-right font-mono font-bold text-danger">{formatCents(ex.amount_cents)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {m.pendingAction.name === 'add_staff_members' && Array.isArray((m.pendingAction.args as { staff?: unknown[] })?.staff) && (
+                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-muted border-b border-border/60">
+                            <th className="pb-1 font-semibold">Name</th>
+                            <th className="pb-1 font-semibold">Role / Title</th>
+                            <th className="pb-1 font-semibold text-right">Contact</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {((m.pendingAction.args as { staff: Array<{ full_name: string; job_title: string; phone?: string; email?: string }> }).staff).map((st, idx) => (
+                            <tr key={idx} className="border-b border-border/30 last:border-0">
+                              <td className="py-1 font-medium">{st.full_name}</td>
+                              <td className="py-1 font-semibold text-primary">{st.job_title}</td>
+                              <td className="py-1 text-right text-muted">{st.phone || st.email || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                   {m.fromHistory && !m.resolution ? (
                     <p className="text-[11px] text-muted">From an earlier chat — ask again to redo it, or approve it in Approvals.</p>
                   ) : !m.resolution ? (

@@ -14,13 +14,26 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'orders.view');
 
-  const { data: orders, error } = await t.client
-    .from('orders')
-    .select(
-      'id, order_number, status, channel, table_label, customer_name, subtotal_cents, tax_cents, total_cents, created_at, order_lines(name_snapshot, qty, line_total_cents, kds_status)',
-    )
-    .order('created_at', { ascending: false })
-    .limit(50);
+  const [ordersRes, settingsRes, brandRes] = await Promise.all([
+    t.client
+      .from('orders')
+      .select(
+        'id, order_number, status, channel, table_label, customer_name, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, paid_at, created_at, order_lines(name_snapshot, variant_name_snapshot, qty, unit_price_cents, line_total_cents, kds_status, modifiers, customer_note), payments(method, amount_cents, reference, status)',
+      )
+      .order('created_at', { ascending: false })
+      .limit(50),
+    t.client
+      .from('business_settings')
+      .select('restaurant_name, receipt_config, phone, address, tax_rate_bps, tax_id')
+      .eq('id', true)
+      .maybeSingle(),
+    t.client.rpc('get_brand_kit'),
+  ]);
+
+  const orders = ordersRes.data;
+  const error = ordersRes.error;
+  const settings = settingsRes.data;
+  const brandRow = Array.isArray(brandRes.data) ? brandRes.data[0] : brandRes.data;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -42,9 +55,22 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
         <>
           <LiveRefresh tables={['orders', 'payments']} channel="orders-page-live" />
           <OrdersClient
-            orders={orders ?? []}
+            orders={(orders as any[]) ?? []}
+            restaurantName={settings?.restaurant_name || t.config.restaurantName}
+            receiptConfig={settings?.receipt_config ?? null}
+            brandKit={{
+              logoUrl: brandRow?.logo_url ?? null,
+              primaryColor: brandRow?.primary_color ?? null,
+            }}
+            restaurantInfo={{
+              address: settings?.address ?? null,
+              phone: settings?.phone ?? null,
+              taxId: settings?.tax_id ?? null,
+              taxRateBps: settings?.tax_rate_bps ?? 0,
+            }}
             canCancel={can(perms, role, 'orders.cancel')}
-            canUpdateStatus={can(perms, role, 'orders.update')} canReopen={can(perms, role, 'orders.reopen')}
+            canUpdateStatus={can(perms, role, 'orders.update')}
+            canReopen={can(perms, role, 'orders.reopen')}
           />
         </>
       )}

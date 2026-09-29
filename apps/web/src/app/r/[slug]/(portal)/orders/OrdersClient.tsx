@@ -3,8 +3,11 @@
 import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { Card, Select } from '@/components/ui';
+import { Button, Card, Select } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
+import { downloadReceiptPdf } from '@/lib/generateReceipt';
+import { DEFAULT_RECEIPT_CONFIG, type ReceiptConfig, type ReceiptContext } from '@/lib/receiptTemplate';
+import { downloadKotTicket } from '@/lib/generateKotTicket';
 
 // Kitchen-stage progression only. "paid" is reached exclusively through
 // record_payment (Checkout) so it always carries a real payment and a
@@ -15,7 +18,24 @@ import { formatCents, formatDateTime } from '@/lib/format';
 const EDITABLE_STATUSES = ['pending', 'in_kitchen', 'ready', 'served'] as const;
 const TERMINAL_LABEL: Record<string, string> = { paid: 'Paid', void: 'Void' };
 
-type Line = { name_snapshot: string; qty: number; line_total_cents: number; kds_status: string };
+type Line = {
+  name_snapshot: string;
+  variant_name_snapshot?: string | null;
+  qty: number;
+  unit_price_cents?: number;
+  line_total_cents: number;
+  kds_status: string;
+  modifiers?: string[] | null;
+  customer_note?: string | null;
+};
+
+type Payment = {
+  method: string;
+  amount_cents: number;
+  reference?: string | null;
+  status?: string;
+};
+
 export type Order = {
   id: string;
   order_number: number;
@@ -24,19 +44,31 @@ export type Order = {
   table_label: string | null;
   customer_name: string | null;
   subtotal_cents: number;
+  discount_cents?: number;
   tax_cents: number;
   total_cents: number;
+  refunded_cents?: number;
+  paid_at?: string | null;
   created_at: string;
   order_lines: Line[];
+  payments?: Payment[];
 };
 
 export function OrdersClient({
   orders,
+  restaurantName,
+  receiptConfig,
+  brandKit,
+  restaurantInfo,
   canCancel,
   canUpdateStatus,
   canReopen = false,
 }: {
   orders: Order[];
+  restaurantName?: string;
+  receiptConfig?: ReceiptConfig | null;
+  brandKit?: { logoUrl?: string | null; primaryColor?: string | null };
+  restaurantInfo?: { address?: string | null; phone?: string | null; taxId?: string | null; taxRateBps?: number };
   canCancel: boolean;
   /** orders.update — matches the orders table's staff_update RLS policy. */
   canUpdateStatus: boolean;
@@ -94,6 +126,80 @@ export function OrdersClient({
       return;
     }
     router.refresh();
+  }
+
+  async function handleDownloadReceipt(order: Order) {
+    try {
+      const successfulPayment = (order.payments ?? []).find((p) => p.status === 'succeeded' || !p.status) ?? order.payments?.[0];
+      const ctx: ReceiptContext = {
+        restaurantName: restaurantName || 'Restaurant',
+        logoUrl: brandKit?.logoUrl ?? null,
+        primaryColor: brandKit?.primaryColor ?? null,
+        address: restaurantInfo?.address ?? null,
+        phone: restaurantInfo?.phone ?? null,
+        email: null,
+        website: null,
+        taxId: restaurantInfo?.taxId ?? null,
+        orderNumber: order.order_number,
+        tableLabel: order.table_label,
+        customerName: order.customer_name,
+        orderType: order.channel?.replace('_', ' ') ?? 'dine-in',
+        createdAt: order.created_at,
+        paidAt: order.paid_at ?? null,
+        orderStatus: order.status,
+        lines: (order.order_lines ?? []).map((l) => ({
+          name: l.name_snapshot,
+          variantName: l.variant_name_snapshot ?? null,
+          qty: l.qty,
+          unitPriceCents: l.unit_price_cents ?? (l.qty ? Math.round(l.line_total_cents / l.qty) : l.line_total_cents),
+          lineTotalCents: l.line_total_cents,
+          modifiers: Array.isArray(l.modifiers)
+            ? l.modifiers.map((m: any) => ({ name: typeof m === 'string' ? m : m?.name ?? '', price_cents: typeof m === 'object' ? Number(m?.price_cents ?? 0) : 0 }))
+            : undefined,
+          notes: l.customer_note ?? null,
+        })),
+        subtotalCents: order.subtotal_cents,
+        discountCents: order.discount_cents ?? 0,
+        taxCents: order.tax_cents,
+        taxRateBps: restaurantInfo?.taxRateBps ?? 0,
+        totalCents: order.total_cents,
+        refundedCents: order.refunded_cents ?? 0,
+        paymentMethod: successfulPayment?.method ?? (order.status === 'paid' ? 'Paid' : null),
+        paymentReference: successfulPayment?.reference ?? null,
+        amountPaidCents: successfulPayment?.amount_cents ?? (order.status === 'paid' ? order.total_cents : null),
+        changeCents: null,
+      };
+
+      const config: ReceiptConfig = receiptConfig ?? DEFAULT_RECEIPT_CONFIG;
+      await downloadReceiptPdf(config, ctx);
+    } catch (err) {
+      console.error('Failed to generate receipt PDF:', err);
+      alert('Could not generate receipt PDF. Please try again.');
+    }
+  }
+
+  function handleDownloadKot(order: Order) {
+    try {
+      downloadKotTicket({
+        restaurantName: restaurantName || 'Restaurant',
+        kotNumber: order.order_number,
+        orderNumber: order.order_number,
+        channel: order.channel,
+        tableLabel: order.table_label,
+        createdAt: order.created_at,
+        orderNote: null,
+        lines: (order.order_lines ?? []).map((l) => ({
+          name: l.name_snapshot,
+          variantName: l.variant_name_snapshot ?? null,
+          qty: l.qty,
+          modifiers: Array.isArray(l.modifiers) ? l.modifiers.map((m) => (typeof m === 'string' ? m : (m as any)?.name ?? '')) : undefined,
+          note: l.customer_note ?? undefined,
+        })),
+      });
+    } catch (err) {
+      console.error('Failed to generate KOT ticket:', err);
+      alert('Could not generate KOT ticket.');
+    }
   }
 
   if (orders.length === 0) return <Card>No orders yet.</Card>;
@@ -205,8 +311,38 @@ export function OrdersClient({
                       ))}
                       <div className="flex justify-between text-xs pt-1 border-t border-border mt-1 text-muted">
                         <span>subtotal {formatCents(o.subtotal_cents)}</span>
+                        {o.discount_cents ? <span>discount -{formatCents(o.discount_cents)}</span> : null}
                         <span>tax {formatCents(o.tax_cents)}</span>
                         <span className="text-body font-bold">total {formatCents(o.total_cents)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border mt-2">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadReceipt(o);
+                            }}
+                            className="text-xs py-1 px-2.5 h-auto"
+                          >
+                            📄 Download Receipt PDF
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadKot(o);
+                            }}
+                            className="text-xs py-1 px-2.5 h-auto"
+                          >
+                            🍳 Print KOT
+                          </Button>
+                        </div>
+                        {o.paid_at && (
+                          <span className="text-[11px] text-muted">
+                            Paid at {formatDateTime(o.paid_at)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>

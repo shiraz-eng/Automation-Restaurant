@@ -28,24 +28,66 @@ function parseChannels(channels: string | null | undefined): [number, number, nu
 
 export async function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 3000);
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      resolve(null);
+    };
     img.src = url;
   });
 }
 
-function estimateHeight(blocks: ReceiptBlock[]): number {
-  let h = 20;
+function calculateAccurateHeight(measureDoc: jsPDF, blocks: ReceiptBlock[], width: number, margin: number): number {
+  const contentW = width - margin * 2;
+  let y = margin;
   for (const b of blocks) {
-    if (b.type === 'logo') h += LOGO_MM[b.size] + 3;
-    else if (b.type === 'item') h += 4 + (b.sub?.length ?? 0) * 3.4;
-    else if (b.type === 'divider') h += b.style === 'space' ? 3 : 4;
-    else if (b.type === 'space') h += 3;
-    else h += 4.2;
+    switch (b.type) {
+      case 'logo': {
+        y += LOGO_MM[b.size] + 3;
+        break;
+      }
+      case 'text': {
+        measureDoc.setFont('helvetica', b.bold ? 'bold' : 'normal');
+        measureDoc.setFontSize(b.size === 'lg' ? 11 : b.size === 'sm' ? 7.5 : 8.5);
+        const wrapped = measureDoc.splitTextToSize(b.text, contentW);
+        y += wrapped.length * (b.size === 'lg' ? 4.6 : 3.6) + 1;
+        break;
+      }
+      case 'divider': {
+        y += b.style === 'space' ? 3 : 4;
+        break;
+      }
+      case 'row': {
+        y += 4.6;
+        break;
+      }
+      case 'item': {
+        measureDoc.setFont('helvetica', 'normal');
+        measureDoc.setFontSize(8.5);
+        const label = `${b.qty}x ${b.name}`;
+        const wrapped = measureDoc.splitTextToSize(label, contentW - 18);
+        y += wrapped.length * 3.8;
+        measureDoc.setFontSize(7.5);
+        for (const s of b.sub) {
+          const subWrapped = measureDoc.splitTextToSize(s, contentW - 6);
+          y += subWrapped.length * 3.4;
+        }
+        y += 1.2;
+        break;
+      }
+      case 'space': {
+        y += 3;
+        break;
+      }
+    }
   }
-  return h;
+  return Math.ceil(y + margin + 8);
 }
 
 /** Builds a real vector PDF (not a screenshot) sized like a till receipt,
@@ -58,7 +100,9 @@ export async function buildReceiptDoc(config: ReceiptConfig, ctx: ReceiptContext
   const X = { left: MARGIN, center: WIDTH / 2, right: WIDTH - MARGIN } as const;
   const accent = parseChannels(ctx.primaryColor);
 
-  const doc = new jsPDF({ unit: 'mm', format: [WIDTH, Math.max(estimateHeight(blocks), 90)] });
+  const measureDoc = new jsPDF({ unit: 'mm' });
+  const accurateH = calculateAccurateHeight(measureDoc, blocks, WIDTH, MARGIN);
+  const doc = new jsPDF({ unit: 'mm', format: [WIDTH, Math.max(accurateH, 60)] });
   let y = MARGIN;
 
   for (const b of blocks) {

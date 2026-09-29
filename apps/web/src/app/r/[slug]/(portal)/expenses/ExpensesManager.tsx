@@ -8,6 +8,15 @@ import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import { ExpenseCalculator } from './ExpenseCalculator';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from 'recharts';
 
 export type Expense = {
   id: string;
@@ -17,7 +26,17 @@ export type Expense = {
   expense_date: string;
   supplier_id?: string | null;
 };
+
 export type ExpenseSupplier = { id: string; name: string };
+
+export type DaySalesRow = {
+  business_date: string;
+  net_sales_cents: number;
+  gross_sales_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  orders_count: number;
+};
 
 type ProfitRow = {
   orders_count: number;
@@ -35,12 +54,22 @@ type ProfitRow = {
 
 const CATEGORIES = ['Rent', 'Utilities', 'Labor', 'Marketing', 'Maintenance', 'Supplies', 'Other'];
 
-// Today's LOCAL date — toISOString() is UTC and gave yesterday's date in
-// the early hours for restaurants east of UTC.
+const CATEGORY_COLORS: Record<string, string> = {
+  Rent: '#6366f1',
+  Utilities: '#0ea5e9',
+  Labor: '#f59e0b',
+  Marketing: '#ec4899',
+  Maintenance: '#8b5cf6',
+  Supplies: '#14b8a6',
+  Other: '#64748b',
+};
+
+// Today's LOCAL date
 const todayLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
 const emptyForm = () => ({
   category: CATEGORIES[0],
   description: '',
@@ -49,23 +78,35 @@ const emptyForm = () => ({
   supplier_id: '',
 });
 
-const pct = (n: number | null) => (n == null ? '—' : `${n}%`);
+const pct = (n: number | null | undefined) => (n == null ? '—' : `${n}%`);
 
 export function ExpensesManager({
+  slug,
+  restaurantName,
   expenses,
   profit,
+  dailySales = [],
+  activePeriod = '1_month',
   periodFromIso,
   periodToIso,
+  fromStr,
+  toStr,
   periodLabel,
   canWrite,
   canDelete,
   canViewProfit,
   suppliers = [],
 }: {
+  slug?: string;
+  restaurantName?: string;
   expenses: Expense[];
   profit: ProfitRow | null;
+  dailySales?: DaySalesRow[];
+  activePeriod?: '1_month' | '2_months' | 'custom';
   periodFromIso: string;
   periodToIso: string;
+  fromStr?: string;
+  toStr?: string;
   periodLabel: string;
   canWrite: boolean;
   canDelete: boolean;
@@ -80,6 +121,11 @@ export function ExpensesManager({
   const [editId, setEditId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | 'expenses' | null>(null);
+
+  // Profit graph controls
+  const [chartMode, setChartMode] = useState<'daily' | 'cumulative'>('daily');
+  const [customRangeFrom, setCustomRangeFrom] = useState(fromStr || '');
+  const [customRangeTo, setCustomRangeTo] = useState(toStr || '');
 
   const set = (k: keyof ReturnType<typeof emptyForm>, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -135,6 +181,7 @@ export function ExpensesManager({
     await run(() => supabase.from('expenses').delete().eq('id', id));
   }
 
+  // Filtered expenses list
   const filtered = useMemo(
     () => (categoryFilter ? expenses.filter((ex) => ex.category === categoryFilter) : expenses),
     [expenses, categoryFilter],
@@ -145,37 +192,206 @@ export function ExpensesManager({
     [expenses],
   );
 
+  // Period navigation
+  function switchPeriod(p: '1_month' | '2_months' | 'custom') {
+    if (!slug) return;
+    if (p === 'custom') {
+      const from = customRangeFrom || fromStr || todayLocal();
+      const to = customRangeTo || toStr || todayLocal();
+      router.push(`/r/${slug}/expenses?period=custom&from=${from}&to=${to}`);
+    } else {
+      router.push(`/r/${slug}/expenses?period=${p}`);
+    }
+  }
+
+  function applyCustomRange(e: React.FormEvent) {
+    e.preventDefault();
+    if (!slug || !customRangeFrom || !customRangeTo) return;
+    router.push(`/r/${slug}/expenses?period=custom&from=${customRangeFrom}&to=${customRangeTo}`);
+  }
+
+  // Daily expenses aggregated
+  const expensesByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ex of expenses) {
+      map.set(ex.expense_date, (map.get(ex.expense_date) ?? 0) + ex.amount_cents);
+    }
+    return map;
+  }, [expenses]);
+
+  // Combined chart dataset
+  const chartData = useMemo(() => {
+    if (!dailySales || dailySales.length === 0) return [];
+    let runningNetSales = 0;
+    let runningExpenses = 0;
+    let runningProfit = 0;
+
+    const cogsRatio =
+      profit && profit.net_sales_cents > 0 ? profit.theoretical_cogs_cents / profit.net_sales_cents : 0.3;
+
+    return dailySales.map((d) => {
+      const daySales = d.net_sales_cents / 100;
+      const dayExpenses = (expensesByDate.get(d.business_date) ?? 0) / 100;
+      const dayCogs = daySales * cogsRatio;
+      const dayNetProfit = daySales - dayCogs - dayExpenses;
+
+      runningNetSales += daySales;
+      runningExpenses += dayExpenses;
+      runningProfit += dayNetProfit;
+
+      const dateObj = new Date(`${d.business_date}T00:00:00`);
+      const shortDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      return {
+        date: shortDate,
+        fullDate: d.business_date,
+        netSales: Math.round(daySales),
+        expenses: Math.round(dayExpenses),
+        netProfit: Math.round(dayNetProfit),
+        cumNetSales: Math.round(runningNetSales),
+        cumExpenses: Math.round(runningExpenses),
+        cumNetProfit: Math.round(runningProfit),
+      };
+    });
+  }, [dailySales, expensesByDate, profit]);
+
+  // Expense breakdown by category
+  const categoryTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ex of expenses) {
+      map.set(ex.category, (map.get(ex.category) ?? 0) + ex.amount_cents);
+    }
+    const total = Array.from(map.values()).reduce((a, b) => a + b, 0);
+    return CATEGORIES.map((cat) => {
+      const cents = map.get(cat) ?? 0;
+      const p = total > 0 ? (cents / total) * 100 : 0;
+      return { category: cat, cents, pct: Math.round(p * 10) / 10 };
+    }).filter((c) => c.cents > 0);
+  }, [expenses]);
+
+  const totalExpensesCents = useMemo(
+    () => categoryTotals.reduce((s, c) => s + c.cents, 0),
+    [categoryTotals],
+  );
+
   return (
     <div className="space-y-8">
       {error && (
         <div className="rounded border border-danger/40 bg-danger/10 text-danger p-3 text-xs">{error}</div>
       )}
 
+      {/* Period Filter Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-border bg-main/40">
+        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-main border border-border/80 text-xs">
+          <button
+            onClick={() => switchPeriod('1_month')}
+            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
+              activePeriod === '1_month'
+                ? 'bg-primary text-primary-fg shadow-sm'
+                : 'text-muted hover:text-body'
+            }`}
+          >
+            1 Month
+          </button>
+          <button
+            onClick={() => switchPeriod('2_months')}
+            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
+              activePeriod === '2_months'
+                ? 'bg-primary text-primary-fg shadow-sm'
+                : 'text-muted hover:text-body'
+            }`}
+          >
+            2 Months
+          </button>
+          <button
+            onClick={() => switchPeriod('custom')}
+            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
+              activePeriod === 'custom'
+                ? 'bg-primary text-primary-fg shadow-sm'
+                : 'text-muted hover:text-body'
+            }`}
+          >
+            Custom Date
+          </button>
+        </div>
+
+        {activePeriod === 'custom' && (
+          <form onSubmit={applyCustomRange} className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted">From:</span>
+            <input
+              type="date"
+              value={customRangeFrom}
+              onChange={(e) => setCustomRangeFrom(e.target.value)}
+              className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs"
+              required
+            />
+            <span className="text-muted">To:</span>
+            <input
+              type="date"
+              value={customRangeTo}
+              onChange={(e) => setCustomRangeTo(e.target.value)}
+              className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs"
+              required
+            />
+            <Button type="submit" variant="primary" className="py-1 px-3 text-xs h-auto">
+              Apply
+            </Button>
+          </form>
+        )}
+
+        <div className="text-xs text-muted font-medium">
+          Active range: <span className="text-body font-bold">{periodLabel}</span>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
       {canViewProfit && profit && (
         <section>
-          <h2 className="font-bold text-sm mb-3">Profit impact ({periodLabel})</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Net sales" value={formatCents(profit.net_sales_cents)} hint={`${profit.orders_count} orders`} />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-sm">Financial Executive Summary ({periodLabel})</h2>
+            <div className="text-xs text-muted">{profit.orders_count} orders completed</div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <StatCard
+              label="Net Sales"
+              value={formatCents(profit.net_sales_cents)}
+              hint={`Gross: ${formatCents(profit.gross_sales_cents)}`}
+            />
+            <StatCard
+              label="Cost of Goods (COGS)"
+              value={formatCents(profit.theoretical_cogs_cents)}
+              hint={`${profit.net_sales_cents > 0 ? Math.round((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100) : 0}% food cost`}
+            />
             <button
               onClick={() => setDrilldownLevel('gross_profit')}
               className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
-              <StatCard label="Gross profit ↴" value={formatCents(profit.gross_profit_cents)} hint={`${pct(profit.gross_margin_pct)} margin`} tone="ok" />
+              <StatCard
+                label="Gross Profit ↴"
+                value={formatCents(profit.gross_profit_cents)}
+                hint={`${pct(profit.gross_margin_pct)} margin`}
+                tone="ok"
+              />
             </button>
             <button
               onClick={() => setDrilldownLevel('expenses')}
               className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
-              <StatCard label="Expenses ↴" value={formatCents(profit.expenses_cents)} tone={profit.expenses_cents > 0 ? 'warn' : 'default'} />
+              <StatCard
+                label="Operating Expenses ↴"
+                value={formatCents(profit.expenses_cents)}
+                hint={`${expenses.length} records`}
+                tone={profit.expenses_cents > 0 ? 'warn' : 'default'}
+              />
             </button>
             <button
               onClick={() => setDrilldownLevel('net_profit')}
               className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
               <StatCard
-                label="Net profit ↴"
+                label="Net Profit ↴"
                 value={formatCents(profit.net_profit_cents)}
-                hint={pct(profit.net_profit_margin_pct)}
+                hint={`${pct(profit.net_profit_margin_pct)} net margin`}
                 tone={profit.net_profit_cents >= 0 ? 'ok' : 'danger'}
               />
             </button>
@@ -191,6 +407,270 @@ export function ExpensesManager({
             />
           )}
         </section>
+      )}
+
+      {/* Professional Profit Analytics Graph */}
+      {canViewProfit && chartData.length > 0 && (
+        <Card className="p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="font-bold text-sm">Profit & Financial Analytics</h2>
+              <p className="text-muted text-xs mt-0.5">
+                Visual trajectory of Net Sales, Operating Expenses, and Net Profit across {periodLabel}.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 p-1 rounded-lg bg-main border border-border text-xs">
+              <button
+                onClick={() => setChartMode('daily')}
+                className={`px-2.5 py-1 rounded font-semibold transition-colors ${
+                  chartMode === 'daily' ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
+                }`}
+              >
+                Daily Performance
+              </button>
+              <button
+                onClick={() => setChartMode('cumulative')}
+                className={`px-2.5 py-1 rounded font-semibold transition-colors ${
+                  chartMode === 'cumulative' ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
+                }`}
+              >
+                Cumulative Growth
+              </button>
+            </div>
+          </div>
+
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" fontSize={11} tickLine={false} />
+                <YAxis
+                  stroke="rgba(255,255,255,0.4)"
+                  fontSize={11}
+                  tickLine={false}
+                  tickFormatter={(v) => `$${v}`}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || payload.length === 0) return null;
+                    const d = payload[0]?.payload;
+                    if (!d) return null;
+                    return (
+                      <div className="rounded-lg border border-border bg-surface p-3 shadow-xl text-xs space-y-1">
+                        <div className="font-bold text-body border-b border-border pb-1">
+                          {d.fullDate || label}
+                        </div>
+                        <div className="flex justify-between gap-4 text-ok">
+                          <span>Net Sales:</span>
+                          <span className="font-mono font-bold">
+                            ${(chartMode === 'daily' ? d.netSales : d.cumNetSales).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-4 text-danger">
+                          <span>Expenses:</span>
+                          <span className="font-mono font-bold">
+                            ${(chartMode === 'daily' ? d.expenses : d.cumExpenses).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-4 text-primary pt-1 border-t border-border">
+                          <span>Net Profit:</span>
+                          <span className="font-mono font-bold">
+                            ${(chartMode === 'daily' ? d.netProfit : d.cumNetProfit).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                {chartMode === 'daily' ? (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="netSales"
+                      name="Net Sales"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#salesGrad)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="expenses"
+                      name="Expenses"
+                      stroke="#f43f5e"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#expenseGrad)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="netProfit"
+                      name="Net Profit"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#profitGrad)"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="cumNetSales"
+                      name="Cumulative Sales"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#salesGrad)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cumNetProfit"
+                      name="Cumulative Profit"
+                      stroke="#6366f1"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#profitGrad)"
+                    />
+                  </>
+                )}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="flex items-center justify-center gap-6 mt-3 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full bg-[#10b981]" />
+              <span className="text-muted">Net Sales</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full bg-[#f43f5e]" />
+              <span className="text-muted">Operating Expenses</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-full bg-[#6366f1]" />
+              <span className="text-muted">Net Profit</span>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Professional P&L Statement Breakdown Table */}
+      {canViewProfit && profit && (
+        <Card className="p-0 overflow-hidden">
+          <div className="p-4 border-b border-border bg-main/30 flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-sm">Profit & Loss (P&L) Statement</h2>
+              <p className="text-muted text-xs">Authoritative accounting waterfall for {periodLabel}.</p>
+            </div>
+          </div>
+          <table className="w-full text-left text-xs">
+            <thead className="text-muted border-b border-border bg-main/50">
+              <tr>
+                <th className="p-3 font-semibold">Financial Line</th>
+                <th className="p-3 font-semibold text-right">Amount</th>
+                <th className="p-3 font-semibold text-right">% of Net Sales</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-border/50">
+                <td className="p-3 font-semibold text-body">Operating Revenue (Net Sales)</td>
+                <td className="p-3 font-mono font-bold text-right">{formatCents(profit.net_sales_cents)}</td>
+                <td className="p-3 font-mono text-right text-muted">100.0%</td>
+              </tr>
+              <tr className="border-b border-border/50 bg-main/20">
+                <td className="p-3 pl-6 text-muted">Less: Cost of Goods Sold (Theoretical COGS)</td>
+                <td className="p-3 font-mono text-right text-muted">-{formatCents(profit.theoretical_cogs_cents)}</td>
+                <td className="p-3 font-mono text-right text-muted">
+                  -{profit.net_sales_cents > 0 ? ((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                </td>
+              </tr>
+              <tr className="border-b border-border/80 font-bold bg-ok/5">
+                <td className="p-3 text-ok">Gross Profit</td>
+                <td className="p-3 font-mono text-right text-ok">{formatCents(profit.gross_profit_cents)}</td>
+                <td className="p-3 font-mono text-right text-ok">{pct(profit.gross_margin_pct)}</td>
+              </tr>
+              {categoryTotals.map((c) => (
+                <tr key={c.category} className="border-b border-border/30">
+                  <td className="p-3 pl-6 text-muted">Less: {c.category}</td>
+                  <td className="p-3 font-mono text-right text-muted">-{formatCents(c.cents)}</td>
+                  <td className="p-3 font-mono text-right text-muted">
+                    -{profit.net_sales_cents > 0 ? ((c.cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-b border-border/80 font-bold bg-warn/5">
+                <td className="p-3 text-warn">Total Operating Expenses</td>
+                <td className="p-3 font-mono text-right text-warn">-{formatCents(profit.expenses_cents)}</td>
+                <td className="p-3 font-mono text-right text-warn">
+                  -{profit.net_sales_cents > 0 ? ((profit.expenses_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                </td>
+              </tr>
+              <tr className={`font-black text-sm ${profit.net_profit_cents >= 0 ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+                <td className="p-4">Net Profit</td>
+                <td className="p-4 font-mono text-right">{formatCents(profit.net_profit_cents)}</td>
+                <td className="p-4 font-mono text-right">{pct(profit.net_profit_margin_pct)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      {/* Expense Category Distribution Bar */}
+      {categoryTotals.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-bold text-xs">Expense Breakdown by Category ({formatCents(totalExpensesCents)})</h2>
+            <span className="text-[11px] text-muted">Click a category to filter table below</span>
+          </div>
+          <div className="w-full h-3 rounded-full bg-main overflow-hidden flex">
+            {categoryTotals.map((c) => (
+              <div
+                key={c.category}
+                style={{
+                  width: `${c.pct}%`,
+                  backgroundColor: CATEGORY_COLORS[c.category] || '#64748b',
+                }}
+                className="h-full cursor-pointer hover:opacity-80 transition-opacity"
+                title={`${c.category}: ${formatCents(c.cents)} (${c.pct}%)`}
+                onClick={() => setCategoryFilter(categoryFilter === c.category ? '' : c.category)}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
+            {categoryTotals.map((c) => (
+              <button
+                key={c.category}
+                onClick={() => setCategoryFilter(categoryFilter === c.category ? '' : c.category)}
+                className={`flex items-center gap-1.5 rounded px-2 py-0.5 transition-colors ${
+                  categoryFilter === c.category ? 'bg-primary/20 text-primary font-bold' : 'text-muted hover:text-body'
+                }`}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: CATEGORY_COLORS[c.category] || '#64748b' }}
+                />
+                <span>{c.category}:</span>
+                <span className="font-mono font-medium">{formatCents(c.cents)}</span>
+                <span className="text-[10px] text-muted">({c.pct}%)</span>
+              </button>
+            ))}
+          </div>
+        </Card>
       )}
 
       {canViewProfit && profit && <ExpenseCalculator profit={profit} periodLabel={periodLabel} />}
@@ -250,7 +730,7 @@ export function ExpensesManager({
 
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-          <h2 className="font-bold text-sm">All expenses</h2>
+          <h2 className="font-bold text-sm">All Recorded Expenses</h2>
           <div className="flex items-center gap-2 text-xs">
             <span className="text-muted">Filter:</span>
             <select
