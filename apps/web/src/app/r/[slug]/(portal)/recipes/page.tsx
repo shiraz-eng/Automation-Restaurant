@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { IngredientCostPanel } from '../inventory/IngredientCostPanel';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from './RecipesManager';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +16,12 @@ export default async function RecipesPage({ params }: { params: Promise<{ slug: 
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'menu.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('inventory.recipe_deduction')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="inventory.recipe_deduction" currentTier={ent.tier} />;
+  }
+
   const canManage = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');
   const canViewCost = can(perms, role, 'inventory.view_cost');
 

@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { ExpensesManager, type Expense, type ExpenseSupplier } from './ExpensesManager';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,12 @@ export default async function ExpensesPage({
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'finance.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('accounting.finance')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="accounting.finance" currentTier={ent.tier} />;
+  }
+
   const canWrite = can(perms, role, 'finance.create_expense') || can(perms, role, 'finance.update_expense');
   const canDelete = can(perms, role, 'finance.delete_expense');
   const canViewProfit = can(perms, role, 'finance.view_profit');

@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { ExportHistoryPanel } from './ExportHistoryPanel';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,11 @@ export default async function ExportHistoryPage({ params }: { params: Promise<{ 
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   await gatePortalPage(t.client, slug, 'reports.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('analytics.advanced')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="analytics.advanced" currentTier={ent.tier} />;
+  }
 
   return (
     <div className="space-y-4 max-w-4xl">

@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { SuppliersManager, type Supplier } from './SuppliersManager';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +20,11 @@ export default async function SuppliersPage({
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'supplier.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('inventory.recipe_deduction')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="inventory.recipe_deduction" currentTier={ent.tier} />;
+  }
 
   const { data, error } = await t.client
     .from('suppliers')

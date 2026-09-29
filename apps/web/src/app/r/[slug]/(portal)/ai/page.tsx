@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { can, gatePortalPage } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { AiChat } from './AiChat';
 import { AiAssistantPanel } from './AiAssistantPanel';
 import { CustomerChats } from './CustomerChats';
@@ -12,6 +14,11 @@ export default async function AiPage({ params }: { params: Promise<{ slug: strin
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   const { role, perms } = await gatePortalPage(t.client, slug, 'ai.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('analytics.advanced')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="analytics.advanced" currentTier={ent.tier} />;
+  }
   const canImportMenu = can(perms, role, 'menu.create');
   const canImportInventory = can(perms, role, 'stock.update');
   const canImportRecipes = can(perms, role, 'inventory.manage_recipes') || can(perms, role, 'finance.manage_recipes');

@@ -8,6 +8,7 @@ import { roleLabel } from '@/lib/portals';
 import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
 import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 
 // [segment, label, permission key, ownerOnly, requiredFeature]. Items without a key always
@@ -15,19 +16,9 @@ import type { FeatureKey } from '@automation-restaurant/shared';
 // owner/manager with an empty (legacy) array see everything; a real,
 // configured array hides what it lacks. ownerOnly is a SEPARATE,
 // defense-in-depth exclusion: these sections never render for a
-// non-owner even if the underlying permission were somehow granted
-// (restaurant.delete / ownership transfer / roles+permissions
-// administration / billing / the refund-approval policy itself) —
-// matching the governing spec's "Owner-only capabilities cannot be
-// granted through Manager portal configuration". The real enforcement
-// is still server-side (RLS + protect_owner_only_permissions trigger on
-// public.roles); this only keeps the nav honest about it, per "UI hiding
-// is not security" — the point is these routes ALSO reject a manager
-// server-side (gatePortalPage/RLS), not that hiding the link is enough.
+// non-owner even if the underlying permission were somehow granted.
 //
-// Grouped for the sidebar's category headings — purely a presentation
-// grouping over the exact same [segment, label, key, ownerOnly] entries
-// and routes as before; no route or permission here is new.
+// Grouped for the sidebar's category headings.
 type NavItem = [string, string, string?, boolean?, FeatureKey?];
 const NAV_GROUPS: [string, NavItem[]][] = [
   ['Main', [['', 'Dashboard', 'analytics.view']]],
@@ -46,8 +37,8 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   [
     'Kitchen',
     [
-      ['kds', 'Kitchen Display', 'kitchen.view'],
-      ['kds/history', 'KOT History', 'kitchen.view'],
+      ['kds', 'Kitchen Display', 'kitchen.view', false, 'kds.realtime'],
+      ['kds/history', 'KOT History', 'kitchen.view', false, 'kds.realtime'],
     ],
   ],
   [
@@ -56,24 +47,24 @@ const NAV_GROUPS: [string, NavItem[]][] = [
       ['menu', 'Menu', 'menu.view'],
       ['deals', 'Deals', 'deals.view'],
       ['promotions', 'Promotions', 'menu.view'],
-      ['reviews', 'Reviews', 'reviews.view'],
+      ['reviews', 'Reviews', 'reviews.view', false, 'staff.management'],
       ['menu/availability', 'Availability History', 'availability.view'],
       ['menu/priority', 'Priority Allocation', 'availability.view'],
     ],
   ],
-  ['Inventory', [['inventory', 'Inventory', 'stock.view']]],
-  ['Recipes & Food Cost', [['recipes', 'Recipes & Food Cost', 'menu.view']]],
+  ['Inventory', [['inventory', 'Inventory', 'stock.view', false, 'inventory.recipe_deduction']]],
+  ['Recipes & Food Cost', [['recipes', 'Recipes & Food Cost', 'menu.view', false, 'inventory.recipe_deduction']]],
   [
     'Suppliers & Purchasing',
     [
-      ['suppliers', 'Suppliers', 'supplier.view'],
-      ['purchasing', 'Purchasing', 'purchases.view'],
+      ['suppliers', 'Suppliers', 'supplier.view', false, 'inventory.recipe_deduction'],
+      ['purchasing', 'Purchasing', 'purchases.view', false, 'inventory.recipe_deduction'],
     ],
   ],
   [
     'Finance',
     [
-      ['expenses', 'Expenses', 'finance.view'],
+      ['expenses', 'Expenses', 'finance.view', false, 'accounting.finance'],
       ['billing', 'Billing', 'settings.view', true],
     ],
   ],
@@ -81,26 +72,23 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   [
     'Staff',
     [
-      ['staff', 'Staff', 'staff.view'],
-      ['scheduling', 'Shifts', 'attendance.view'],
-      ['portals', 'Kiosk Portals', 'portals.view', true],
+      ['staff', 'Staff', 'staff.view', false, 'staff.management'],
+      ['scheduling', 'Shifts', 'attendance.view', false, 'staff.management'],
+      ['portals', 'Kiosk Portals', 'portals.view', true, 'portals.advanced'],
     ],
   ],
   [
     'Analytics',
     [
       ['audit', 'Audit log', 'reports.view'],
-      ['exports', 'Export History', 'reports.view'],
+      ['exports', 'Export History', 'reports.view', false, 'analytics.advanced'],
     ],
   ],
-  ['AI Intelligence', [['ai', 'Assistant', 'ai.view'], ['guide', 'AI Guide']]],
+  ['AI Intelligence', [['ai', 'Assistant', 'ai.view', false, 'analytics.advanced'], ['guide', 'AI Guide']]],
   [
     'Settings',
     [
-      // Always listed: on a plan without custom branding the page itself
-      // says so (with an upgrade link) and locks editing, instead of the
-      // feature silently disappearing for new restaurants.
-      ['settings/theme', 'Brand Kit', 'settings.view'],
+      ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
       ['settings/policies', 'Policies', 'settings.view', true],
     ],
   ],
@@ -144,23 +132,24 @@ export default async function PortalLayout({
   // (provisioned before 0055, not yet backfilled) — fail OPEN in that case
   // rather than hiding everything; once synced, even a genuinely-empty
   // features array (Starter has none) is enforced for real. The real
-  // backstop for menu.branded either way is the DB trigger, not this nav
-  // filter — "UI hiding is not security" applies here too.
-  const { data: entitlements } = await t.client.from('business_settings').select('plan_tier, plan_features').eq('id', true).maybeSingle();
-  const entitlementsSynced = !!entitlements?.plan_tier;
-  const planFeatures = (entitlements?.plan_features ?? []) as FeatureKey[];
-  const hasFeature = (feature?: FeatureKey) => !feature || !entitlementsSynced || planFeatures.includes(feature);
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
 
-  const canSee = (key?: string, ownerOnly?: boolean, feature?: FeatureKey) =>
-    (!ownerOnly || role === 'owner') && (!key || can(perms, role, key)) && hasFeature(feature);
+  const canSee = (key?: string, ownerOnly?: boolean, feature?: FeatureKey) => {
+    if (ownerOnly && role !== 'owner') return false;
+    if (key && !can(perms, role, key)) return false;
+    // For non-owner staff, hide unentitled plan features to keep screens clean
+    if (role !== 'owner' && feature && !ent.isEntitled(feature)) return false;
+    return true;
+  };
 
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
 
-  const visibleGroups = NAV_GROUPS.map(([group, items]) => [group, items.filter(([, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature))] as [string, NavItem[]]).filter(
-    ([, items]) => items.length > 0,
-  );
+  const visibleGroups = NAV_GROUPS.map(([group, items]) => [
+    group,
+    items.filter(([, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature)),
+  ] as [string, NavItem[]]).filter(([, items]) => items.length > 0);
 
   return (
     <PortalProvider
@@ -188,11 +177,23 @@ export default async function PortalLayout({
               <div key={group}>
                 <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>
                 <div className="flex flex-col gap-0.5">
-                  {items.map(([seg, label]) => (
-                    <NavLink key={seg} href={`/r/${slug}${seg ? `/${seg}` : ''}`} exact={seg === ''}>
-                      {label}
-                    </NavLink>
-                  ))}
+                  {items.map(([seg, label, , , feature]) => {
+                    const isLocked = feature ? !ent.isEntitled(feature) : false;
+                    const rawBadge = isLocked && feature ? ent.requiredPlanName(feature) : null;
+                    const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
+                    return (
+                      <NavLink key={seg} href={`/r/${slug}${seg ? `/${seg}` : ''}`} exact={seg === ''}>
+                        <span className="flex items-center justify-between w-full">
+                          <span>{label}</span>
+                          {badge && (
+                            <span className="text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                              {badge}
+                            </span>
+                          )}
+                        </span>
+                      </NavLink>
+                    );
+                  })}
                 </div>
               </div>
             ))}

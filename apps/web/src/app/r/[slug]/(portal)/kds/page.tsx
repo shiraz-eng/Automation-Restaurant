@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { KitchenAvailabilityBoard } from './KitchenAvailabilityBoard';
 import { KdsBoard } from './KdsBoard';
 import type { Kot, RecipeComponentRow } from './kitchenTypes';
@@ -20,12 +22,18 @@ export default async function KdsPage({ params }: { params: Promise<{ slug: stri
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'kitchen.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('kds.realtime')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="kds.realtime" currentTier={ent.tier} />;
+  }
+
   const canEdit = can(perms, role, 'kitchen.update_status');
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const [{ data, error }, { count: completedToday }, { data: recipeComponents }, { data: entitlements }] = await Promise.all([
+  const [{ data, error }, { count: completedToday }, { data: recipeComponents }] = await Promise.all([
     t.client.from('orders').select(SELECT).in('status', ACTIVE).order('created_at', { ascending: true }),
     t.client
       .from('orders')
@@ -36,11 +44,9 @@ export default async function KdsPage({ params }: { params: Promise<{ slug: stri
       .from('recipe_components')
       .select('inventory_item_id, qty_per_unit, variant_id, menu_item_id, inventory_items(name, unit)')
       .is('variant_id', null),
-    t.client.from('business_settings').select('plan_tier, plan_features').eq('id', true).maybeSingle(),
   ]);
-  // Fails open when never synced (plan_tier null), same convention as the
-  // portal nav filter — see layout.tsx's own comment for why.
-  const stationRoutingEntitled = !entitlements?.plan_tier || (entitlements.plan_features as string[]).includes('kds.station_routing');
+
+  const stationRoutingEntitled = ent.isEntitled('kds.station_routing');
 
   return (
     <div className="space-y-4">

@@ -1,4 +1,4 @@
-import type { PlanRow, FeatureKey, PlanTier } from '@automation-restaurant/shared';
+import { type PlanRow, type FeatureKey, type PlanTier, PLAN_TIER_DEFAULT_FEATURES } from '@automation-restaurant/shared';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const CP_URL =
@@ -21,7 +21,7 @@ export const DEFAULT_PLANS: PlanRow[] = [
     currency: 'usd',
     limits: { users: '5', tables: '20', support: 'Email', branches: '1' },
     highlights: ['POS & orders', 'QR table ordering', 'Tables & floor', 'Basic reports'],
-    features: [],
+    features: PLAN_TIER_DEFAULT_FEATURES.starter,
     stripePriceIdMonthly: null,
     stripePriceIdAnnual: null,
     isActive: true,
@@ -42,12 +42,7 @@ export const DEFAULT_PLANS: PlanRow[] = [
       'Inventory & recipes',
       'Staff, customers, reservations',
     ],
-    features: [
-      'pos.multi_terminal',
-      'kds.realtime',
-      'inventory.recipe_deduction',
-      'menu.branded',
-    ] as FeatureKey[],
+    features: PLAN_TIER_DEFAULT_FEATURES.growth,
     stripePriceIdMonthly: null,
     stripePriceIdAnnual: null,
     isActive: true,
@@ -68,13 +63,7 @@ export const DEFAULT_PLANS: PlanRow[] = [
       'Accounting',
       'Custom branding',
     ],
-    features: [
-      'pos.multi_terminal',
-      'kds.realtime',
-      'kds.station_routing',
-      'inventory.recipe_deduction',
-      'branches.multi',
-    ] as FeatureKey[],
+    features: PLAN_TIER_DEFAULT_FEATURES.enterprise,
     stripePriceIdMonthly: null,
     stripePriceIdAnnual: null,
     isActive: true,

@@ -6,6 +6,8 @@ import { InventoryManager } from './InventoryManager';
 import { Card } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Inventory' };
@@ -20,6 +22,12 @@ export default async function InventoryPage({
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'stock.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('inventory.recipe_deduction')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="inventory.recipe_deduction" currentTier={ent.tier} />;
+  }
+
   const canManageAutomation = can(perms, role, 'finance.manage_purchases');
 
   const [{ data: items, error }, { data: ledgerRaw }, { data: suppliersRaw }, { data: supplierItemsRaw }, { data: settingsRow }] =

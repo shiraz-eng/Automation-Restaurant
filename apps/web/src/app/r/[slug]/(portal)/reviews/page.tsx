@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { ReviewsManager } from './ReviewsManager';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,11 @@ export default async function ReviewsPage({ params }: { params: Promise<{ slug: 
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   const { role, perms } = await gatePortalPage(t.client, slug, 'reviews.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('staff.management')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="staff.management" currentTier={ent.tier} />;
+  }
 
   return (
     <div className="space-y-4 max-w-4xl">

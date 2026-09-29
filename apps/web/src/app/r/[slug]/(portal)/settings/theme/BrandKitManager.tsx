@@ -153,13 +153,27 @@ export function BrandKitManager({
   return (
     <div className="space-y-6">
       {!entitled && (
-        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-xs">
-          <span className="font-bold">Custom branding isn&rsquo;t included in your current plan.</span>{' '}
-          Upgrade to unlock a custom logo and colors —{' '}
-          <a href="/pricing" target="_blank" rel="noreferrer" className="text-primary font-semibold hover:underline">
-            view plans
-          </a>
-          .
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-xs flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="font-bold">Custom branding requires the Enterprise plan.</span>{' '}
+            Upgrade to unlock custom restaurant logo, brand colors, custom browser meta titles, and receipt branding.
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={`/r/${slug}/billing`}
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-fg font-semibold hover:opacity-90 transition-opacity"
+            >
+              Upgrade Plan →
+            </a>
+            <a
+              href="/pricing"
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary font-semibold hover:underline px-2 py-1.5"
+            >
+              Compare Plans ↗
+            </a>
+          </div>
         </div>
       )}
       <Card>

@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { StaffManager } from '@/components/StaffManager';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +13,11 @@ export default async function StaffPage({ params }: { params: Promise<{ slug: st
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'staff.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('staff.management')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="staff.management" currentTier={ent.tier} />;
+  }
 
   const { data, error } = await t.client
     .from('memberships')

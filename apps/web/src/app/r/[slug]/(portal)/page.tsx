@@ -10,6 +10,7 @@ import { formatCents, formatDateTime } from '@/lib/format';
 import { getPlanByTier } from '@/lib/plans';
 import { can } from '@/lib/permissions';
 import { staffStartPath } from '@/lib/portals';
+import { getTenantEntitlement } from '@/lib/entitlements';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -124,6 +125,7 @@ export default async function DashboardPage({
   }[];
 
   const plan = await getPlanByTier(t.config.tier ?? 'starter');
+  const ent = await getTenantEntitlement(supabase, t.config.tier);
   const features = plan?.features ?? [];
 
   return (
@@ -159,18 +161,30 @@ export default async function DashboardPage({
           value={menu.length}
           hint={`${menu.filter((m: { is_available: boolean }) => m.is_available).length} available`}
         />
-        <DashboardStat
-          label="Low stock"
-          value={lowStock.length}
-          tone={lowStock.length > 0 ? 'danger' : 'ok'}
-          hint={`of ${inventory.length} items`}
-        />
-        <DashboardStat
-          label="Pending purchases"
-          value={pendingPurchases}
-          tone={pendingPurchases > 0 ? 'warn' : 'ok'}
-          href={`/r/${slug}/purchasing`}
-        />
+        {ent.isEntitled('inventory.recipe_deduction') ? (
+          <>
+            <DashboardStat
+              label="Low stock"
+              value={lowStock.length}
+              tone={lowStock.length > 0 ? 'danger' : 'ok'}
+              hint={`of ${inventory.length} items`}
+              href={`/r/${slug}/inventory`}
+            />
+            <DashboardStat
+              label="Pending purchases"
+              value={pendingPurchases}
+              tone={pendingPurchases > 0 ? 'warn' : 'ok'}
+              href={`/r/${slug}/purchasing`}
+            />
+          </>
+        ) : (
+          <DashboardStat
+            label="Inventory & Recipes"
+            value="Pro Plan"
+            hint="Unlock stock tracking"
+            href={`/r/${slug}/billing`}
+          />
+        )}
       </section>
 
       <DashboardClient slug={slug} restaurantName={t.config.restaurantName} logoUrl={logoUrl} />
@@ -243,52 +257,79 @@ export default async function DashboardPage({
         </section>
       </div>
 
-      <section className="rounded-lg border border-border bg-surface p-5">
-        <h2 className="font-bold mb-4">Inventory</h2>
-        {inventory.length === 0 ? (
-          <p className="text-muted text-xs">No inventory items.</p>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead className="text-muted">
-              <tr className="border-b border-border">
-                <th className="pb-2 font-semibold">Item</th>
-                <th className="pb-2 font-semibold text-right">On hand</th>
-                <th className="pb-2 font-semibold text-right">Min</th>
-                <th className="pb-2 font-semibold text-right">State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inventory.map(
-                (i: {
-                  id: string;
-                  name: string;
-                  unit: string;
-                  stock_qty: number;
-                  min_threshold: number;
-                }) => {
-                  const low = Number(i.stock_qty) <= Number(i.min_threshold);
-                  return (
-                    <tr key={i.id} className="border-b border-border/60 last:border-0">
-                      <td className="py-2 font-semibold">{i.name}</td>
-                      <td className="py-2 text-right">
-                        {i.stock_qty} {i.unit}
-                      </td>
-                      <td className="py-2 text-right text-muted">{i.min_threshold}</td>
-                      <td
-                        className={`py-2 text-right font-semibold ${low ? 'text-danger' : 'text-ok'}`}
-                      >
-                        {low ? 'low' : 'ok'}
-                      </td>
-                    </tr>
-                  );
-                },
-              )}
-            </tbody>
-          </table>
-        )}
-      </section>
+      {ent.isEntitled('inventory.recipe_deduction') ? (
+        <section className="rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold">Inventory</h2>
+            <a href={`/r/${slug}/inventory`} className="text-primary text-xs font-semibold hover:underline">
+              View all inventory →
+            </a>
+          </div>
+          {inventory.length === 0 ? (
+            <p className="text-muted text-xs">No inventory items.</p>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead className="text-muted">
+                <tr className="border-b border-border">
+                  <th className="pb-2 font-semibold">Item</th>
+                  <th className="pb-2 font-semibold text-right">On hand</th>
+                  <th className="pb-2 font-semibold text-right">Min</th>
+                  <th className="pb-2 font-semibold text-right">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventory.map(
+                  (i: {
+                    id: string;
+                    name: string;
+                    unit: string;
+                    stock_qty: number;
+                    min_threshold: number;
+                  }) => {
+                    const low = Number(i.stock_qty) <= Number(i.min_threshold);
+                    return (
+                      <tr key={i.id} className="border-b border-border/60 last:border-0">
+                        <td className="py-2 font-semibold">{i.name}</td>
+                        <td className="py-2 text-right">
+                          {i.stock_qty} {i.unit}
+                        </td>
+                        <td className="py-2 text-right text-muted">{i.min_threshold}</td>
+                        <td
+                          className={`py-2 text-right font-semibold ${low ? 'text-danger' : 'text-ok'}`}
+                        >
+                          {low ? 'low' : 'ok'}
+                        </td>
+                      </tr>
+                    );
+                  },
+                )}
+              </tbody>
+            </table>
+          )}
+        </section>
+      ) : (
+        <section className="rounded-lg border border-dashed border-border/80 bg-surface/50 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-bold text-body">📦 Inventory &amp; Recipe Tracking</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                Professional
+              </span>
+            </div>
+            <p className="text-muted text-xs max-w-xl">
+              Track live ingredient stock, automatic recipe deduction on order sales, low-stock reorder triggers, and supplier purchase orders with the Professional plan.
+            </p>
+          </div>
+          <a
+            href={`/r/${slug}/billing`}
+            className="shrink-0 px-4 py-2 rounded-lg bg-primary text-primary-fg font-semibold text-xs hover:opacity-90 transition-opacity"
+          >
+            Upgrade Plan →
+          </a>
+        </section>
+      )}
 
-      {canViewPortals && (
+      {canViewPortals && ent.isEntitled('portals.advanced') && (
         <section className="rounded-lg border border-border bg-surface p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold">Portal activity</h2>

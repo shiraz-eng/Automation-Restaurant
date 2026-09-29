@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import {
   PortalsManager,
   type Portal,
@@ -19,6 +21,11 @@ export default async function PortalsPage({
   if (!t) notFound();
 
   await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('portals.advanced')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="portals.advanced" currentTier={ent.tier} />;
+  }
 
   const [{ data: portals, error }, permsRes, { data: brandKitRows }] = await Promise.all([
     t.client

@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { AttendanceInsights } from './AttendanceInsights';
 import { SchedulingClient, type Shift, type Attendance } from './SchedulingClient';
 
@@ -27,6 +29,11 @@ export default async function SchedulingPage({
   if (!t) notFound();
 
   const { role, perms } = await gatePortalPage(t.client, slug, 'attendance.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('staff.management')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="staff.management" currentTier={ent.tier} />;
+  }
 
   const offset = Number.parseInt(w ?? '0', 10) || 0;
   const start = weekStart();

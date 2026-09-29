@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isTierEntitledToFeature, type FeatureKey } from '@automation-restaurant/shared';
 import type { ReceiptConfig, ReceiptContext } from '@/lib/receiptTemplate';
 import { BrandKitManager } from './BrandKitManager';
 import { ReceiptManager } from './ReceiptManager';
@@ -118,7 +119,7 @@ export async function BrandKitSection({
               metaTitle={data?.meta_title ?? null}
               restaurantName={t.config.restaurantName}
               canEdit={canEdit}
-              entitled={!data?.plan_tier || (data.plan_features as string[]).includes('menu.branded')}
+              entitled={isTierEntitledToFeature(data?.plan_tier, 'menu.branded', data?.plan_features as FeatureKey[])}
             />
 
             <div>

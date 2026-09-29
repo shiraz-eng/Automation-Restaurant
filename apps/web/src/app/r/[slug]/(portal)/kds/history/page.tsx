@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
+import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
+import { getTenantEntitlement } from '@/lib/entitlements';
 import { KotHistory, type HistoryRow, type AuditRow } from './KotHistory';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +19,11 @@ export default async function KotHistoryPage({ params }: { params: Promise<{ slu
   if (!t) notFound();
 
   await gatePortalPage(t.client, slug, 'kitchen.view');
+
+  const ent = await getTenantEntitlement(t.client, t.config.tier);
+  if (!ent.isEntitled('kds.realtime')) {
+    return <PlanUpgradePaywall slug={slug} featureKey="kds.realtime" currentTier={ent.tier} />;
+  }
 
   const since = new Date();
   since.setDate(since.getDate() - 30);
