@@ -97,7 +97,10 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   [
     'Settings',
     [
-      ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
+      // Always listed: on a plan without custom branding the page itself
+      // says so (with an upgrade link) and locks editing, instead of the
+      // feature silently disappearing for new restaurants.
+      ['settings/theme', 'Brand Kit', 'settings.view'],
       ['settings/policies', 'Policies', 'settings.view', true],
     ],
   ],

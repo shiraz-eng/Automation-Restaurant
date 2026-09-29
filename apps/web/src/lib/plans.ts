@@ -58,8 +58,8 @@ export const DEFAULT_PLANS: PlanRow[] = [
     tier: 'enterprise',
     name: 'Enterprise',
     blurb: 'For multi-branch restaurant groups.',
-    priceMonthlyCents: null,
-    priceAnnualCents: null,
+    priceMonthlyCents: 29900,
+    priceAnnualCents: 23900,
     currency: 'usd',
     limits: { users: 'Unlimited', tables: 'Unlimited', support: 'Dedicated', branches: 'Unlimited' },
     highlights: [

@@ -54,6 +54,7 @@ import { ReviewsManager } from '../../(portal)/reviews/ReviewsManager';
 import { ExceptionsPanel } from '../../(portal)/exceptions/ExceptionsPanel';
 import { ApprovalsPanel } from '../../(portal)/approvals/ApprovalsPanel';
 import { BrandKitSection } from '../../(portal)/settings/theme/BrandKitSection';
+import { fetchPortalTheme } from '@/lib/theme';
 import { PoliciesManager } from '../../(portal)/settings/policies/PoliciesManager';
 import {
   PortalsManager,
@@ -554,6 +555,8 @@ export default async function PortalHome({
       : Promise.resolve({ data: null }),
   ]);
   const myMembershipId = (myMembershipRes.data as { id: string } | null)?.id ?? null;
+  // The restaurant's Brand Kit logo for the Create Portal preview.
+  const portalPreviewLogo = includePortals ? (await fetchPortalTheme(t.client)).logoUrl : null;
   // The restaurant's tax setting — the same rate place_order() charges.
   let cashierTaxRateBps = 0;
   if (includeCashier) {
@@ -1077,7 +1080,7 @@ export default async function PortalHome({
               <PortalsManager
                 slug={slug}
                 restaurantName={t.config.restaurantName}
-                logoUrl={null}
+                logoUrl={portalPreviewLogo}
                 portals={(managedPortalsRes.data ?? []) as ManagedPortal[]}
                 perms={((catalogRes.data ?? []) as PermRow[])}
                 caps={{
