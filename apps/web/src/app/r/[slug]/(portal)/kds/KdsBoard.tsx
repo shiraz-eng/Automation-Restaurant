@@ -153,7 +153,13 @@ export function KdsBoard({
         <div className="hidden lg:block mt-0">
           {selected ? (
             <div className="sticky top-6 h-[calc(100vh-8rem)]">
-              <KotInspector slug={slug} kot={selected} recipeComponents={recipeComponents} onClose={() => setSelectedId(null)} />
+              <KotInspector
+                slug={slug}
+                kot={selected}
+                recipeComponents={recipeComponents}
+                onClose={() => setSelectedId(null)}
+                onPrint={() => printKotTicket(restaurantName, selected)}
+              />
             </div>
           ) : (
             <div className="sticky top-6 rounded-lg border border-border bg-surface p-6 text-center text-muted text-xs">
@@ -166,7 +172,13 @@ export function KdsBoard({
       {selected && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/50 flex items-end" onClick={() => setSelectedId(null)}>
           <div className="w-full max-h-[85vh] bg-main rounded-t-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <KotInspector slug={slug} kot={selected} recipeComponents={recipeComponents} onClose={() => setSelectedId(null)} />
+            <KotInspector
+              slug={slug}
+              kot={selected}
+              recipeComponents={recipeComponents}
+              onClose={() => setSelectedId(null)}
+              onPrint={() => printKotTicket(restaurantName, selected)}
+            />
           </div>
         </div>
       )}

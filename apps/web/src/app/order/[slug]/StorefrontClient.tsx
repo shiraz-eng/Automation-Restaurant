@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { formatCents } from '@/lib/format';
 import { CustomerAiChat } from './CustomerAiChat';
 import { cssVarsFromTokens, themeFromBrandKit, type BrandKit } from '@/lib/theme';
@@ -43,6 +43,7 @@ export function StorefrontClient({
   slug,
   restaurantName,
   table,
+  customerName,
   categories,
   items,
   deals,
@@ -52,6 +53,7 @@ export function StorefrontClient({
   slug: string;
   restaurantName: string;
   table: string | null;
+  customerName?: string | null;
   categories: MenuCategory[];
   items: MenuItem[];
   deals: DealLite[];
@@ -69,9 +71,46 @@ export function StorefrontClient({
     [brandKit],
   );
   const logoUrl = brandKit?.logo_url ?? null;
-  const [guestName, setGuestName] = useState('');
-  const [tableLabel, setTableLabel] = useState(table ?? '');
-  const [started, setStarted] = useState(false);
+  const [guestName, setGuestName] = useState(customerName?.trim() || '');
+  const [tableLabel, setTableLabel] = useState(table?.trim() || '');
+  const [started, setStarted] = useState(Boolean(customerName?.trim()));
+  const [editingGuest, setEditingGuest] = useState(false);
+
+  // Dynamic favicon & tab title matching restaurant Brand Kit
+  useEffect(() => {
+    if (logoUrl) {
+      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'shortcut icon';
+        document.head.appendChild(link);
+      }
+      link.href = logoUrl;
+    }
+    const metaTitle = brandKit?.meta_title?.trim() || restaurantName;
+    if (metaTitle) {
+      document.title = metaTitle;
+    }
+  }, [logoUrl, brandKit, restaurantName]);
+
+  // Read saved guest/table details from localStorage if not passed via URL
+  useEffect(() => {
+    try {
+      if (!guestName) {
+        const savedGuest = localStorage.getItem(`order_guest_${slug}`);
+        if (savedGuest?.trim()) {
+          setGuestName(savedGuest.trim());
+          setStarted(true);
+        }
+      }
+      if (!tableLabel) {
+        const savedTable = localStorage.getItem(`order_table_${slug}`);
+        if (savedTable?.trim()) {
+          setTableLabel(savedTable.trim());
+        }
+      }
+    } catch {}
+  }, [slug, guestName, tableLabel]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCat, setActiveCat] = useState<string>('cat-deals');
@@ -312,7 +351,15 @@ export function StorefrontClient({
         setError(friendlyOrderError(body.message ?? body.error));
         return;
       }
-      const q = new URLSearchParams({ table: tableLabel.trim(), guest: guestName.trim() });
+      try {
+        localStorage.setItem(`order_guest_${slug}`, guestName.trim());
+        if (tableLabel.trim()) localStorage.setItem(`order_table_${slug}`, tableLabel.trim());
+      } catch {}
+      const q = new URLSearchParams({
+        table: tableLabel.trim(),
+        guest: guestName.trim(),
+        name: guestName.trim(),
+      });
       router.push(`/order/${slug}/track/${body.order_id}?${q.toString()}`);
     } catch {
       setError('Network error. Try again.');
@@ -393,7 +440,11 @@ export function StorefrontClient({
 
   if (!started) {
     return (
-      <div className="min-h-screen grid place-items-center px-6" style={brandStyle}>
+      <div
+        className="min-h-screen grid place-items-center px-6 text-body bg-main"
+        style={brandStyle}
+        data-theme={brandKit?.appearance ?? undefined}
+      >
         <div className="w-full max-w-sm">
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -415,11 +466,19 @@ export function StorefrontClient({
             <input
               value={tableLabel}
               onChange={(e) => setTableLabel(e.target.value)}
+              placeholder="e.g. Table 1"
               className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-sm outline-none focus:border-primary transition-colors"
             />
           </label>
           <button
-            onClick={() => guestName.trim() && setStarted(true)}
+            onClick={() => {
+              if (!guestName.trim()) return;
+              try {
+                localStorage.setItem(`order_guest_${slug}`, guestName.trim());
+                if (tableLabel.trim()) localStorage.setItem(`order_table_${slug}`, tableLabel.trim());
+              } catch {}
+              setStarted(true);
+            }}
             disabled={!guestName.trim()}
             className="w-full rounded-full bg-primary text-primary-fg font-black py-3.5 text-sm disabled:opacity-50 flex items-center justify-center gap-1.5 active:scale-[0.99] transition-transform"
           >
@@ -431,7 +490,11 @@ export function StorefrontClient({
   }
 
   return (
-    <div className="min-h-screen pb-28 lg:pb-10" style={brandStyle}>
+    <div
+      className="min-h-screen pb-28 lg:pb-10 text-body bg-main"
+      style={brandStyle}
+      data-theme={brandKit?.appearance ?? undefined}
+    >
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-6 lg:max-w-[1400px] lg:mx-auto lg:px-6 lg:pt-6 lg:items-start">
         <div className="min-w-0">
           <div ref={headerRef} className="sticky top-0 z-20 bg-main">
@@ -443,6 +506,7 @@ export function StorefrontClient({
               tableLabel={tableLabel}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
+              onEditGuest={() => setEditingGuest(true)}
             />
           </div>
 
@@ -694,6 +758,54 @@ export function StorefrontClient({
         onAddDealPlain={(deal, qty) => bumpDeal(deal, qty)}
         hideTrigger={cartOpen || !!configuring || !!configuringDeal}
       />
+
+      {editingGuest && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface border border-border p-6 shadow-xl space-y-4 text-body">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-base">Your Table &amp; Details</h2>
+              <button
+                type="button"
+                onClick={() => setEditingGuest(false)}
+                className="text-muted hover:text-body p-1"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <label className="block">
+              <span className="text-muted text-xs font-bold">Your name</span>
+              <input
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-border bg-main px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </label>
+            <label className="block">
+              <span className="text-muted text-xs font-bold">Table number / name</span>
+              <input
+                value={tableLabel}
+                onChange={(e) => setTableLabel(e.target.value)}
+                placeholder="e.g. Table 1"
+                className="mt-1.5 w-full rounded-xl border border-border bg-main px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  if (guestName.trim()) localStorage.setItem(`order_guest_${slug}`, guestName.trim());
+                  if (tableLabel.trim()) localStorage.setItem(`order_table_${slug}`, tableLabel.trim());
+                } catch {}
+                setEditingGuest(false);
+              }}
+              className="w-full rounded-xl bg-primary text-primary-fg font-bold py-2.5 text-sm active:scale-[0.99] transition-transform"
+            >
+              Save details
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

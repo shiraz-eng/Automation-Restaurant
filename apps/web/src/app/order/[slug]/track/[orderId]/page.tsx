@@ -1,10 +1,20 @@
 import type { Metadata } from 'next';
 import { createClient } from '@supabase/supabase-js';
 import { getTenantConfig } from '@/lib/tenant';
+import type { BrandKit } from '@/lib/theme';
+import { buildOrderMetadata } from '@/lib/portalMetadata';
 import { TrackClient, type TrackedOrder } from './TrackClient';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Track Order' };
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string; orderId: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  return buildOrderMetadata(slug);
+}
 
 export default async function TrackPage({
   params,
@@ -27,7 +37,11 @@ export default async function TrackPage({
   // track_order() returns this one order only to someone holding its id —
   // guests can no longer read the orders table directly (migration 0073).
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
-  const { data: tracked } = isUuid ? await anon.rpc('track_order', { p_order_id: orderId }) : { data: null };
+  const [{ data: tracked }, { data: brandKitRows }] = await Promise.all([
+    isUuid ? anon.rpc('track_order', { p_order_id: orderId }) : Promise.resolve({ data: null }),
+    anon.rpc('get_brand_kit'),
+  ]);
+  const brandKit = (Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows) as BrandKit | null;
   const result = tracked as (TrackedOrder & { pickup_counter_portal_id: string | null; counters?: { id: string; name: string }[] }) | null;
   const order = result ? { ...result, counters: undefined } : null;
   const counters = result?.counters ?? [];
@@ -49,6 +63,7 @@ export default async function TrackPage({
       initial={order as TrackedOrder}
       counters={counters ?? []}
       initialCounterId={order.pickup_counter_portal_id}
+      brandKit={brandKit ?? null}
     />
   );
 }

@@ -106,15 +106,29 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
   }
 }
 
+import type { Metadata } from 'next';
+import { buildOrderMetadata } from '@/lib/portalMetadata';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  return buildOrderMetadata(slug);
+}
+
 export default async function OrderPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ table?: string }>;
+  searchParams: Promise<{ table?: string; name?: string; guest?: string }>;
 }) {
   const { slug } = await params;
-  const { table } = await searchParams;
+  const sp = await searchParams;
+  const table = sp.table ?? null;
+  const customerName = sp.name ?? sp.guest ?? null;
   const config = await getTenantConfig(slug);
   const menu = await getMenu(slug, config);
   // The restaurant's tax setting, shown in the cart — the same rate
@@ -145,6 +159,7 @@ export default async function OrderPage({
       slug={slug}
       restaurantName={config.restaurantName}
       table={table ?? null}
+      customerName={customerName ?? null}
       categories={menu.categories}
       items={menu.items}
       deals={menu.deals ?? []}

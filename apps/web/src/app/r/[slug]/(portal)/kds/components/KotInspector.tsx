@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { X } from 'lucide-react';
+import { X, Printer, AlertTriangle } from 'lucide-react';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatDateTime } from '@/lib/format';
 import { orderTypeLabel, stationsForKot, tableNumberLabel, type Kot, type RecipeComponentRow } from '../kitchenTypes';
@@ -24,11 +24,13 @@ export function KotInspector({
   kot,
   recipeComponents,
   onClose,
+  onPrint,
 }: {
   slug: string;
   kot: Kot;
   recipeComponents: RecipeComponentRow[];
   onClose: () => void;
+  onPrint?: () => void;
 }) {
   const supabase = usePortalSupabase();
   const [events, setEvents] = useState<AuditRow[] | null>(null);
@@ -72,9 +74,21 @@ export function KotInspector({
     <div className="rounded-lg border border-border bg-surface flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h2 className="font-black text-sm">KOT &amp; Lifecycle Inspector</h2>
-        <button onClick={onClose} className="text-muted hover:text-body" aria-label="Close">
-          <X size={15} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          {onPrint && (
+            <button
+              onClick={onPrint}
+              className="text-muted hover:text-body p-1 rounded hover:bg-surface border border-transparent hover:border-border transition-colors"
+              title="Print KOT Ticket"
+              aria-label="Print KOT Ticket"
+            >
+              <Printer size={15} />
+            </button>
+          )}
+          <button onClick={onClose} className="text-muted hover:text-body p-1" aria-label="Close">
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
@@ -125,6 +139,66 @@ export function KotInspector({
               <span className="font-semibold">{stationsForKot(kot).join(', ')}</span>
             </div>
           </div>
+        </section>
+
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[10px] font-bold uppercase tracking-wide text-muted">
+              Ordered Items ({kot.order_lines.reduce((s, l) => s + l.qty, 0)})
+            </h3>
+            {onPrint && (
+              <button
+                type="button"
+                onClick={onPrint}
+                className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
+                aria-label="Print KOT Ticket"
+              >
+                <Printer size={12} /> Print Ticket
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {kot.order_lines.map((l) => (
+              <div key={l.id} className="rounded border border-border bg-main/40 p-2.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-body">
+                    {l.qty} × {l.name_snapshot}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold uppercase shrink-0 px-1.5 py-0.5 rounded border ${
+                      l.kds_status === 'ready' || l.kds_status === 'served'
+                        ? 'bg-ok/10 text-ok border-ok/30'
+                        : l.kds_status === 'preparing'
+                          ? 'bg-warn/10 text-warn border-warn/30'
+                          : 'bg-muted/10 text-muted border-border'
+                    }`}
+                  >
+                    {l.kds_status}
+                  </span>
+                </div>
+                {l.variant_name_snapshot && (
+                  <div className="text-muted text-[11px] mt-0.5 font-medium uppercase">
+                    {l.variant_name_snapshot}
+                  </div>
+                )}
+                {l.modifiers && l.modifiers.length > 0 && (
+                  <div className="text-muted text-[11px] mt-0.5">
+                    {l.modifiers.map((m) => m.name).join(', ')}
+                  </div>
+                )}
+                {l.customer_note && (
+                  <div className="flex items-center gap-1 text-warn text-[11px] font-semibold mt-1">
+                    <AlertTriangle size={11} /> {l.customer_note}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {kot.customer_note && (
+            <div className="mt-2 flex items-center gap-1.5 rounded bg-warn/10 border border-warn/30 p-2 text-warn text-xs font-semibold">
+              <AlertTriangle size={12} /> Note: {kot.customer_note}
+            </div>
+          )}
         </section>
 
         <section>

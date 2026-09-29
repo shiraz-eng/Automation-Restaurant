@@ -10,6 +10,7 @@ export function Header({
   tableLabel,
   searchQuery,
   onSearchChange,
+  onEditGuest,
 }: {
   restaurantName: string;
   logoUrl: string | null;
@@ -18,7 +19,14 @@ export function Header({
   tableLabel: string;
   searchQuery: string;
   onSearchChange: (v: string) => void;
+  onEditGuest?: () => void;
 }) {
+  const tableDisplay = tableLabel
+    ? tableLabel.toLowerCase().startsWith('table')
+      ? tableLabel
+      : `Table ${tableLabel}`
+    : 'Ordering';
+
   return (
     <header className="px-4 pt-5 pb-3 border-b border-border">
       <div className="flex items-center gap-3">
@@ -30,12 +38,17 @@ export function Header({
           <h1 className="font-black text-lg leading-tight truncate">{restaurantName}</h1>
           {tagline && <p className="text-muted text-[11.5px] truncate">{tagline}</p>}
         </div>
-        <div className="text-right shrink-0">
+        <button
+          type="button"
+          onClick={onEditGuest}
+          className="text-right shrink-0 rounded-lg p-1 hover:bg-surface/80 transition-colors text-left"
+          title="Click to edit table or name"
+        >
           <div className="text-[10px] uppercase tracking-wide text-muted font-bold">
-            {tableLabel ? `Table ${tableLabel}` : 'Ordering'}
+            {tableDisplay}
           </div>
           <div className="text-xs font-semibold truncate max-w-[8rem]">{guestName}</div>
-        </div>
+        </button>
       </div>
 
       <div className="relative mt-3.5">

@@ -31,15 +31,18 @@ export async function buildPortalMetadata(slug: string): Promise<Metadata> {
 
 /**
  * Customer storefront identity (browser <title>, favicon, meta tags, og tags)
- * for /order/[slug] and /order/[slug]/track/[orderId].
+ * for /order/[slug] and /order/[slug]/track/[orderId]. Follows the restaurant's
+ * Brand Kit (meta title, custom logo favicon, theme) exactly like the staff portal.
  */
 export async function buildOrderMetadata(slug: string): Promise<Metadata> {
   const config = await getTenantConfig(slug);
-  if (!config) return { title: 'Order Online — Automation Restaurant' };
+  if (!config) return { title: 'Automation Restaurant' };
 
   let kit: BrandKit | null = null;
   try {
-    const client = createClient(config.url, config.anonKey);
+    const client = createClient(config.url, config.anonKey, {
+      auth: { persistSession: false },
+    });
     const { data: rows } = await client.rpc('get_brand_kit');
     kit = (Array.isArray(rows) ? rows[0] : rows) as BrandKit | null;
   } catch {
@@ -50,13 +53,21 @@ export async function buildOrderMetadata(slug: string): Promise<Metadata> {
   const description = `Order online from ${identity}. View menu, deals, and order fresh food.`;
 
   return {
-    title: { default: `${identity} — Order Online`, template: `%s — ${identity}` },
+    title: { default: identity, template: `%s — ${identity}` },
     description,
     openGraph: {
-      title: `${identity} — Order Online`,
+      title: identity,
       description,
       ...(kit?.logo_url ? { images: [{ url: kit.logo_url }] } : {}),
     },
-    ...(kit?.logo_url ? { icons: { icon: kit.logo_url } } : {}),
+    ...(kit?.logo_url
+      ? {
+          icons: {
+            icon: kit.logo_url,
+            shortcut: kit.logo_url,
+            apple: kit.logo_url,
+          },
+        }
+      : {}),
   };
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
 import { formatCents } from '@/lib/format';
+import { type BrandKit, themeFromBrandKit, cssVarsFromTokens } from '@/lib/theme';
 
 type Line = { name_snapshot: string; qty: number; line_total_cents: number };
 export type TrackedOrder = {
@@ -87,6 +88,7 @@ export function TrackClient({
   initial,
   counters,
   initialCounterId,
+  brandKit,
 }: {
   slug: string;
   restaurantName: string;
@@ -95,7 +97,30 @@ export function TrackClient({
   initial: TrackedOrder;
   counters: { id: string; name: string }[];
   initialCounterId: string | null;
+  brandKit?: BrandKit | null;
 }) {
+  const brandStyle = useMemo(
+    () => cssVarsFromTokens(themeFromBrandKit(brandKit ?? null).tokens) as CSSProperties,
+    [brandKit],
+  );
+  const logoUrl = brandKit?.logo_url ?? null;
+
+  useEffect(() => {
+    if (logoUrl) {
+      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'shortcut icon';
+        document.head.appendChild(link);
+      }
+      link.href = logoUrl;
+    }
+    const metaTitle = brandKit?.meta_title?.trim() || restaurantName;
+    if (metaTitle) {
+      document.title = `Track Order #${initial.order_number} — ${metaTitle}`;
+    }
+  }, [logoUrl, brandKit, restaurantName, initial.order_number]);
+
   const supabase = useMemo(
     () => createTenantBrowserClient(supabaseUrl, supabaseAnonKey),
     [supabaseUrl, supabaseAnonKey],
@@ -172,13 +197,40 @@ export function TrackClient({
   const assignedCounterName = counters.find((c) => c.id === counterId)?.name ?? null;
   const readyForCounter = status === 'ready' && (assignedCounterName != null || counters.length > 0);
 
+  const tableDisplay = initial.table_label
+    ? initial.table_label.toLowerCase().startsWith('table')
+      ? initial.table_label
+      : `Table ${initial.table_label}`
+    : 'no table';
+
+  const orderMoreQuery = new URLSearchParams({
+    ...(initial.table_label ? { table: initial.table_label } : {}),
+    ...(initial.customer_name ? { name: initial.customer_name } : {}),
+  }).toString();
+
   return (
-    <div className="min-h-screen px-6 py-8 max-w-md mx-auto">
-      <h1 className="font-black text-lg">Order #{initial.order_number}</h1>
-      <p className="text-muted text-xs mb-6">
-        {restaurantName} · {initial.table_label ?? 'no table'}
-        {initial.customer_name ? ` · ${initial.customer_name}` : ''}
-      </p>
+    <div
+      className="min-h-screen px-6 py-8 max-w-md mx-auto text-body bg-main"
+      style={brandStyle}
+      data-theme={brandKit?.appearance ?? undefined}
+    >
+      <div className="flex items-center gap-3.5 mb-6">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoUrl}
+            alt={`${restaurantName} logo`}
+            className="h-12 w-12 rounded-xl object-contain bg-surface border border-border p-1.5 shrink-0"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <h1 className="font-black text-lg leading-tight">Order #{initial.order_number}</h1>
+          <p className="text-muted text-xs truncate">
+            {restaurantName} · {tableDisplay}
+            {initial.customer_name ? ` · ${initial.customer_name}` : ''}
+          </p>
+        </div>
+      </div>
 
       <ol className="space-y-3 mb-6">
         {STEPS.map((s, i) => {
@@ -225,7 +277,7 @@ export function TrackClient({
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-surface p-4 text-xs space-y-1 mb-6">
+      <div className="rounded-xl border border-border bg-surface p-4 text-xs space-y-1 mb-6 shadow-sm">
         {initial.order_lines.map((l, i) => (
           <div key={i} className="flex justify-between">
             <span>
@@ -241,8 +293,8 @@ export function TrackClient({
       </div>
 
       <Link
-        href={`/order/${slug}?table=${encodeURIComponent(initial.table_label ?? '')}`}
-        className="block text-center rounded border border-border font-semibold py-2.5 text-sm mb-4"
+        href={`/order/${slug}${orderMoreQuery ? `?${orderMoreQuery}` : ''}`}
+        className="block text-center rounded-xl border border-border bg-surface hover:bg-main text-body font-bold py-3 text-sm mb-4 transition-colors shadow-sm"
       >
         Order more items
       </Link>
