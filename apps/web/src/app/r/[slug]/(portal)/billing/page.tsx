@@ -63,7 +63,12 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
         </dl>
       </Card>
 
-      <BillingActions slug={slug} billingConfigured={billingConfigured} />
+      <BillingActions
+        slug={slug}
+        billingConfigured={billingConfigured}
+        currentTier={config?.tier ?? 'starter'}
+        billingInterval={config?.billingInterval ?? 'monthly'}
+      />
       <BillingAiChat slug={slug} restaurantName={t.config.restaurantName} />
     </div>
   );

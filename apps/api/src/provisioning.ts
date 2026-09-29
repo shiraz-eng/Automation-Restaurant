@@ -323,7 +323,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v79 period_tax(): tax collected and sales incl. tax, for Restaurant Performance.
 //   v80 Private ai-chat storage bucket for AI Assistant attachments.
 //   v81 Saved AI chats (ai_conversations / ai_messages) for staff and customers.
-const SCHEMA_VERSION = 81;
+//   v82 Low-stock automation fix: trigger on INSERT, backfill open events, fallback target stock in pending_low_stock_reorders.
+const SCHEMA_VERSION = 82;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

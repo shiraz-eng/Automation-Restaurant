@@ -1,8 +1,9 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { z } from 'zod';
 import { supabaseAdmin } from '../supabase';
 import { isAllowedOrigin, env } from '../env';
 import { requirePortalPerm } from '../middleware/portalAuth';
-import { stripe, billingConfigured } from '../stripe';
+import { stripe, billingConfigured, priceIdFor } from '../stripe';
 import { syncEntitlementsForTenant } from '../lib/entitlementSync';
 
 /**
@@ -154,3 +155,59 @@ billingRouter.get('/invoices', requirePortalPerm('settings.view'), async (req: R
     res.status(502).json({ error: 'stripe_error', message: String((err as Error).message ?? err) });
   }
 });
+
+const changePlanSchema = z.object({
+  slug: z.string().min(1),
+  tier: z.enum(['starter', 'growth', 'enterprise']),
+  billing_interval: z.enum(['monthly', 'annual']).default('monthly'),
+});
+
+/**
+ * POST /api/billing/change-plan — self-service plan upgrade/change for restaurant owner.
+ * Directly updates subscription tier and syncs entitlements immediately.
+ */
+billingRouter.post('/change-plan', express.json(), requirePortalPerm('settings.view'), async (req: Request, res: Response) => {
+  const parsed = changePlanSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(422).json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
+  }
+  const ctx = await requireOwner(req, res);
+  if (!ctx) return;
+
+  const { tier, billing_interval } = parsed.data;
+  const { data: sub } = await supabaseAdmin
+    .from('subscriptions')
+    .select('stripe_subscription_id, stripe_customer_id, status, tier, billing_interval')
+    .eq('tenant_id', ctx.tenantId)
+    .maybeSingle();
+  if (!sub) return res.status(404).json({ error: 'no_subscription' });
+
+  const isRealStripeSub = billingConfigured && sub.stripe_subscription_id && !sub.stripe_subscription_id.startsWith('mock_sub_');
+
+  try {
+    if (isRealStripeSub) {
+      const priceId = await priceIdFor(tier, billing_interval);
+      if (!priceId) return res.status(422).json({ error: 'no_stripe_price', message: `${tier} has no Stripe price configured.` });
+      const stripeSub = await stripe.subscriptions.retrieve(sub.stripe_subscription_id as string);
+      const itemId = stripeSub.items.data[0]?.id;
+      if (!itemId) return res.status(500).json({ error: 'no_subscription_item' });
+      await stripe.subscriptions.update(sub.stripe_subscription_id as string, {
+        items: [{ id: itemId, price: priceId }],
+        proration_behavior: 'create_prorations',
+      });
+    } else {
+      const { error } = await supabaseAdmin.rpc('change_subscription_plan', {
+        p_tenant_id: ctx.tenantId,
+        p_tier: tier,
+        p_billing_interval: billing_interval,
+      });
+      if (error) throw new Error(error.message);
+    }
+    await syncEntitlementsForTenant(ctx.tenantId).catch((err) => console.error('[billing] entitlement sync failed:', err));
+    const planName = tier === 'growth' ? 'Professional' : tier === 'enterprise' ? 'Enterprise' : 'Starter';
+    return res.json({ ok: true, tier, billing_interval, message: `Your plan has been updated to ${planName}.` });
+  } catch (err) {
+    res.status(502).json({ error: 'change_plan_failed', message: String((err as Error).message ?? err) });
+  }
+});
+

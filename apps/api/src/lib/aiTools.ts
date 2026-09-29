@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { permits } from '../middleware/portalAuth';
+import { runLowStockSweepWithAdmin } from './lowStockAutomation';
 
 // The caller's real role/permissions, threaded into a tool's run() only
 // where a tool internally blends data of different sensitivity (see
@@ -1947,6 +1948,19 @@ export const AI_TOOLS: AiTool[] = [
         })),
         note: rows.length === 0 ? 'No supplier reorder emails in this window.' : undefined,
       };
+    },
+  },
+  {
+    name: 'send_low_stock_reorders',
+    description:
+      'Immediately trigger a sweep to dispatch low-stock reorder emails to suppliers for any ingredients currently at or below their reorder threshold. Use when asked to "send low stock emails", "send low request email", "reorder low stock items now", or "email suppliers for low inventory". Returns the number of emails sent and suppliers contacted.',
+    needs: 'supplier.view',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+    async run(admin) {
+      return runLowStockSweepWithAdmin(admin, { force: true });
     },
   },
   // ── Restaurant Performance & Owner Activity Intelligence ────────────────
@@ -4669,6 +4683,7 @@ HOW TO ANSWER
 - For analysis ("why are sales/margin down", comparisons beyond the built-in period tools): pull the relevant windows, state the FACT (what changed), then an INSIGHT (where/when it concentrated), then a RECOMMENDATION — phrased as "worth reviewing", never as proven cause.
 - For "what do we owe" / "who do we owe the most" / "how much do we owe X", use get_supplier_payable (omit supplier_name for the ranked list, pass it for one supplier). Lead with outstanding, then call out on_hold and overdue separately since money can be owed without being payable yet. For "what's on hold" / "why is this invoice on hold", use get_payment_holds and quote the specific reason verbatim — never guess why something is held. For "what did we buy from X" / "how much have we paid X", use get_supplier_statement.
 - For "did you email anyone about low stock" / "which suppliers were contacted" / "what did you ask X for", use get_supplier_communications — this is AI Management's own automation log (a deterministic SQL trigger decides when it fires, not you), so answer strictly from what it returns, including a failed send's actual reason (e.g. no email provider configured) rather than implying it went out.
+- For "send low stock email" / "send low request email" / "reorder low stock items now" / "email suppliers for low inventory", use send_low_stock_reorders — it immediately triggers the low-stock reorder sweep, sends automated reorder request emails to eligible suppliers right now, and returns the real send results.
 - For "how is [promo/deal code] doing" / "which promo gets used most" / "how much have we discounted", use get_promotion_performance. If a promo has a usage_limit_total, say how much of it is used up ("6 of 10 used"), not just the raw redemption count — a code nearing its cap is worth flagging.
 - For "which recipes cost me the most/least" / "show recipes above X% food cost" / "which menu item has the highest contribution", use list_recipes. For "what's in the recipe for X" / a fuller breakdown of one item's food cost than get_recipe_cost gives, use get_recipe_detail. For "compare regular and double [X]" or comparing two named recipes, use compare_recipes. For "why did my [X] cost increase/change", use explain_recipe_cost_change — it returns the logged delta and that recipe's own ingredient list; name the ingredient(s) actually implicated only if you've checked their current cost (get_recipe_cost / get_ingredient_usage / recent purchase prices), never by assuming which one moved. If a recipe has no logged change yet, say plainly that cost has been stable, don't invent a story.
 - To draft a new recipe from a description ("create a recipe for a chicken burger using chicken, bun, cheese..."), use the draft_recipe action — it always creates a DRAFT that a manager must review and activate themselves; never claim a recipe is live/active from this action, and never call any activation step yourself (there isn't an AI action for it, by design). If an ingredient name doesn't match anything in inventory, the action reports exactly which — relay that rather than guessing a substitute.

@@ -21,6 +21,7 @@ import { poImportRouter } from './routes/poImport';
 import { staffImportRouter } from './routes/staffImport';
 import { importClassifyRouter } from './routes/importClassify';
 import { socialRouter } from './routes/social';
+import { inventoryRouter } from './routes/inventory';
 import { guideAiPublicRouter, guideAiAuthRouter } from './routes/guideAi';
 import { cronRouter } from './routes/cron';
 
@@ -62,6 +63,7 @@ app.use('/api/ai', poImportRouter);
 app.use('/api/ai', staffImportRouter);
 app.use('/api/ai', importClassifyRouter);
 app.use('/api/social', socialRouter);
+app.use('/api/inventory', inventoryRouter);
 app.use('/api/cron', cronRouter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));

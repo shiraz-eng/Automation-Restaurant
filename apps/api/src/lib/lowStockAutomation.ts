@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase';
 import { tenantServiceClient } from './tenantAdmin';
 import { sendEmail } from './mailer';
@@ -52,7 +53,7 @@ function resolveContactEmail(businessContactEmail: string | null, ownerEmail: st
 
 function composeLowStockEmail(restaurantName: string, branding: RestaurantBranding, r: PendingReorder) {
   const subject = `Low Stock Reorder Request — ${r.item_name}`;
-  const accent = branding.primaryColor ? `rgb(${branding.primaryColor})` : '#e8590c';
+  const accent = branding.primaryColor ? `rgb(${branding.primaryColor})` : '#0f172a';
   const text = [
     `Hello ${r.supplier_name},`,
     ``,
@@ -100,29 +101,34 @@ function composeLowStockEmail(restaurantName: string, branding: RestaurantBrandi
   return { subject, text, html };
 }
 
-/** Runs the sweep for one tenant: fetch eligible reorders, send, record. */
-export async function runLowStockSweepForTenant(tenantId: string): Promise<{ attempted: number; sent: number }> {
-  const svc = await tenantServiceClient(tenantId);
-  if (!svc) return { attempted: 0, sent: 0 };
-  const { admin } = svc;
+/** Runs the sweep using a tenant's Supabase admin client directly. */
+export async function runLowStockSweepWithAdmin(
+  admin: SupabaseClient,
+  options?: { force?: boolean; restaurantName?: string; ownerEmail?: string },
+): Promise<{ attempted: number; sent: number; message?: string }> {
+  if (options?.force) {
+    await admin.from('purchasing_settings').update({ low_stock_email_enabled: true }).eq('id', true);
+  }
 
-  const [{ data: tenantRow }, { data: pending, error: rpcErr }, { data: settingsRow }] = await Promise.all([
-    supabaseAdmin.from('tenants').select('restaurant_name, owner_email').eq('id', tenantId).maybeSingle(),
+  const [{ data: pending, error: rpcErr }, { data: settingsRow }] = await Promise.all([
     admin.rpc('pending_low_stock_reorders'),
-    // Same Brand Kit / contact fields the portal and receipts already
-    // read (business_settings) — one restaurant identity source, not a
-    // separate "email branding" config.
     admin.from('business_settings').select('contact_email, brand_logo_url, brand_primary').eq('id', true).maybeSingle(),
   ]);
   if (rpcErr) {
-    console.error(`[low-stock] ${tenantId} pending_low_stock_reorders failed:`, rpcErr.message);
-    return { attempted: 0, sent: 0 };
+    console.error('[low-stock] pending_low_stock_reorders failed:', rpcErr.message);
+    return { attempted: 0, sent: 0, message: `RPC error: ${rpcErr.message}` };
   }
   const rows = (pending ?? []) as PendingReorder[];
-  if (rows.length === 0) return { attempted: 0, sent: 0 };
-  const restaurantName = tenantRow?.restaurant_name ?? 'Automation Restaurant';
+  if (rows.length === 0) {
+    return {
+      attempted: 0,
+      sent: 0,
+      message: 'No pending low-stock reorders found. Ensure items are below threshold and have a supplier with a valid email assigned.',
+    };
+  }
+  const restaurantName = options?.restaurantName ?? 'Automation Restaurant';
   const branding: RestaurantBranding = {
-    contactEmail: resolveContactEmail(settingsRow?.contact_email ?? null, tenantRow?.owner_email ?? null),
+    contactEmail: resolveContactEmail(settingsRow?.contact_email ?? null, options?.ownerEmail ?? null),
     logoUrl: settingsRow?.brand_logo_url ?? null,
     primaryColor: settingsRow?.brand_primary ?? null,
   };
@@ -130,11 +136,6 @@ export async function runLowStockSweepForTenant(tenantId: string): Promise<{ att
   let sent = 0;
   for (const r of rows) {
     const { subject, text, html } = composeLowStockEmail(restaurantName, branding, r);
-    // From stays the platform's one verified/authorized address (env.
-    // EMAIL_FROM) — only its display name changes to the restaurant, per
-    // spec §8: never send From an address the provider hasn't verified.
-    // Reply-To is the restaurant's own configured contact email where set,
-    // so the supplier's reply reaches the restaurant, not the platform.
     const result = await sendEmail({
       to: r.supplier_email,
       subject,
@@ -159,17 +160,37 @@ export async function runLowStockSweepForTenant(tenantId: string): Promise<{ att
     };
     const { error: insErr } = await admin.from('supplier_communications').insert(insert);
     if (insErr) {
-      console.error(`[low-stock] ${tenantId} failed to record communication for ${r.item_name}:`, insErr.message);
+      console.error(`[low-stock] failed to record communication for ${r.item_name}:`, insErr.message);
       continue;
     }
     if (result.delivered) {
       sent += 1;
-      console.log(`[low-stock] ${tenantId}: reorder email sent to ${r.supplier_name} for ${r.item_name} (${r.suggested_qty} ${r.unit})`);
+      console.log(`[low-stock] reorder email sent to ${r.supplier_name} for ${r.item_name} (${r.suggested_qty} ${r.unit})`);
     } else {
-      console.log(`[low-stock] ${tenantId}: reorder email NOT delivered (${insert.error}) for ${r.item_name}`);
+      console.log(`[low-stock] reorder email NOT delivered (${insert.error}) for ${r.item_name}`);
     }
   }
-  return { attempted: rows.length, sent };
+  return {
+    attempted: rows.length,
+    sent,
+    message: sent > 0 ? `Sent ${sent} low-stock reorder email(s) successfully.` : 'Failed to send reorder email(s). Check email provider setup.',
+  };
+}
+
+/** Runs the sweep for one tenant: fetch eligible reorders, send, record. */
+export async function runLowStockSweepForTenant(
+  tenantId: string,
+  options?: { force?: boolean },
+): Promise<{ attempted: number; sent: number; message?: string }> {
+  const svc = await tenantServiceClient(tenantId);
+  if (!svc) return { attempted: 0, sent: 0, message: 'Could not connect to restaurant database.' };
+
+  const { data: tenantRow } = await supabaseAdmin.from('tenants').select('restaurant_name, owner_email').eq('id', tenantId).maybeSingle();
+  return runLowStockSweepWithAdmin(svc.admin, {
+    ...options,
+    restaurantName: tenantRow?.restaurant_name ?? undefined,
+    ownerEmail: tenantRow?.owner_email ?? undefined,
+  });
 }
 
 /** Sweeps every active tenant. One tenant's failure never stops the rest. */

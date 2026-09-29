@@ -51,6 +51,9 @@ function transport(): Transporter {
       port: env.SMTP_PORT,
       secure: env.SMTP_PORT === 465,
       auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 8000,
     });
   }
   return _transport;
@@ -100,7 +103,16 @@ async function sendViaResend(mail: Mail): Promise<MailResult> {
 }
 
 export async function sendEmail(mail: Mail): Promise<MailResult> {
-  if (smtpEnabled) return sendViaSmtp(mail);
+  if (smtpEnabled) {
+    const smtpRes = await sendViaSmtp(mail);
+    if (smtpRes.delivered) return smtpRes;
+    console.warn(`[mailer] SMTP failed: ${'error' in smtpRes ? smtpRes.error : 'unknown'}, attempting fallback to Resend...`);
+    if (env.RESEND_API_KEY) {
+      const resendRes = await sendViaResend(mail);
+      if (resendRes.delivered) return resendRes;
+    }
+    return smtpRes;
+  }
   if (env.RESEND_API_KEY) return sendViaResend(mail);
   console.log(
     `[mailer:console] from=${resolveFrom(mail.fromName)}${mail.replyTo ? ` reply-to=${mail.replyTo}` : ''} to=${mail.to}\n  subject: ${mail.subject}\n  ${mail.text.replace(/\n/g, '\n  ')}`,
@@ -168,10 +180,10 @@ export function sendWelcomeEmail(i: WelcomeEmailInput): Promise<MailResult> {
         <div><strong>Email:</strong> ${i.to}</div>
         ${i.tempPassword ? `<div><strong>Temporary password:</strong> <code style="background:#fff;border:1px solid #e6e8eb;border-radius:4px;padding:1px 5px">${i.tempPassword}</code></div><div style="color:#65676b;margin-top:6px">Change it under Settings after you sign in.</div>` : ''}
       </div>
-      <a href="${i.portalUrl}" style="display:inline-block;background:#e8590c;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;border-radius:8px">Open your restaurant portal</a>
+      <a href="${i.portalUrl}" style="display:inline-block;background:#0f172a;color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;border-radius:8px">Open your restaurant portal</a>
       ${
         i.setupUrl
-          ? `<p style="font-size:13px;line-height:1.6;margin:20px 0 0">Prefer to set your own password now? <a href="${i.setupUrl}" style="color:#e8590c">Use this secure link</a> (expires soon).</p>`
+          ? `<p style="font-size:13px;line-height:1.6;margin:20px 0 0">Prefer to set your own password now? <a href="${i.setupUrl}" style="color:#0f172a;font-weight:600">Use this secure link</a> (expires soon).</p>`
           : ''
       }
     </div>

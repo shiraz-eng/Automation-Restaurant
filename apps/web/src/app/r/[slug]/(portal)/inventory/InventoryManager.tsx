@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents } from '@/lib/format';
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 type Item = {
   id: string;
@@ -70,16 +72,50 @@ export function InventoryManager({
   lowStockEmailEnabled: boolean;
 }) {
   const router = useRouter();
+  const params = useParams();
+  const slug = (params?.slug as string) ?? '';
   const supabase = usePortalSupabase();
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [automationBusy, setAutomationBusy] = useState(false);
+  const [sweepBusy, setSweepBusy] = useState(false);
+  const [sweepMessage, setSweepMessage] = useState<string | null>(null);
 
   const [newName, setNewName] = useState('');
   const [newUnit, setNewUnit] = useState('unit');
   const [newMin, setNewMin] = useState('0');
   const [adding, setAdding] = useState(false);
+
+  async function triggerLowStockSweep() {
+    setSweepBusy(true);
+    setError(null);
+    setSweepMessage(null);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`${API}/api/inventory/low-stock/sweep`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify({ slug }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.message ?? 'Failed to send low stock reorder emails.');
+      } else {
+        setSweepMessage(data.message ?? 'Low stock check completed.');
+      }
+    } catch {
+      setError('Network error triggering low stock email.');
+    } finally {
+      setSweepBusy(false);
+      router.refresh();
+    }
+  }
 
   async function adjust(item: Item, sign: 1 | -1) {
     const raw = parseFloat(deltas[item.id] ?? '');
@@ -102,6 +138,21 @@ export function InventoryManager({
     }
     setDeltas((d) => ({ ...d, [item.id]: '' }));
     router.refresh();
+
+    // If new stock is at or below threshold, trigger immediate low-stock reorder sweep
+    const nextQty = Number(item.stock_qty) + sign * raw;
+    if (nextQty <= Number(item.min_threshold)) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        fetch(`${API}/api/inventory/low-stock/sweep`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token ?? ''}`,
+          },
+          body: JSON.stringify({ slug }),
+        }).catch(() => {});
+      });
+    }
   }
 
   async function waste(item: Item) {
@@ -126,6 +177,21 @@ export function InventoryManager({
     }
     setDeltas((d) => ({ ...d, [item.id]: '' }));
     router.refresh();
+
+    // If new stock is at or below threshold, trigger immediate low-stock reorder sweep
+    const nextQty = Number(item.stock_qty) - raw;
+    if (nextQty <= Number(item.min_threshold)) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        fetch(`${API}/api/inventory/low-stock/sweep`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.access_token ?? ''}`,
+          },
+          body: JSON.stringify({ slug }),
+        }).catch(() => {});
+      });
+    }
   }
 
   async function count(item: Item) {
@@ -290,24 +356,39 @@ export function InventoryManager({
         </div>
       )}
 
+      {sweepMessage && (
+        <div className="rounded border border-ok/40 bg-ok/10 text-ok p-3 text-xs">
+          {sweepMessage}
+        </div>
+      )}
+
       {canManageAutomation && (
-        <Card className="flex items-center justify-between gap-3">
+        <Card className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h2 className="font-bold text-sm">AI Management — low-stock supplier email</h2>
             <p className="text-[11px] text-muted mt-0.5">
-              When an ingredient falls to or below its minimum and has a target stock + preferred supplier set below,
+              When an ingredient falls to or below its minimum and has a preferred supplier set below,
               automatically email that supplier a reorder request. Never sends twice for the same low-stock spell,
               and stops once stock recovers.
             </p>
           </div>
-          <Button
-            variant={lowStockEmailEnabled ? 'danger' : 'primary'}
-            disabled={automationBusy}
-            onClick={toggleLowStockEmailEnabled}
-            className="shrink-0"
-          >
-            {lowStockEmailEnabled ? 'Turn off' : 'Turn on'}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="ghost"
+              disabled={sweepBusy}
+              onClick={triggerLowStockSweep}
+              title="Immediately check low stock and send reorder emails to suppliers"
+            >
+              {sweepBusy ? 'Sending…' : 'Send Reorder Emails Now'}
+            </Button>
+            <Button
+              variant={lowStockEmailEnabled ? 'danger' : 'primary'}
+              disabled={automationBusy}
+              onClick={toggleLowStockEmailEnabled}
+            >
+              {lowStockEmailEnabled ? 'Turn off' : 'Turn on'}
+            </Button>
+          </div>
         </Card>
       )}
 
