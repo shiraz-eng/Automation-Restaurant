@@ -188,7 +188,17 @@ export function SectionEditorClient({ row, role, perms }: { row: SiteSectionRow;
       </div>
 
       <div className="lg:sticky lg:top-6">
-        <div className="text-xs font-semibold text-ink-muted mb-2">Live preview (draft)</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-semibold text-ink-muted">Live preview (draft)</div>
+          <a
+            href={previewSrc}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-semibold text-gold hover:underline flex items-center gap-1"
+          >
+            Open in new tab ↗
+          </a>
+        </div>
         <div className="rounded-xl border border-white/10 overflow-hidden bg-ink" style={{ height: 640 }}>
           <iframe key={previewSrc} src={previewSrc} className="w-full h-full" title="Section preview" />
         </div>
