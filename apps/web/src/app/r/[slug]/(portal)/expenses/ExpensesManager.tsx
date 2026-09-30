@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
   ComposedChart,
   Area,
+  Bar,
   Line,
   XAxis,
   YAxis,
@@ -67,7 +68,16 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 // Date string helpers (YYYY-MM-DD)
-const normalizeDateStr = (s?: string | null) => (s ? s.split('T')[0] : '');
+const normalizeDateStr = (s?: string | Date | null) => {
+  if (!s) return '';
+  if (s instanceof Date) {
+    const y = s.getFullYear();
+    const m = String(s.getMonth() + 1).padStart(2, '0');
+    const d = String(s.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(s).trim().slice(0, 10);
+};
 
 function getDatesInRange(startStr?: string, endStr?: string): string[] {
   const dates: string[] = [];
@@ -151,6 +161,12 @@ export function ExpensesManager({
   const [chartMode, setChartMode] = useState<'daily' | 'cumulative'>('daily');
   const [customRangeFrom, setCustomRangeFrom] = useState(fromStr || '');
   const [customRangeTo, setCustomRangeTo] = useState(toStr || '');
+
+  // Client hydration flag for safe ResponsiveContainer mounting
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Realtime subscription to live updates (expenses, orders, payments)
   useEffect(() => {
@@ -420,10 +436,13 @@ export function ExpensesManager({
     return chartData.some((d) => d.netSales > 0 || d.expenses > 0 || d.netProfit !== 0);
   }, [chartData]);
 
-  // Expense breakdown by category
+  // Expense breakdown by category (scoped to active period for consistency with P&L)
   const categoryTotals = useMemo(() => {
     const map = new Map<string, number>();
     for (const ex of expenses) {
+      const k = normalizeDateStr(ex.expense_date);
+      if (fromStr && k && k < fromStr) continue;
+      if (toStr && k && k > toStr) continue;
       map.set(ex.category, (map.get(ex.category) ?? 0) + ex.amount_cents);
     }
     const total = Array.from(map.values()).reduce((a, b) => a + b, 0);
@@ -432,7 +451,7 @@ export function ExpensesManager({
       const p = total > 0 ? (cents / total) * 100 : 0;
       return { category: cat, cents, pct: Math.round(p * 10) / 10 };
     }).filter((c) => c.cents > 0);
-  }, [expenses]);
+  }, [expenses, fromStr, toStr]);
 
   const totalExpensesCents = useMemo(
     () => categoryTotals.reduce((s, c) => s + c.cents, 0),
@@ -616,131 +635,143 @@ export function ExpensesManager({
           </div>
 
           <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: 10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  stroke="rgba(255,255,255,0.4)"
-                  fontSize={11}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  minTickGap={20}
-                />
-                <YAxis
-                  stroke="rgba(255,255,255,0.4)"
-                  fontSize={11}
-                  tickLine={false}
-                  width={65}
-                  domain={yDomain}
-                  tickFormatter={(v) => (v < 0 ? `-$${Math.abs(v)}` : `$${v}`)}
-                />
-                <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload || payload.length === 0) return null;
-                    const d = payload[0]?.payload;
-                    if (!d) return null;
-                    return (
-                      <div className="rounded-lg border border-border bg-surface p-3 shadow-xl text-xs space-y-1">
-                        <div className="font-bold text-body border-b border-border pb-1">
-                          {d.fullDate || label}
+            {!isMounted ? (
+              <div className="h-full w-full rounded-lg bg-main/30 border border-border/40 animate-pulse flex items-center justify-center text-xs text-muted">
+                Loading analytics…
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: 10, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    stroke="rgba(255,255,255,0.4)"
+                    fontSize={11}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={20}
+                  />
+                  <YAxis
+                    stroke="rgba(255,255,255,0.4)"
+                    fontSize={11}
+                    tickLine={false}
+                    width={65}
+                    domain={yDomain}
+                    tickFormatter={(v) => (v < 0 ? `-$${Math.abs(v).toLocaleString()}` : `$${v.toLocaleString()}`)}
+                  />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.04)', stroke: 'rgba(255,255,255,0.15)', strokeDasharray: '3 3' }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload || payload.length === 0) return null;
+                      const d = payload[0]?.payload;
+                      if (!d) return null;
+                      const isProfitPositive = (chartMode === 'daily' ? d.netProfit : d.cumNetProfit) >= 0;
+                      return (
+                        <div className="rounded-lg border border-border bg-surface p-3 shadow-xl text-xs space-y-1">
+                          <div className="font-bold text-body border-b border-border pb-1">
+                            {d.fullDate || label}
+                          </div>
+                          <div className="flex justify-between gap-4 text-ok">
+                            <span>Net Sales:</span>
+                            <span className="font-mono font-bold">
+                              ${(chartMode === 'daily' ? d.netSales : d.cumNetSales).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-4 text-danger">
+                            <span>Expenses:</span>
+                            <span className="font-mono font-bold">
+                              ${(chartMode === 'daily' ? d.expenses : d.cumExpenses).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className={`flex justify-between gap-4 pt-1 border-t border-border font-bold ${isProfitPositive ? 'text-ok' : 'text-danger'}`}>
+                            <span>Net Profit:</span>
+                            <span className="font-mono">
+                              ${(chartMode === 'daily' ? d.netProfit : d.cumNetProfit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex justify-between gap-4 text-ok">
-                          <span>Net Sales:</span>
-                          <span className="font-mono font-bold">
-                            ${(chartMode === 'daily' ? d.netSales : d.cumNetSales).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between gap-4 text-danger">
-                          <span>Expenses:</span>
-                          <span className="font-mono font-bold">
-                            ${(chartMode === 'daily' ? d.expenses : d.cumExpenses).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between gap-4 text-primary pt-1 border-t border-border">
-                          <span>Net Profit:</span>
-                          <span className="font-mono font-bold">
-                            ${(chartMode === 'daily' ? d.netProfit : d.cumNetProfit).toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  }}
-                />
-                {chartMode === 'daily' ? (
-                  <>
-                    <Area
-                      type="monotone"
-                      dataKey="netSales"
-                      name="Net Sales"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#salesGrad)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="expenses"
-                      name="Expenses"
-                      stroke="#f43f5e"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#expenseGrad)"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="netProfit"
-                      name="Net Profit"
-                      stroke="#6366f1"
-                      strokeWidth={2.5}
-                      dot={{ r: 2, fill: '#6366f1' }}
-                      activeDot={{ r: 5 }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Area
-                      type="monotone"
-                      dataKey="cumNetSales"
-                      name="Cumulative Sales"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#salesGrad)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="cumExpenses"
-                      name="Cumulative Expenses"
-                      stroke="#f43f5e"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#expenseGrad)"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="cumNetProfit"
-                      name="Cumulative Profit"
-                      stroke="#6366f1"
-                      strokeWidth={2.5}
-                      dot={{ r: 2, fill: '#6366f1' }}
-                      activeDot={{ r: 5 }}
-                    />
-                  </>
-                )}
-              </ComposedChart>
-            </ResponsiveContainer>
+                      );
+                    }}
+                  />
+                  {chartMode === 'daily' ? (
+                    <>
+                      <Bar
+                        dataKey="netSales"
+                        name="Net Sales"
+                        fill="#10b981"
+                        radius={[3, 3, 0, 0]}
+                        maxBarSize={22}
+                        isAnimationActive={false}
+                      />
+                      <Bar
+                        dataKey="expenses"
+                        name="Operating Expenses"
+                        fill="#f43f5e"
+                        radius={[3, 3, 0, 0]}
+                        maxBarSize={22}
+                        isAnimationActive={false}
+                      />
+                      <Line
+                        type="linear"
+                        dataKey="netProfit"
+                        name="Net Profit"
+                        stroke="#818cf8"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: '#818cf8', stroke: '#1e1b4b', strokeWidth: 1.5 }}
+                        activeDot={{ r: 6 }}
+                        isAnimationActive={false}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Area
+                        type="linear"
+                        dataKey="cumNetSales"
+                        name="Cumulative Sales"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        fillOpacity={0.25}
+                        fill="url(#salesGrad)"
+                        isAnimationActive={false}
+                        dot={{ r: 2, fill: '#10b981' }}
+                      />
+                      <Area
+                        type="linear"
+                        dataKey="cumExpenses"
+                        name="Cumulative Expenses"
+                        stroke="#f43f5e"
+                        strokeWidth={2}
+                        fillOpacity={0.25}
+                        fill="url(#expenseGrad)"
+                        isAnimationActive={false}
+                        dot={{ r: 2, fill: '#f43f5e' }}
+                      />
+                      <Line
+                        type="linear"
+                        dataKey="cumNetProfit"
+                        name="Cumulative Profit"
+                        stroke="#818cf8"
+                        strokeWidth={2.5}
+                        dot={{ r: 2.5, fill: '#818cf8' }}
+                        activeDot={{ r: 6 }}
+                        isAnimationActive={false}
+                      />
+                    </>
+                  )}
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {!hasChartActivity && (
@@ -759,7 +790,7 @@ export function ExpensesManager({
               <span className="text-muted">Operating Expenses</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="inline-block w-3 h-3 rounded-full bg-[#6366f1]" />
+              <span className="inline-block w-3 h-3 rounded-full bg-[#818cf8]" />
               <span className="text-muted">Net Profit</span>
             </div>
           </div>
