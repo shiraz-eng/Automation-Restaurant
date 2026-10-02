@@ -8,7 +8,7 @@ const CP_URL =
 const CP_ANON =
   process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNreHhweXp4c2JoaHlubGJveWlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTU0MzQsImV4cCI6MjEwNDUzMTQzNH0.aqDrwPKSEyZxeDrRLCncvbinLik2IWsZmUlz3RoIjnM';
+  '';
 
 type SiteSectionRow = {
   slug: string;
