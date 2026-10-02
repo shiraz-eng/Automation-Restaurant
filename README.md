@@ -8,6 +8,56 @@ live data.
 - Each restaurant runs on **its own Supabase project**, created automatically at
   sign-up. One restaurant's data never shares a database with another's.
 
+![Automation Restaurant website](docs/screenshots/website.jpg)
+
+---
+
+## Why Automation Restaurant
+
+| | Unique selling point | What it means for the owner |
+| --- | --- | --- |
+| 🔗 | **One live data layer** | An order flows to the kitchen, stock, suppliers, finance and the dashboard at once. Nobody re-types anything. |
+| 🧾 | **Recipe-driven stock** | Every sale deducts its recipe's exact grams, millilitres and pieces, so food cost is known per dish as it sells. |
+| 🍗 | **Shared-ingredient availability** | When chicken runs low, every dish that uses it is recalculated. Guests only see what the kitchen can actually make. |
+| 🤖 | **AI Smart Import** | Upload an existing menu, recipe, inventory or supplier PDF. AI builds a draft, and nothing is saved until the owner approves it. |
+| 💬 | **AI on every side** | The owner assistant answers from live data and reads or writes PDFs. Guests get a menu assistant, and visitors get a website AI Guide. |
+| 📱 | **QR ordering, no app** | Guests scan the table, order, track it live from kitchen to table, order more and leave feedback. They never sign up. |
+| 💰 | **True profit, live** | Net sales, tax, food cost, every expense and net profit for any period, exported as a branded PDF or Excel file. |
+| 🔁 | **Closed purchasing loop** | Low stock → purchase order → goods received → stock updated → supplier bill due on that supplier's terms. |
+| 🛡️ | **Portals built from permissions** | Each staff portal is composed from individual permissions, enforced by the database rather than just hidden buttons. |
+| 🏢 | **A database per restaurant** | Every restaurant gets its own Supabase project, provisioned automatically at sign-up. |
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/dashboard.jpg" alt="Owner dashboard"><br><b>Owner dashboard</b>: net sales, tax, gross and net profit, margins, revenue and payment mix</td>
+    <td width="50%"><img src="docs/screenshots/kitchen-display.jpg" alt="Kitchen Display"><br><b>Kitchen Display</b>: live tickets, the ingredients each order consumes, and portions left</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/smart-import.jpg" alt="AI Smart Import"><br><b>AI Smart Import</b>: a menu PDF becomes 6 new items in 5 categories, each linked to its recipe, ready to approve</td>
+    <td><img src="docs/screenshots/menu-management.jpg" alt="Menu management"><br><b>Menu management</b>: price, availability, linked recipe and food cost % per dish</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/customer-menu.jpg" alt="Customer menu"><br><b>Customer menu</b>: categories, deals that show the saving, notes, promo codes and tax before checkout</td>
+    <td><img src="docs/screenshots/tables-qr.jpg" alt="Tables and QR codes"><br><b>Tables &amp; QR codes</b>: every table gets its own QR code (blurred here)</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/order-tracking.jpg" alt="Order tracking"><br><b>Order tracking</b>: placed → in the kitchen → ready → served, plus order more</td>
+    <td><img src="docs/screenshots/feedback.jpg" alt="Guest feedback"><br><b>Guest feedback</b>: overall rating plus food, service, speed, cleanliness and ambiance</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/customer-ai.jpg" alt="Customer menu assistant"><br><b>Customer menu assistant</b>: recommends dishes and calculates real deal savings</td>
+    <td><img src="docs/screenshots/ai-guide.jpg" alt="Website AI Guide"><br><b>Website AI Guide</b>: explains the product and walks owners through setup</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/pl-report.jpg" alt="Profit and loss report"><br><b>P&amp;L report</b>: a branded PDF of sales, food cost, expenses and net profit</td>
+    <td><img src="docs/screenshots/sign-up.jpg" alt="Sign-up"><br><b>Sign-up</b>: one form, secure payment, then automatic provisioning</td>
+  </tr>
+</table>
+
+<sub>Screenshots use a test restaurant with test data.</sub>
+
 ---
 
 ## What it does
