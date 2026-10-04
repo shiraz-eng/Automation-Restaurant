@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { ADMIN_COOKIE_PATH } from './cookieScope';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -22,6 +23,7 @@ const ANON = requireEnv(
 export async function createControlPlaneServerClient() {
   const cookieStore = await cookies();
   return createServerClient(URL, ANON, {
+    cookieOptions: { path: ADMIN_COOKIE_PATH },
     cookies: {
       getAll() {
         return cookieStore.getAll();

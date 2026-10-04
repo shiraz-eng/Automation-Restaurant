@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { ADMIN_COOKIE_PATH } from './cookieScope';
 
 // Public by design (RLS enforces access) — never fall back to a
 // service_role key here. This client ships to the browser and is used by
@@ -19,5 +20,5 @@ const ANON = requireEnv(
 
 /** Control-plane Supabase client for Client Components (admin login / actions). */
 export function createControlPlaneBrowserClient() {
-  return createBrowserClient(URL, ANON);
+  return createBrowserClient(URL, ANON, { cookieOptions: { path: ADMIN_COOKIE_PATH } });
 }

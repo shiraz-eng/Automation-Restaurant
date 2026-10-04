@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { getTenantConfig, type TenantConfig } from '@/lib/tenant';
+import { tenantCookiePath } from './cookieScope';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -13,11 +14,12 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 export async function createTenantServerClient(slug: string) {
   const config = await getTenantConfig(slug);
   if (!config) return null;
-  return { client: build(config, await cookies()), config };
+  return { client: build(config, await cookies(), slug), config };
 }
 
-function build(config: TenantConfig, cookieStore: Awaited<ReturnType<typeof cookies>>) {
+function build(config: TenantConfig, cookieStore: Awaited<ReturnType<typeof cookies>>, slug: string) {
   return createServerClient(config.url, config.anonKey, {
+    cookieOptions: { path: tenantCookiePath(slug) },
     cookies: {
       getAll() {
         return cookieStore.getAll();

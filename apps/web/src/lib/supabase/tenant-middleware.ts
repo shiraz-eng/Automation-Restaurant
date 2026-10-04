@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { ADMIN_COOKIE_PATH, tenantCookiePath } from './cookieScope';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -37,10 +38,11 @@ async function tenantConfig(slug: string): Promise<{ url: string; anonKey: strin
 }
 
 /** Refreshes a Supabase session cookie for `url`/`anonKey` against `request`,
- *  returns { response, user }. */
-async function refresh(request: NextRequest, url: string, anonKey: string) {
+ *  returns { response, user }. The cookie is written at `path` only. */
+async function refresh(request: NextRequest, url: string, anonKey: string, path: string) {
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, anonKey, {
+    cookieOptions: { path },
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -60,6 +62,31 @@ async function refresh(request: NextRequest, url: string, anonKey: string) {
   return { response, user };
 }
 
+const SCOPED_MARKER = 'ar_cookie_scope';
+const COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
+
+/** One-time move of session cookies written before they were path-scoped:
+ *  this project's session is re-written at `path` (so the person stays
+ *  signed in) and every old site-wide `sb-*` cookie is expired. Sessions for
+ *  other restaurants are signed out rather than left to bloat every request. */
+function retireSiteWideCookies(request: NextRequest, response: NextResponse, url: string, path: string) {
+  if (request.cookies.has(SCOPED_MARKER)) return response;
+  const ownPrefix = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
+  const legacy = request.cookies.getAll().filter((c) => c.name.startsWith('sb-'));
+  for (const c of legacy) {
+    if (c.name.startsWith(ownPrefix) && !response.cookies.get(c.name)) {
+      response.cookies.set(c.name, c.value, { path, sameSite: 'lax', maxAge: COOKIE_MAX_AGE });
+    }
+  }
+  response.cookies.set(SCOPED_MARKER, '1', { path: '/', sameSite: 'lax', maxAge: COOKIE_MAX_AGE });
+  // Raw headers, appended last: ResponseCookies keys by name, so it can't hold
+  // "delete at /" and "set at /r/<slug>" for the same cookie name at once.
+  for (const c of legacy) {
+    response.headers.append('Set-Cookie', `${c.name}=; Path=/; Max-Age=0; SameSite=Lax`);
+  }
+  return response;
+}
+
 /** Gates /r/<slug>/... and /admin/... : refreshes the right session and
  *  redirects unauthenticated users to the matching login page. */
 export async function updateTenantSession(request: NextRequest) {
@@ -68,7 +95,8 @@ export async function updateTenantSession(request: NextRequest) {
   // ── Platform super-admin area ──
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
     const isLogin = pathname === '/admin/login';
-    const { response, user } = await refresh(request, CP_URL, CP_ANON);
+    const { response, user } = await refresh(request, CP_URL, CP_ANON, ADMIN_COOKIE_PATH);
+    const done = (r: NextResponse) => retireSiteWideCookies(request, r, CP_URL, ADMIN_COOKIE_PATH);
     const meta = user?.app_metadata as { role?: string; permissions?: string[] } | undefined;
     const role = meta?.role;
     // A granular platform admin (any role with a non-empty permissions
@@ -79,14 +107,14 @@ export async function updateTenantSession(request: NextRequest) {
     if ((!user || !isPlatformAdmin) && !isLogin) {
       const u = request.nextUrl.clone();
       u.pathname = '/admin/login';
-      return NextResponse.redirect(u);
+      return done(NextResponse.redirect(u));
     }
     if (user && isPlatformAdmin && isLogin) {
       const u = request.nextUrl.clone();
       u.pathname = '/admin';
-      return NextResponse.redirect(u);
+      return done(NextResponse.redirect(u));
     }
-    return response;
+    return done(response);
   }
 
   // ── Per-restaurant portals ──
@@ -100,16 +128,18 @@ export async function updateTenantSession(request: NextRequest) {
   const config = await tenantConfig(slug);
   if (!config) return NextResponse.next({ request });
 
-  const { response, user } = await refresh(request, config.url, config.anonKey);
+  const path = tenantCookiePath(slug);
+  const { response, user } = await refresh(request, config.url, config.anonKey, path);
+  const done = (r: NextResponse) => retireSiteWideCookies(request, r, config.url, path);
   if (!user && !isLogin) {
     const u = request.nextUrl.clone();
     u.pathname = `/r/${slug}/login`;
-    return NextResponse.redirect(u);
+    return done(NextResponse.redirect(u));
   }
   if (user && isLogin) {
     const u = request.nextUrl.clone();
     u.pathname = `/r/${slug}`;
-    return NextResponse.redirect(u);
+    return done(NextResponse.redirect(u));
   }
-  return response;
+  return done(response);
 }
