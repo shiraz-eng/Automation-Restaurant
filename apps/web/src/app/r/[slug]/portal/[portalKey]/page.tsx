@@ -359,7 +359,7 @@ export default async function PortalHome({
           )
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: null }),
-    includePurchasing && hasAny(['invoices.create', 'invoices.match', 'invoices.view'])
+    includePurchasing && hasAny(['invoices.create', 'invoices.match', 'invoices.approve', 'invoices.view'])
       ? t.client
           .from('supplier_invoices')
           .select(
@@ -913,6 +913,7 @@ export default async function PortalHome({
                   payable={(purchPayableRes.data ?? []) as unknown as PayableRow[]}
                   canInvoice={has('invoices.create')}
                   canMatch={has('invoices.match')}
+                  canApproveInvoice={hasAny(['invoices.approve', 'payables.manage'])}
                   canPay={has('payables.record_payment')}
                   canManagePayables={has('payables.manage')}
                   canViewPayables={has('payables.view') || has('finance.view')}
@@ -921,7 +922,7 @@ export default async function PortalHome({
                   canReceive={has('purchases.receive') || has('inventory.manage_purchases')}
                   canCreatePO={hasAny(['purchases.update', 'purchases.create'])}
                   canDeletePO={has('purchases.delete')}
-                  canViewInvoices={hasAny(['invoices.create', 'invoices.match', 'invoices.view'])}
+                  canViewInvoices={hasAny(['invoices.create', 'invoices.match', 'invoices.approve', 'invoices.view'])}
                 />
                 </div>
               )}

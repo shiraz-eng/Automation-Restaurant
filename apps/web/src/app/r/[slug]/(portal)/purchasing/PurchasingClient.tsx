@@ -104,6 +104,7 @@ export function PurchasingClient({
   payable,
   canInvoice,
   canMatch,
+  canApproveInvoice = false,
   canPay,
   canManagePayables,
   canViewPayables,
@@ -122,6 +123,8 @@ export function PurchasingClient({
   payable: PayableRow[];
   canInvoice: boolean;
   canMatch: boolean;
+  /** invoices.approve or payables.manage — matches approve_supplier_invoice()'s has_perm check. */
+  canApproveInvoice?: boolean;
   canPay: boolean;
   canManagePayables: boolean;
   canViewPayables: boolean;
@@ -789,7 +792,7 @@ export function PurchasingClient({
                           Run match
                         </Button>
                       )}
-                      {canMatch && inv.status === 'matched' && (
+                      {canApproveInvoice && inv.status === 'matched' && (
                         <Button variant="ghost" disabled={busy} onClick={() => act(() => supabase.rpc('approve_supplier_invoice', { p_invoice_id: inv.id }))}>
                           Approve
                         </Button>

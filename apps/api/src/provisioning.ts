@@ -324,7 +324,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v80 Private ai-chat storage bucket for AI Assistant attachments.
 //   v81 Saved AI chats (ai_conversations / ai_messages) for staff and customers.
 //   v82 Low-stock automation fix: trigger on INSERT, backfill open events, fallback target stock in pending_low_stock_reorders.
-const SCHEMA_VERSION = 82;
+//   v83 Finance hardening: invoice status/amount guard, read-only payments/holds/credit notes, finance-only reads, invoices.approve + approved_by/at, audit coverage.
+//   v84 Grant the invoice re-match helper to the line guard (follow-up to v83).
+const SCHEMA_VERSION = 84;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

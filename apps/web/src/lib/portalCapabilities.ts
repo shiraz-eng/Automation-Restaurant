@@ -215,7 +215,7 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
     'supplier.view', 'supplier.create', 'supplier.update', 'supplier.manage',
     'purchases.view', 'purchases.create', 'purchases.update', 'purchases.delete', 'purchases.approve', 'purchases.receive',
     'inventory.manage_purchases',
-    'invoices.view', 'invoices.create', 'invoices.match',
+    'invoices.view', 'invoices.create', 'invoices.match', 'invoices.approve',
     'payables.view', 'payables.record_payment', 'payables.manage',
   ],
   finance: [

@@ -26,9 +26,11 @@ export default async function PurchasingPage({
 
   const canInvoice = can(perms, role, 'invoices.create');
   const canMatch = can(perms, role, 'invoices.match');
-  const canViewInvoices = canInvoice || canMatch || can(perms, role, 'invoices.view');
+  const canViewInvoices =
+    canInvoice || canMatch || can(perms, role, 'invoices.view') || can(perms, role, 'invoices.approve');
   const canPay = can(perms, role, 'payables.record_payment');
   const canManagePayables = can(perms, role, 'payables.manage');
+  const canApproveInvoice = can(perms, role, 'invoices.approve') || canManagePayables;
   const canViewPayables = can(perms, role, 'payables.view') || can(perms, role, 'finance.view');
   const canManagePO = can(perms, role, 'purchases.update');
   const canApprovePO = can(perms, role, 'purchases.approve');
@@ -96,6 +98,7 @@ export default async function PurchasingPage({
           payable={(payableRes.data ?? []) as unknown as PayableRow[]}
           canInvoice={canInvoice}
           canMatch={canMatch}
+          canApproveInvoice={canApproveInvoice}
           canPay={canPay}
           canManagePayables={canManagePayables}
           canViewPayables={canViewPayables}
