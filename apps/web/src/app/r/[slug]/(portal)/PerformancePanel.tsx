@@ -560,6 +560,7 @@ export function PerformancePanel({
       const { data } = await supabase
         .from('expenses')
         .select('category, description, amount_cents, expense_date')
+        .in('status', ['approved', 'paid'])
         .lte('expense_date', lastDayIn(to, tz));
       expenseRecords = data ?? [];
     }

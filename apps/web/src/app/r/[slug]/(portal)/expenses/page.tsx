@@ -5,7 +5,8 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
-import { ExpensesManager, type Expense, type ExpenseSupplier } from './ExpensesManager';
+import { ExpensesManager, type ExpenseSupplier } from './ExpensesManager';
+import { EXPENSE_SELECT, type Expense } from './expenseShared';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Finance' };
@@ -46,6 +47,8 @@ export default async function ExpensesPage({
   const canWrite = can(perms, role, 'finance.create_expense') || can(perms, role, 'finance.update_expense');
   const canDelete = can(perms, role, 'finance.delete_expense');
   const canViewProfit = can(perms, role, 'finance.view_profit');
+  const canApprove = can(perms, role, 'finance.approve_expense');
+  const canPay = can(perms, role, 'finance.pay_expense');
 
   const today = new Date();
   const formatYmd = (d: Date) =>
@@ -91,7 +94,7 @@ export default async function ExpensesPage({
   ] = await Promise.all([
     t.client
       .from('expenses')
-      .select('id, category, description, amount_cents, expense_date, supplier_id')
+      .select(EXPENSE_SELECT)
       .order('expense_date', { ascending: false })
       .limit(500),
     canViewProfit
@@ -135,6 +138,8 @@ export default async function ExpensesPage({
           canWrite={canWrite}
           canDelete={canDelete}
           canViewProfit={canViewProfit}
+          canApprove={canApprove}
+          canPay={canPay}
           suppliers={(suppliers as ExpenseSupplier[] | null) ?? []}
         />
       )}

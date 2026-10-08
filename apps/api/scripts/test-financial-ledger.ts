@@ -89,8 +89,9 @@ begin
   exception when others then fails := fails + 1; res := res || 'FAIL P1/P2 ' || sqlerrm || E'\n'; end;
 
   -- ── Expenses: record, edit, move date, delete ──
-  insert into public.expenses (category, description, amount_cents, expense_date)
-    values ('Rent', 'QA rent', 500000, current_date - 3) returning id into ex;
+  -- Approved straight away (as the database owner) so it is an operating cost; see 0087.
+  insert into public.expenses (category, description, amount_cents, expense_date, status)
+    values ('Rent', 'QA rent', 500000, current_date - 3, 'approved') returning id into ex;
   update public.expenses set amount_cents = 450000 where id = ex;
   update public.expenses set expense_date = current_date - 1 where id = ex;
   select coalesce(sum(signed_cents) filter (where business_date = current_date - 3), 0),
@@ -138,7 +139,7 @@ begin
   select coalesce(sum(signed_cents), 0) into led from public.financial_events where category = 'payment' and event_type <> 'MANUAL_ADJUSTMENT';
   if src = led then res := res || format(E'PASS R3 payments reconcile (%s)\n', led);
   else fails := fails + 1; res := res || format(E'FAIL R3 payments=%s ledger=%s\n', src, led); end if;
-  select coalesce(sum(amount_cents), 0) into src from public.expenses;
+  select coalesce(sum(amount_cents), 0) into src from public.expenses where status in ('approved', 'paid');
   select coalesce(sum(signed_cents), 0) into led from public.financial_events where category = 'expense' and event_type <> 'MANUAL_ADJUSTMENT';
   if src = led then res := res || format(E'PASS R4 expenses reconcile (%s)\n', led);
   else fails := fails + 1; res := res || format(E'FAIL R4 expenses=%s ledger=%s\n', src, led); end if;

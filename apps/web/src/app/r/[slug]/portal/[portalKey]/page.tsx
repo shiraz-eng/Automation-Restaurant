@@ -11,7 +11,8 @@ import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { AnalyticsSection } from './AnalyticsSection';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from '../../(portal)/checkout/CheckoutClient';
 import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
-import { ExpensesManager, type Expense, type ExpenseSupplier } from '../../(portal)/expenses/ExpensesManager';
+import { ExpensesManager, type ExpenseSupplier } from '../../(portal)/expenses/ExpensesManager';
+import { EXPENSE_SELECT, type Expense } from '../../(portal)/expenses/expenseShared';
 import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/SuppliersManager';
 import { AiChat } from '../../(portal)/ai/AiChat';
 import { InventoryManager } from '../../(portal)/inventory/InventoryManager';
@@ -382,7 +383,7 @@ export default async function PortalHome({
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: new Date().toISOString() })
       : Promise.resolve({ data: null, error: null }),
     canFinance
-      ? t.client.from('expenses').select('id, category, description, amount_cents, expense_date, supplier_id').order('expense_date', { ascending: false }).limit(200)
+      ? t.client.from('expenses').select(EXPENSE_SELECT).order('expense_date', { ascending: false }).limit(200)
       : Promise.resolve({ data: null }),
     includeDayClose
       ? t.client
@@ -953,6 +954,8 @@ export default async function PortalHome({
                   canWrite={hasAny(['finance.create_expense', 'finance.update_expense'])}
                   canDelete={has('finance.delete_expense')}
                   canViewProfit={has('finance.view_profit')}
+                  canApprove={has('finance.approve_expense')}
+                  canPay={has('finance.pay_expense')}
                   suppliers={suppliers as unknown as ExpenseSupplier[]}
                 />
               )}

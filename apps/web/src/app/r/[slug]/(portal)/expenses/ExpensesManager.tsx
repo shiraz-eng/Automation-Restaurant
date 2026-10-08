@@ -21,14 +21,34 @@ import {
   ReferenceLine,
 } from 'recharts';
 
-export type Expense = {
-  id: string;
-  category: string;
-  description: string | null;
-  amount_cents: number;
-  expense_date: string;
-  supplier_id?: string | null;
+import { isPostedExpense, type Expense, type ExpenseStatus } from './expenseShared';
+
+export type { Expense, ExpenseStatus } from './expenseShared';
+
+const STATUS_LABEL: Record<ExpenseStatus, string> = {
+  draft: 'Draft',
+  submitted: 'Awaiting approval',
+  approved: 'Approved · unpaid',
+  rejected: 'Rejected',
+  paid: 'Paid',
+  void: 'Void',
 };
+const STATUS_TONE: Record<ExpenseStatus, string> = {
+  draft: 'bg-muted/15 text-muted',
+  submitted: 'bg-warn/15 text-warn',
+  approved: 'bg-primary/15 text-primary',
+  rejected: 'bg-danger/15 text-danger',
+  paid: 'bg-ok/15 text-ok',
+  void: 'bg-muted/15 text-muted line-through',
+};
+const PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'card', label: 'Card' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'digital_wallet', label: 'Digital wallet' },
+  { value: 'other', label: 'Other' },
+];
 
 export type ExpenseSupplier = { id: string; name: string };
 
@@ -110,6 +130,7 @@ const emptyForm = () => ({
   amount: '',
   expense_date: todayLocal(),
   supplier_id: '',
+  vendor: '',
 });
 
 const pct = (n: number | null | undefined) => (n == null ? '—' : `${n}%`);
@@ -129,6 +150,8 @@ export function ExpensesManager({
   canWrite,
   canDelete,
   canViewProfit,
+  canApprove = false,
+  canPay = false,
   suppliers = [],
 }: {
   slug?: string;
@@ -145,6 +168,10 @@ export function ExpensesManager({
   canWrite: boolean;
   canDelete: boolean;
   canViewProfit: boolean;
+  /** finance.approve_expense — approve, reject and void (approve_/reject_/void_expense()). */
+  canApprove?: boolean;
+  /** finance.pay_expense — mark approved expenses paid (pay_expense()). */
+  canPay?: boolean;
   suppliers?: ExpenseSupplier[];
 }) {
   const router = useRouter();
@@ -155,6 +182,12 @@ export function ExpensesManager({
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | ExpenseStatus>('');
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const [payFor, setPayFor] = useState<Expense | null>(null);
+  const [payMethod, setPayMethod] = useState('bank_transfer');
+  const [payRef, setPayRef] = useState('');
+  const [payDate, setPayDate] = useState(todayLocal());
   const [drilldownLevel, setDrilldownLevel] = useState<'net_profit' | 'gross_profit' | 'expenses' | null>(null);
 
   // Profit graph controls
@@ -230,7 +263,7 @@ export function ExpensesManager({
           net_sales_cents: d.net_sales_cents,
         })),
         topProducts: [],
-        expenseRecords: expenses.map((e) => ({
+        expenseRecords: expenses.filter(isPostedExpense).map((e) => ({
           category: e.category,
           description: e.description,
           amount_cents: e.amount_cents,
@@ -272,17 +305,28 @@ export function ExpensesManager({
 
   function startEdit(ex: Expense) {
     setEditId(ex.id);
+    setReceipt(null);
     setForm({
       category: ex.category,
       description: ex.description ?? '',
       amount: (ex.amount_cents / 100).toFixed(2),
       expense_date: ex.expense_date,
       supplier_id: ex.supplier_id ?? '',
+      vendor: ex.vendor ?? '',
     });
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function uploadReceipt(expenseId: string, file: File): Promise<string | null> {
+    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80) || 'receipt';
+    const path = `${expenseId}/${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from('expense-receipts').upload(path, file, { contentType: file.type });
+    if (upErr) return upErr.message;
+    const { error: linkErr } = await supabase.from('expenses').update({ attachment_path: path }).eq('id', expenseId);
+    return linkErr ? linkErr.message : null;
+  }
+
+  /** draft = keep for later · submitted = ask for approval · approved = submit and approve now (approvers). */
+  async function save(target: 'draft' | 'submitted' | 'approved') {
     const cents = Math.round(parseFloat(form.amount) * 100);
     if (!Number.isFinite(cents) || cents <= 0) {
       setError('Enter a valid amount.');
@@ -294,14 +338,46 @@ export function ExpensesManager({
       amount_cents: cents,
       expense_date: form.expense_date,
       supplier_id: form.supplier_id || null,
+      vendor: form.vendor.trim() || null,
     };
-    const ok = await run(() =>
-      editId ? supabase.from('expenses').update(row).eq('id', editId) : supabase.from('expenses').insert(row),
-    );
-    if (ok) {
-      setForm(emptyForm());
-      setEditId(null);
+    setBusy(true);
+    setError(null);
+    let id = editId;
+    if (editId) {
+      const { error: upErr } = await supabase.from('expenses').update(row).eq('id', editId);
+      if (upErr) return fail(upErr.message);
+      const current = expenses.find((x) => x.id === editId);
+      if (target !== 'draft' && (current?.status === 'draft' || current?.status === 'rejected')) {
+        const { error: subErr } = await supabase.rpc('submit_expense', { p_id: editId });
+        if (subErr) return fail(subErr.message);
+      }
+    } else {
+      const { data, error: insErr } = await supabase
+        .from('expenses')
+        .insert({ ...row, status: target === 'draft' ? 'draft' : 'submitted' })
+        .select('id')
+        .single();
+      if (insErr || !data) return fail(insErr?.message ?? 'Could not save the expense.');
+      id = (data as { id: string }).id;
     }
+    if (id && receipt) {
+      const msg = await uploadReceipt(id, receipt);
+      if (msg) return fail(`Saved, but the receipt didn't upload: ${msg}`);
+    }
+    if (id && target === 'approved') {
+      const { error: apErr } = await supabase.rpc('approve_expense', { p_id: id });
+      if (apErr) return fail(`Saved and submitted, but not approved: ${apErr.message}`);
+    }
+    setBusy(false);
+    setForm(emptyForm());
+    setEditId(null);
+    setReceipt(null);
+    router.refresh();
+  }
+
+  function fail(message: string) {
+    setBusy(false);
+    setError(message);
   }
 
   async function remove(id: string) {
@@ -309,10 +385,66 @@ export function ExpensesManager({
     await run(() => supabase.from('expenses').delete().eq('id', id));
   }
 
-  // Filtered expenses list
+  async function act(fn: string, args: Record<string, unknown>) {
+    await run(() => supabase.rpc(fn, args));
+  }
+
+  async function rejectOrVoid(ex: Expense, kind: 'reject' | 'void') {
+    const reason = window.prompt(
+      kind === 'reject' ? 'Why is this expense rejected? (shown to the submitter)' : 'Why is this expense being voided?',
+    );
+    if (!reason || !reason.trim()) return;
+    await act(kind === 'reject' ? 'reject_expense' : 'void_expense', { p_id: ex.id, p_reason: reason.trim() });
+  }
+
+  async function confirmPay(e: React.FormEvent) {
+    e.preventDefault();
+    if (!payFor) return;
+    const ok = await run(() =>
+      supabase.rpc('pay_expense', {
+        p_id: payFor.id,
+        p_method: payMethod,
+        p_reference: payRef.trim() || null,
+        p_paid_on: payDate || null,
+      }),
+    );
+    if (ok) setPayFor(null);
+  }
+
+  async function openReceipt(path: string) {
+    const { data, error: urlErr } = await supabase.storage.from('expense-receipts').createSignedUrl(path, 300);
+    if (urlErr || !data) setError(urlErr?.message ?? 'Could not open the receipt.');
+    else window.open(data.signedUrl, '_blank', 'noopener');
+  }
+
+  async function attachTo(ex: Expense, file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    const msg = await uploadReceipt(ex.id, file);
+    setBusy(false);
+    if (msg) setError(msg);
+    else router.refresh();
+  }
+
+  // Only approved/paid expenses are costs — charts, category mix and the PDF use these.
+  const posted = useMemo(() => expenses.filter(isPostedExpense), [expenses]);
+  const pending = useMemo(() => {
+    const awaiting = expenses.filter((x) => x.status === 'submitted');
+    const unpaid = expenses.filter((x) => x.status === 'approved');
+    const sum = (xs: Expense[]) => xs.reduce((s, x) => s + x.amount_cents, 0);
+    return { awaiting: awaiting.length, awaitingCents: sum(awaiting), unpaid: unpaid.length, unpaidCents: sum(unpaid) };
+  }, [expenses]);
+
+  // Filtered expenses list (every status, so drafts and approvals are visible)
   const filtered = useMemo(
-    () => (categoryFilter ? expenses.filter((ex) => ex.category === categoryFilter) : expenses),
-    [expenses, categoryFilter],
+    () =>
+      expenses.filter(
+        (ex) =>
+          (!categoryFilter || ex.category === categoryFilter) &&
+          (!statusFilter || (ex.status ?? 'paid') === statusFilter),
+      ),
+    [expenses, categoryFilter, statusFilter],
   );
   const filteredTotal = useMemo(() => filtered.reduce((s, ex) => s + ex.amount_cents, 0), [filtered]);
   const categoriesInUse = useMemo(
@@ -341,12 +473,12 @@ export function ExpensesManager({
   // Daily expenses aggregated with date normalization
   const expensesByDate = useMemo(() => {
     const map = new Map<string, number>();
-    for (const ex of expenses) {
+    for (const ex of posted) {
       const k = normalizeDateStr(ex.expense_date);
       if (k) map.set(k, (map.get(k) ?? 0) + ex.amount_cents);
     }
     return map;
-  }, [expenses]);
+  }, [posted]);
 
   // Daily sales map with date normalization
   const salesByDate = useMemo(() => {
@@ -439,7 +571,7 @@ export function ExpensesManager({
   // Expense breakdown by category (scoped to active period for consistency with P&L)
   const categoryTotals = useMemo(() => {
     const map = new Map<string, number>();
-    for (const ex of expenses) {
+    for (const ex of posted) {
       const k = normalizeDateStr(ex.expense_date);
       if (fromStr && k && k < fromStr) continue;
       if (toStr && k && k > toStr) continue;
@@ -451,7 +583,7 @@ export function ExpensesManager({
       const p = total > 0 ? (cents / total) * 100 : 0;
       return { category: cat, cents, pct: Math.round(p * 10) / 10 };
     }).filter((c) => c.cents > 0);
-  }, [expenses, fromStr, toStr]);
+  }, [posted, fromStr, toStr]);
 
   const totalExpensesCents = useMemo(
     () => categoryTotals.reduce((s, c) => s + c.cents, 0),
@@ -575,7 +707,7 @@ export function ExpensesManager({
               <StatCard
                 label="Operating Expenses ↴"
                 value={formatCents(profit.expenses_cents)}
-                hint={`${expenses.length} records`}
+                hint={`${posted.length} approved / paid`}
                 tone={profit.expenses_cents > 0 ? 'warn' : 'default'}
               />
             </button>
@@ -912,10 +1044,44 @@ export function ExpensesManager({
 
       {canViewProfit && profit && <ExpenseCalculator profit={profit} periodLabel={periodLabel} />}
 
+      {(pending.awaiting > 0 || pending.unpaid > 0) && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {pending.awaiting > 0 && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter('submitted')}
+              className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-left"
+            >
+              <span className="font-bold text-warn">{pending.awaiting} awaiting approval</span>
+              <span className="text-muted"> · {formatCents(pending.awaitingCents)} — not in profit yet</span>
+            </button>
+          )}
+          {pending.unpaid > 0 && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter('approved')}
+              className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-left"
+            >
+              <span className="font-bold text-primary">{pending.unpaid} approved, not yet paid</span>
+              <span className="text-muted"> · {formatCents(pending.unpaidCents)}</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {canWrite && (
         <Card>
-          <h2 className="font-bold mb-3 text-sm">{editId ? 'Edit expense' : 'Add expense'}</h2>
-          <form onSubmit={save} className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
+          <h2 className="font-bold mb-1 text-sm">{editId ? 'Edit expense' : 'Add expense'}</h2>
+          <p className="text-[11px] text-muted mb-3">
+            An expense counts toward profit once it is approved. Save a draft to finish later, or submit it for approval.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save('submitted');
+            }}
+            className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
+          >
             <Field label="Category">
               <Select value={form.category} onChange={(e) => set('category', e.target.value)}>
                 {CATEGORIES.map((c) => (
@@ -944,9 +1110,28 @@ export function ExpensesManager({
             <Field label="Date">
               <Input type="date" value={form.expense_date} onChange={(e) => set('expense_date', e.target.value)} />
             </Field>
-            <div className="flex gap-2">
+            <Field label="Paid to (vendor)">
+              <Input value={form.vendor} onChange={(e) => set('vendor', e.target.value)} placeholder="optional" />
+            </Field>
+            <Field label="Receipt">
+              <input
+                type="file"
+                accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
+                onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+                className="block w-full text-[11px] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+              />
+            </Field>
+            <div className="flex flex-wrap gap-2 sm:col-span-4">
               <Button type="submit" disabled={busy}>
-                {editId ? 'Save' : 'Add'}
+                {editId ? 'Save & submit' : 'Submit for approval'}
+              </Button>
+              {canApprove && (
+                <Button type="button" variant="ghost" disabled={busy} onClick={() => void save('approved')}>
+                  {editId ? 'Save & approve' : 'Add as approved'}
+                </Button>
+              )}
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => void save('draft')}>
+                Save draft
               </Button>
               {editId && (
                 <Button
@@ -954,6 +1139,7 @@ export function ExpensesManager({
                   variant="ghost"
                   onClick={() => {
                     setEditId(null);
+                    setReceipt(null);
                     setForm(emptyForm());
                   }}
                 >
@@ -965,11 +1151,57 @@ export function ExpensesManager({
         </Card>
       )}
 
+      {payFor && (
+        <Card className="border-primary/40">
+          <h2 className="font-bold text-sm mb-1">
+            Mark paid · {payFor.category} {formatCents(payFor.amount_cents)}
+          </h2>
+          <p className="text-[11px] text-muted mb-3">{payFor.description ?? payFor.vendor ?? payFor.expense_date}</p>
+          <form onSubmit={confirmPay} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+            <Field label="Paid by">
+              <Select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Reference">
+              <Input value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="transfer / cheque no." />
+            </Field>
+            <Field label="Paid on">
+              <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy}>
+                Confirm payment
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setPayFor(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <h2 className="font-bold text-sm">All Recorded Expenses</h2>
           <div className="flex items-center gap-2 text-xs">
             <span className="text-muted">Filter:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as '' | ExpenseStatus)}
+              className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs"
+            >
+              <option value="">All statuses</option>
+              {(Object.keys(STATUS_LABEL) as ExpenseStatus[]).map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
@@ -993,57 +1225,131 @@ export function ExpensesManager({
                   <th className="p-3 font-semibold">Date</th>
                   <th className="p-3 font-semibold">Category</th>
                   <th className="p-3 font-semibold">Description</th>
+                  <th className="p-3 font-semibold">Status</th>
                   <th className="p-3 font-semibold text-right">Amount</th>
-                  {(canWrite || canDelete) && <th className="p-3" />}
+                  <th className="p-3" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-3 text-muted">
-                      {expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses in this category.'}
+                    <td colSpan={6} className="p-3 text-muted">
+                      {expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match these filters.'}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((ex) => (
-                    <tr key={ex.id} className="border-b border-border/60 last:border-0">
-                      <td className="p-3 text-muted">{ex.expense_date}</td>
-                      <td className="p-3 font-semibold">{ex.category}</td>
-                      <td className="p-3 text-muted">
-                        {ex.description ?? '—'}
-                        {ex.supplier_id && (
-                          <span className="text-primary text-[10px] font-semibold ml-1.5">
-                            · {suppliers.find((s) => s.id === ex.supplier_id)?.name ?? 'supplier'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right font-mono">{formatCents(ex.amount_cents)}</td>
-                      {(canWrite || canDelete) && (
-                        <td className="p-3 text-right whitespace-nowrap">
-                          {canWrite && (
+                  filtered.map((ex) => {
+                    const st: ExpenseStatus = ex.status ?? 'paid';
+                    const editable = st === 'draft' || st === 'submitted' || st === 'rejected';
+                    return (
+                      <tr key={ex.id} className="border-b border-border/60 last:border-0 align-top">
+                        <td className="p-3 text-muted whitespace-nowrap">{ex.expense_date}</td>
+                        <td className="p-3 font-semibold">{ex.category}</td>
+                        <td className="p-3 text-muted">
+                          {ex.description ?? '—'}
+                          {ex.vendor && <span className="text-[10px] ml-1.5">· {ex.vendor}</span>}
+                          {ex.supplier_id && (
+                            <span className="text-primary text-[10px] font-semibold ml-1.5">
+                              · {suppliers.find((s) => s.id === ex.supplier_id)?.name ?? 'supplier'}
+                            </span>
+                          )}
+                          {ex.attachment_path && (
+                            <button
+                              type="button"
+                              onClick={() => void openReceipt(ex.attachment_path!)}
+                              className="ml-1.5 text-[10px] font-semibold text-primary underline"
+                            >
+                              receipt
+                            </button>
+                          )}
+                          {st === 'rejected' && ex.rejection_reason && (
+                            <div className="text-[10px] text-danger mt-0.5">Rejected: {ex.rejection_reason}</div>
+                          )}
+                          {st === 'void' && ex.void_reason && (
+                            <div className="text-[10px] mt-0.5">Voided: {ex.void_reason}</div>
+                          )}
+                          {st === 'paid' && ex.payment_method && (
+                            <div className="text-[10px] mt-0.5">
+                              Paid by {PAYMENT_METHODS.find((m) => m.value === ex.payment_method)?.label ?? ex.payment_method}
+                              {ex.payment_reference ? ` · ref ${ex.payment_reference}` : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_TONE[st]}`}>{STATUS_LABEL[st]}</span>
+                        </td>
+                        <td className={`p-3 text-right font-mono ${isPostedExpense(ex) ? '' : 'text-muted'}`}>
+                          {formatCents(ex.amount_cents)}
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap space-x-1">
+                          {canWrite && (st === 'draft' || st === 'rejected') && (
+                            <Button variant="ghost" disabled={busy} onClick={() => void act('submit_expense', { p_id: ex.id })}>
+                              Submit
+                            </Button>
+                          )}
+                          {canApprove && st === 'submitted' && (
+                            <Button disabled={busy} onClick={() => void act('approve_expense', { p_id: ex.id })}>
+                              Approve
+                            </Button>
+                          )}
+                          {canApprove && (st === 'submitted' || st === 'approved') && (
+                            <Button variant="ghost" disabled={busy} onClick={() => void rejectOrVoid(ex, 'reject')}>
+                              Reject
+                            </Button>
+                          )}
+                          {canPay && st === 'approved' && (
+                            <Button
+                              disabled={busy}
+                              onClick={() => {
+                                setPayFor(ex);
+                                setPayRef('');
+                                setPayDate(todayLocal());
+                              }}
+                            >
+                              Mark paid
+                            </Button>
+                          )}
+                          {canApprove && (st === 'approved' || st === 'paid') && (
+                            <Button variant="ghost" disabled={busy} onClick={() => void rejectOrVoid(ex, 'void')}>
+                              Void
+                            </Button>
+                          )}
+                          {canWrite && st !== 'void' && !ex.attachment_path && (
+                            <label className="inline-block cursor-pointer text-[11px] font-semibold text-primary px-1.5">
+                              Attach receipt
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
+                                onChange={(e) => void attachTo(ex, e.target.files?.[0])}
+                              />
+                            </label>
+                          )}
+                          {canWrite && editable && (
                             <Button variant="ghost" disabled={busy} onClick={() => startEdit(ex)}>
                               Edit
                             </Button>
                           )}
-                          {canDelete && (
-                            <Button variant="danger" className="ml-1.5" disabled={busy} onClick={() => remove(ex.id)}>
+                          {canDelete && editable && (
+                            <Button variant="danger" disabled={busy} onClick={() => remove(ex.id)}>
                               Delete
                             </Button>
                           )}
                         </td>
-                      )}
-                    </tr>
-                  ))
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
               {filtered.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-border bg-main/60">
-                    <td className="p-3 font-semibold" colSpan={3}>
-                      {categoryFilter || 'Total'} ({filtered.length})
+                    <td className="p-3 font-semibold" colSpan={4}>
+                      {[statusFilter && STATUS_LABEL[statusFilter], categoryFilter].filter(Boolean).join(' · ') || 'Total'} (
+                      {filtered.length})
                     </td>
                     <td className="p-3 text-right font-mono font-bold">{formatCents(filteredTotal)}</td>
-                    {(canWrite || canDelete) && <td className="p-3" />}
+                    <td className="p-3" />
                   </tr>
                 </tfoot>
               )}

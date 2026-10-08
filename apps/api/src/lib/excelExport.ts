@@ -170,7 +170,8 @@ export async function buildExcelWorkbook(
     admin
       .from('expenses')
       .select('expense_date, category, description, amount_cents')
-      // Every expense up to the period end — same rule as period_profitability.
+      // Every approved/paid expense up to the period end — same rule as period_profitability.
+      .in('status', ['approved', 'paid'])
       .lte('expense_date', toDate)
       .order('expense_date', { ascending: false }),
     AI_TOOLS.find((t) => t.name === 'get_owner_activity')!.run(admin, ownerActivityRange),

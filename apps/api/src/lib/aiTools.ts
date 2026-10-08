@@ -412,7 +412,7 @@ export async function computeAttentionItems(
     // flagged as worth a look, never asserted as wrong.
     const since90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const expenseBaseline = await admin.from('expenses').select('category, amount_cents, expense_date').gte('expense_date', since90);
+    const expenseBaseline = await admin.from('expenses').select('category, amount_cents, expense_date').in('status', ['approved', 'paid']).gte('expense_date', since90);
     if (!expenseBaseline.error) {
       const rows = (expenseBaseline.data ?? []) as { category: string; amount_cents: number; expense_date: string }[];
       const byCategory = new Map<string, number[]>();
@@ -2201,7 +2201,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('payments').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('refunds').select('amount_cents').gte('created_at', fromIso).lt('created_at', toIso),
         admin.from('supplier_payments').select('amount_cents').gte('paid_at', fromIso).lt('paid_at', toIso),
-        admin.from('expenses').select('amount_cents').lte('expense_date', forwardRange({ from, to }).to),
+        admin.from('expenses').select('amount_cents').in('status', ['approved', 'paid']).lte('expense_date', forwardRange({ from, to }).to),
       ]);
       const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
       const canSeeProfit = !profitRes.error && !!profit;
@@ -3882,7 +3882,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'record_expenses',
     description:
-      'Record one or more operating expenses (e.g. "record expense: Electricity $350 under Utilities, Cleaning supplies $40 under Supplies"). Categorizes each expense under Rent, Utilities, Labor, Marketing, Maintenance, Supplies, or Other, and affects Net Profit. Proposes for manager confirmation.',
+      'Record one or more operating expenses (e.g. "record expense: Electricity $350 under Utilities, Cleaning supplies $40 under Supplies"). Categorizes each expense under Rent, Utilities, Labor, Marketing, Maintenance, Supplies, or Other. Each one is SUBMITTED for approval — it affects Net Profit only after someone with expense approval approves it in Finance. Proposes for manager confirmation.',
     needs: 'finance.create_expense',
     input_schema: {
       type: 'object',
@@ -3952,13 +3952,22 @@ export const AI_ACTIONS: AiAction[] = [
           description: desc,
           expense_date: date,
           supplier_id: supplierId,
+          // Never self-approved by the assistant: it waits in Finance for an
+          // approver (tenant migration 0087), so it doesn't touch profit yet.
+          status: 'submitted',
         });
         if (error) throw new Error(error.message);
         count++;
         totalCents += amt;
       }
 
-      return { ok: true, recorded_count: count, total_cents: totalCents };
+      return {
+        ok: true,
+        recorded_count: count,
+        total_cents: totalCents,
+        status: 'submitted',
+        note: 'Submitted for approval — these count in profit once approved in Finance.',
+      };
     },
   },
   {
@@ -4459,7 +4468,8 @@ async function buildReportData(
     admin
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
-      // Every expense up to the period end — same rule as period_profitability.
+      // Every approved/paid expense up to the period end — same rule as period_profitability.
+      .in('status', ['approved', 'paid'])
       .lte('expense_date', days.to),
     // Restaurant Performance & Owner Activity Intelligence sections (spec
     // §28) — reuse the exact same tool run()s the AI chat calls, never a

@@ -189,6 +189,7 @@ function ExpensesLevel({ to, totalCents, timeZone }: { to: Date; totalCents: num
     supabase
       .from('expenses')
       .select('category, description, amount_cents, expense_date')
+      .in('status', ['approved', 'paid'])
       .lte('expense_date', ymd(new Date(to.getTime() - 1)))
       .order('amount_cents', { ascending: false })
       .then(({ data, error: err }) => {

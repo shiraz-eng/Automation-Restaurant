@@ -328,7 +328,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v84 Grant the invoice re-match helper to the line guard (follow-up to v83).
 //   v85 Financial ledger: append-only financial_events fed by source-table triggers (revenue, COGS, payments, expenses, payables, inventory, waste, cash, close), backfill, ledger_summary/ledger_events, post_ledger_adjustment.
 //   v86 Ledger: a refund that also changes payment status is still posted as REFUND_ISSUED.
-const SCHEMA_VERSION = 86;
+//   v87 Expense workflow: draft/submitted/approved/rejected/paid/void with guard + submit/approve/reject/pay/void functions; only approved/paid expenses count in profit and the ledger; expense-receipts bucket; supplier-invoices files no longer readable by all staff.
+//   v88 Expense approvers/payers can read the expenses they act on.
+const SCHEMA_VERSION = 88;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
