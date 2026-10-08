@@ -326,7 +326,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v82 Low-stock automation fix: trigger on INSERT, backfill open events, fallback target stock in pending_low_stock_reorders.
 //   v83 Finance hardening: invoice status/amount guard, read-only payments/holds/credit notes, finance-only reads, invoices.approve + approved_by/at, audit coverage.
 //   v84 Grant the invoice re-match helper to the line guard (follow-up to v83).
-const SCHEMA_VERSION = 84;
+//   v85 Financial ledger: append-only financial_events fed by source-table triggers (revenue, COGS, payments, expenses, payables, inventory, waste, cash, close), backfill, ledger_summary/ledger_events, post_ledger_adjustment.
+//   v86 Ledger: a refund that also changes payment status is still posted as REFUND_ISSUED.
+const SCHEMA_VERSION = 86;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
