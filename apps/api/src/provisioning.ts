@@ -330,7 +330,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v86 Ledger: a refund that also changes payment status is still posted as REFUND_ISSUED.
 //   v87 Expense workflow: draft/submitted/approved/rejected/paid/void with guard + submit/approve/reject/pay/void functions; only approved/paid expenses count in profit and the ledger; expense-receipts bucket; supplier-invoices files no longer readable by all staff.
 //   v88 Expense approvers/payers can read the expenses they act on.
-const SCHEMA_VERSION = 88;
+//   v89 Invoice matching v2: typed holds (total, missing PO/GRN, supplier, other PO, quantity, price, duplicate) reported together, match_result on the invoice, reject_supplier_invoice, supplier_invoice_history.
+//   v90 Duplicate-billing check counts only accepted (matched/approved/paid) invoices.
+const SCHEMA_VERSION = 90;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

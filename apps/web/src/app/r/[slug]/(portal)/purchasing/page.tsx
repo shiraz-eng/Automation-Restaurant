@@ -4,7 +4,7 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
-import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from './PurchasingClient';
+import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow, type CreditNote } from './PurchasingClient';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,7 @@ export default async function PurchasingPage({
   const canApprovePO = can(perms, role, 'purchases.approve');
   const canReceive = can(perms, role, 'purchases.receive') || can(perms, role, 'inventory.manage_purchases');
 
-  const [{ data: suppliers }, { data: items }, { data: orders, error }, invRes, holdRes, payableRes] = await Promise.all([
+  const [{ data: suppliers }, { data: items }, { data: orders, error }, invRes, holdRes, payableRes, creditRes] = await Promise.all([
     t.client.from('suppliers').select('id, name').eq('is_active', true).order('name'),
     t.client.from('inventory_items').select('id, name, unit').order('name'),
     t.client
@@ -57,11 +57,18 @@ export default async function PurchasingPage({
     canManagePayables || canViewPayables
       ? t.client
           .from('supplier_payment_holds')
-          .select('id, reason, amount_cents, status, created_at, invoice_id, supplier_invoices(supplier_invoice_number, suppliers(name))')
+          .select('id, kind, reason, amount_cents, status, created_at, invoice_id, supplier_invoices(supplier_invoice_number, suppliers(name))')
           .eq('status', 'open')
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as Hold[] }),
     canViewPayables ? t.client.rpc('supplier_payable') : Promise.resolve({ data: [] as PayableRow[] }),
+    canViewPayables || canManagePayables
+      ? t.client
+          .from('supplier_credit_notes')
+          .select('id, amount_cents, reason, credit_date, supplier_id, invoice_id, suppliers(name), supplier_invoices(supplier_invoice_number)')
+          .order('credit_date', { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [] as CreditNote[] }),
   ]);
 
   const normalised = ((orders ?? []) as unknown as (Omit<PurchaseOrder, 'supplier_name'> & {
@@ -108,6 +115,7 @@ export default async function PurchasingPage({
           canCreatePO={canManagePO || can(perms, role, 'purchases.create')}
           canDeletePO={can(perms, role, 'purchases.delete')}
           canViewInvoices={canViewInvoices}
+          creditNotes={(creditRes.data ?? []) as unknown as CreditNote[]}
         />
       )}
     </div>

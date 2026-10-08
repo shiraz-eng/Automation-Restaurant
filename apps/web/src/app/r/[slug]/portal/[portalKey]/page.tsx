@@ -17,7 +17,7 @@ import { SuppliersManager, type Supplier } from '../../(portal)/suppliers/Suppli
 import { AiChat } from '../../(portal)/ai/AiChat';
 import { InventoryManager } from '../../(portal)/inventory/InventoryManager';
 import { RecipesManager, type Recipe, type MenuItemOption, type InventoryItemOption, type SubRecipeOption, type CategoryOption } from '../../(portal)/recipes/RecipesManager';
-import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow } from '../../(portal)/purchasing/PurchasingClient';
+import { PurchasingClient, type PurchaseOrder, type Invoice, type Hold, type PayableRow, type CreditNote } from '../../(portal)/purchasing/PurchasingClient';
 import { DealsWorkspace } from '../../(portal)/deals/DealsWorkspace';
 import { DEAL_SELECT, MENU_PICK_SELECT, type DealRow, type MenuPick } from '../../(portal)/deals/dealTypes';
 import { SocialManager } from '../../(portal)/social/SocialManager';
@@ -209,6 +209,7 @@ export default async function PortalHome({
     purchInvoicesRes,
     purchHoldsRes,
     purchPayableRes,
+    purchCreditRes,
     profitRes,
     expensesRes,
     closingsRes,
@@ -372,12 +373,19 @@ export default async function PortalHome({
     includePurchasing && (has('payables.manage') || has('payables.view') || has('finance.view'))
       ? t.client
           .from('supplier_payment_holds')
-          .select('id, reason, amount_cents, status, created_at, invoice_id, supplier_invoices(supplier_invoice_number, suppliers(name))')
+          .select('id, kind, reason, amount_cents, status, created_at, invoice_id, supplier_invoices(supplier_invoice_number, suppliers(name))')
           .eq('status', 'open')
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] }),
     includePurchasing && (has('payables.view') || has('finance.view'))
       ? t.client.rpc('supplier_payable')
+      : Promise.resolve({ data: [] }),
+    includePurchasing && hasAny(['payables.view', 'payables.manage', 'finance.view'])
+      ? t.client
+          .from('supplier_credit_notes')
+          .select('id, amount_cents, reason, credit_date, supplier_id, invoice_id, suppliers(name), supplier_invoices(supplier_invoice_number)')
+          .order('credit_date', { ascending: false })
+          .limit(20)
       : Promise.resolve({ data: [] }),
     canFinance
       ? t.client.rpc('period_profitability', { p_from: monthStart.toISOString(), p_to: new Date().toISOString() })
@@ -912,6 +920,7 @@ export default async function PortalHome({
                   invoices={(purchInvoicesRes.data ?? []) as unknown as Invoice[]}
                   holds={(purchHoldsRes.data ?? []) as unknown as Hold[]}
                   payable={(purchPayableRes.data ?? []) as unknown as PayableRow[]}
+                  creditNotes={(purchCreditRes.data ?? []) as unknown as CreditNote[]}
                   canInvoice={has('invoices.create')}
                   canMatch={has('invoices.match')}
                   canApproveInvoice={hasAny(['invoices.approve', 'payables.manage'])}

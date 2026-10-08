@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
+import { InvoiceDetail } from './InvoiceDetail';
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; unit: string; name: string };
@@ -51,6 +52,7 @@ export type Invoice = {
 
 export type Hold = {
   id: string;
+  kind?: string;
   reason: string;
   amount_cents: number;
   status: string;
@@ -93,6 +95,37 @@ const STATUS_STYLE: Record<string, string> = {
 
 const one = <T,>(v: T | T[] | null): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
 
+const HOLD_KIND_LABEL: Record<string, string> = {
+  quantity: 'Quantity',
+  price: 'Price',
+  total: 'Total',
+  missing_po: 'No PO',
+  missing_grn: 'Not received',
+  supplier: 'Wrong supplier',
+  po_mismatch: 'Other PO',
+  duplicate: 'Already billed',
+};
+const INVOICE_STATUS_LABEL: Record<string, string> = {
+  received: 'to match',
+  matched: 'matched',
+  on_hold: 'exceptions',
+  approved: 'approved',
+  partially_paid: 'part paid',
+  paid: 'paid',
+  cancelled: 'rejected',
+};
+
+export type CreditNote = {
+  id: string;
+  amount_cents: number;
+  reason: string;
+  credit_date: string;
+  supplier_id: string;
+  invoice_id: string | null;
+  suppliers: { name: string } | { name: string }[] | null;
+  supplier_invoices: { supplier_invoice_number: string } | { supplier_invoice_number: string }[] | null;
+};
+
 const blankLine: DraftLine = { item_id: '', qty: '', cost: '' };
 
 export function PurchasingClient({
@@ -114,6 +147,7 @@ export function PurchasingClient({
   canCreatePO = canManagePO,
   canDeletePO = false,
   canViewInvoices = canInvoice || canMatch,
+  creditNotes = [],
 }: {
   suppliers: Supplier[];
   items: Item[];
@@ -140,6 +174,8 @@ export function PurchasingClient({
   canDeletePO?: boolean;
   /** invoices.view — see supplier invoices without recording or matching them. */
   canViewInvoices?: boolean;
+  /** Recent supplier credit notes (payables.view / payables.manage). */
+  creditNotes?: CreditNote[];
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -271,6 +307,17 @@ export function PurchasingClient({
   const [invPo, setInvPo] = useState('');
   const [invNumber, setInvNumber] = useState('');
   const [invDate, setInvDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [invDue, setInvDue] = useState('');
+  const [invTax, setInvTax] = useState('');
+  const [invDelivery, setInvDelivery] = useState('');
+  const [invDiscount, setInvDiscount] = useState('');
+  const [invFile, setInvFile] = useState<File | null>(null);
+  const [openInvoice, setOpenInvoice] = useState<string | null>(null);
+
+  const [cnSupplier, setCnSupplier] = useState('');
+  const [cnInvoice, setCnInvoice] = useState('');
+  const [cnAmount, setCnAmount] = useState('');
+  const [cnReason, setCnReason] = useState('');
   const [invLines, setInvLines] = useState<
     { po_line_id: string; inventory_item_id: string; description: string; qty: string; unit_cost_cents: string }[]
   >([]);
@@ -311,6 +358,7 @@ export function PurchasingClient({
       setError('Add at least one invoice line.');
       return;
     }
+    const toCents = (v: string) => Math.max(0, Math.round((parseFloat(v) || 0) * 100));
     setBusy(true);
     setError(null);
     const { data: inv, error: invErr } = await supabase
@@ -320,6 +368,7 @@ export function PurchasingClient({
         purchase_order_id: invPo || null,
         supplier_invoice_number: invNumber.trim(),
         invoice_date: invDate,
+        ...(invDue ? { due_date: invDue } : {}),
       })
       .select('id')
       .single();
@@ -347,10 +396,32 @@ export function PurchasingClient({
       setBusy(false);
       return;
     }
-    const total = rows.reduce((s, r) => s + r.line_total_cents, 0);
+    const subtotal = rows.reduce((s, r) => s + r.line_total_cents, 0);
+    const tax = toCents(invTax);
+    const delivery = toCents(invDelivery);
+    const discount = toCents(invDiscount);
+    let attachment_path: string | null = null;
+    if (invFile) {
+      const safe = invFile.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80) || 'invoice';
+      attachment_path = `${inv.id}/${Date.now()}-${safe}`;
+      const { error: upErr } = await supabase.storage
+        .from('supplier-invoices')
+        .upload(attachment_path, invFile, { contentType: invFile.type });
+      if (upErr) {
+        setError(`Invoice saved, but the file didn't upload: ${upErr.message}`);
+        attachment_path = null;
+      }
+    }
     const { error: totErr } = await supabase
       .from('supplier_invoices')
-      .update({ subtotal_cents: total, total_cents: total })
+      .update({
+        subtotal_cents: subtotal,
+        tax_cents: tax,
+        delivery_fee_cents: delivery,
+        discount_cents: discount,
+        total_cents: Math.max(0, subtotal + tax + delivery - discount),
+        ...(attachment_path ? { attachment_path } : {}),
+      })
       .eq('id', inv.id);
     setBusy(false);
     if (totErr) {
@@ -360,6 +431,11 @@ export function PurchasingClient({
     setInvSupplier('');
     setInvPo('');
     setInvNumber('');
+    setInvDue('');
+    setInvTax('');
+    setInvDelivery('');
+    setInvDiscount('');
+    setInvFile(null);
     setInvLines([]);
     router.refresh();
   }
@@ -404,6 +480,33 @@ export function PurchasingClient({
       setPayAmount('');
       setPayReference('');
       setPayAllocations({});
+    }
+  }
+
+  const cnSupplierInvoices = useMemo(
+    () => invoices.filter((i) => i.supplier_id === cnSupplier && i.status !== 'cancelled'),
+    [invoices, cnSupplier],
+  );
+
+  async function recordCreditNote(e: React.FormEvent) {
+    e.preventDefault();
+    const amount = Math.round((Number(cnAmount) || 0) * 100);
+    if (!cnSupplier || amount <= 0 || !cnReason.trim()) {
+      setError('Choose a supplier, enter a positive amount and give a reason.');
+      return;
+    }
+    const ok = await act(() =>
+      supabase.rpc('record_supplier_credit_note', {
+        p_supplier_id: cnSupplier,
+        p_invoice_id: cnInvoice || null,
+        p_amount_cents: amount,
+        p_reason: cnReason.trim(),
+      }),
+    );
+    if (ok) {
+      setCnInvoice('');
+      setCnAmount('');
+      setCnReason('');
     }
   }
 
@@ -485,11 +588,23 @@ export function PurchasingClient({
                       <p className="text-sm font-semibold">
                         {sup?.name ?? '—'} · {inv?.supplier_invoice_number ?? '—'} · {formatCents(h.amount_cents)}
                       </p>
-                      <p className="text-xs text-danger mt-0.5">{h.reason}</p>
+                      <p className="text-xs text-danger mt-0.5">
+                        {h.kind && h.kind !== 'other' && (
+                          <span className="mr-1.5 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                            {HOLD_KIND_LABEL[h.kind] ?? h.kind}
+                          </span>
+                        )}
+                        {h.reason}
+                      </p>
                     </div>
-                    <Button variant="ghost" disabled={busy} onClick={() => resolveHold(h)}>
-                      Resolve
-                    </Button>
+                    <div className="flex gap-2 shrink-0">
+                      <Button variant="ghost" disabled={busy} onClick={() => setOpenInvoice(h.invoice_id)}>
+                        Open invoice
+                      </Button>
+                      <Button variant="ghost" disabled={busy} onClick={() => resolveHold(h)}>
+                        Resolve
+                      </Button>
+                    </div>
                   </Card>
                 );
               })}
@@ -730,6 +845,28 @@ export function PurchasingClient({
                   <Input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} />
                 </Field>
               </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <Field label="Due date (blank = supplier terms)">
+                  <Input type="date" value={invDue} onChange={(e) => setInvDue(e.target.value)} />
+                </Field>
+                <Field label="Tax">
+                  <Input type="number" min="0" step="0.01" value={invTax} onChange={(e) => setInvTax(e.target.value)} placeholder="0.00" />
+                </Field>
+                <Field label="Delivery">
+                  <Input type="number" min="0" step="0.01" value={invDelivery} onChange={(e) => setInvDelivery(e.target.value)} placeholder="0.00" />
+                </Field>
+                <Field label="Discount">
+                  <Input type="number" min="0" step="0.01" value={invDiscount} onChange={(e) => setInvDiscount(e.target.value)} placeholder="0.00" />
+                </Field>
+                <Field label="Invoice file (PDF / photo)">
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    onChange={(e) => setInvFile(e.target.files?.[0] ?? null)}
+                    className="block w-full text-[11px] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+                  />
+                </Field>
+              </div>
               {invLines.map((l, i) => (
                 <div key={i} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                   <Field label="Description">
@@ -767,6 +904,17 @@ export function PurchasingClient({
           )}
 
           <div className="space-y-3">
+            {openInvoice && !invoices.some((i) => i.id === openInvoice) && (
+              <Card>
+                <InvoiceDetail
+                  invoiceId={openInvoice}
+                  canMatch={canMatch}
+                  canApprove={canApproveInvoice}
+                  canResolve={canManagePayables}
+                  onClose={() => setOpenInvoice(null)}
+                />
+              </Card>
+            )}
             {invoices.length === 0 ? (
               <Card>
                 <p className="text-muted text-xs">No invoices recorded yet.</p>
@@ -774,30 +922,47 @@ export function PurchasingClient({
             ) : (
               invoices.map((inv) => {
                 const sup = one(inv.suppliers);
+                const open = openInvoice === inv.id;
                 return (
-                  <Card key={inv.id} className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {sup?.name ?? '—'} · {inv.supplier_invoice_number} · {formatCents(inv.total_cents)}{' '}
-                        <span className={`ml-2 text-[11px] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>{inv.status}</span>
-                      </p>
-                      <p className="text-[11px] text-muted mt-0.5">
-                        Invoiced {inv.invoice_date}
-                        {inv.due_date ? ` · due ${inv.due_date}` : ''}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      {canMatch && inv.status === 'received' && (
-                        <Button variant="ghost" disabled={busy} onClick={() => act(() => supabase.rpc('match_supplier_invoice', { p_invoice_id: inv.id }))}>
-                          Run match
+                  <Card key={inv.id}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {sup?.name ?? '—'} · {inv.supplier_invoice_number} · {formatCents(inv.total_cents)}{' '}
+                          <span className={`ml-2 text-[11px] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>
+                            {INVOICE_STATUS_LABEL[inv.status] ?? inv.status}
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-muted mt-0.5">
+                          Invoiced {inv.invoice_date}
+                          {inv.due_date ? ` · due ${inv.due_date}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        {canMatch && inv.status === 'received' && (
+                          <Button variant="ghost" disabled={busy} onClick={() => act(() => supabase.rpc('match_supplier_invoice', { p_invoice_id: inv.id }))}>
+                            Run match
+                          </Button>
+                        )}
+                        {canApproveInvoice && inv.status === 'matched' && (
+                          <Button variant="ghost" disabled={busy} onClick={() => act(() => supabase.rpc('approve_supplier_invoice', { p_invoice_id: inv.id }))}>
+                            Approve
+                          </Button>
+                        )}
+                        <Button variant="ghost" onClick={() => setOpenInvoice(open ? null : inv.id)}>
+                          {open ? 'Hide' : 'Details'}
                         </Button>
-                      )}
-                      {canApproveInvoice && inv.status === 'matched' && (
-                        <Button variant="ghost" disabled={busy} onClick={() => act(() => supabase.rpc('approve_supplier_invoice', { p_invoice_id: inv.id }))}>
-                          Approve
-                        </Button>
-                      )}
+                      </div>
                     </div>
+                    {open && (
+                      <InvoiceDetail
+                        invoiceId={inv.id}
+                        canMatch={canMatch}
+                        canApprove={canApproveInvoice}
+                        canResolve={canManagePayables}
+                        onClose={() => setOpenInvoice(null)}
+                      />
+                    )}
                   </Card>
                 );
               })
@@ -879,6 +1044,84 @@ export function PurchasingClient({
               </Button>
             </form>
           </Card>
+        </section>
+      )}
+
+      {/* Credit notes */}
+      {(canManagePayables || (canViewPayables && creditNotes.length > 0)) && (
+        <section>
+          <h2 className="font-bold text-sm mb-3">Supplier credit notes</h2>
+          {canManagePayables && (
+            <Card className="mb-3">
+              <p className="text-[11px] text-muted mb-3">
+                Record money a supplier owes back — returned goods, short delivery, a price correction. It reduces what you owe
+                them; linked to an invoice, it reduces that invoice&apos;s balance.
+              </p>
+              <form onSubmit={recordCreditNote} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                <Field label="Supplier">
+                  <Select
+                    value={cnSupplier}
+                    onChange={(e) => {
+                      setCnSupplier(e.target.value);
+                      setCnInvoice('');
+                    }}
+                  >
+                    <option value="">Choose…</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Against invoice (optional)">
+                  <Select value={cnInvoice} onChange={(e) => setCnInvoice(e.target.value)} disabled={!cnSupplier}>
+                    <option value="">General credit</option>
+                    {cnSupplierInvoices.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.supplier_invoice_number} · {formatCents(i.total_cents)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Amount">
+                  <Input type="number" min="0.01" step="0.01" value={cnAmount} onChange={(e) => setCnAmount(e.target.value)} />
+                </Field>
+                <Field label="Reason">
+                  <Input value={cnReason} onChange={(e) => setCnReason(e.target.value)} placeholder="5 kg chicken returned" />
+                </Field>
+                <Button type="submit" disabled={busy}>
+                  Record credit note
+                </Button>
+              </form>
+            </Card>
+          )}
+          {creditNotes.length > 0 && (
+            <Card className="p-0 overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted border-b border-border">
+                  <tr>
+                    <th className="p-3 font-semibold">Date</th>
+                    <th className="p-3 font-semibold">Supplier</th>
+                    <th className="p-3 font-semibold">Invoice</th>
+                    <th className="p-3 font-semibold">Reason</th>
+                    <th className="p-3 font-semibold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditNotes.map((c) => (
+                    <tr key={c.id} className="border-b border-border/60 last:border-0">
+                      <td className="p-3 text-muted">{c.credit_date}</td>
+                      <td className="p-3 font-semibold">{one(c.suppliers)?.name ?? '—'}</td>
+                      <td className="p-3 text-muted">{one(c.supplier_invoices)?.supplier_invoice_number ?? 'General'}</td>
+                      <td className="p-3">{c.reason}</td>
+                      <td className="p-3 text-right font-mono">{formatCents(c.amount_cents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
         </section>
       )}
     </div>

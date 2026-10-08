@@ -79,7 +79,7 @@ begin
   begin
     j := public.match_supplier_invoice(inv);
     select status::text into v_status from public.supplier_invoices where id = inv;
-    select count(*) into n from public.supplier_payment_holds where invoice_id = inv and status = 'open' and reason like 'Quantity mismatch%';
+    select count(*) into n from public.supplier_payment_holds where invoice_id = inv and status = 'open' and kind = 'quantity';
     if (j->>'matched')::boolean = false and v_status = 'on_hold' and n = 1 then
       res := res || E'PASS B1 QA invoice (200 kg billed, 195 kg received) goes on hold, not approved\n';
     else fails := fails + 1; res := res || format(E'FAIL B1 match=%s status=%s holds=%s\n', j, v_status, n); end if;
