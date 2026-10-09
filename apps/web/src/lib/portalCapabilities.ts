@@ -113,7 +113,7 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     suppliers: has('supplier.view'),
     purchasing: has('purchases.view'),
     finance: hasAny(['finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit', 'finance.approve_expense', 'finance.pay_expense']),
-    dayClose: has('finance.view'),
+    dayClose: hasAny(['finance.view', 'finance.close_day', 'cash.manage']),
     paymentReconcile: has('payments.reconcile'),
     cashCount: has('finance.reconcile'),
     // AnalyticsSection reuses the Dashboard's own PerformancePanel verbatim.
@@ -221,7 +221,7 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   finance: [
     'finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit',
     'finance.approve_expense', 'finance.pay_expense',
-    'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile',
+    'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile', 'cash.manage',
     // finance.view_cogs also unlocks Restaurant Performance's profit tiles.
     'finance.view_cogs',
   ],

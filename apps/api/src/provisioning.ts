@@ -333,7 +333,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v89 Invoice matching v2: typed holds (total, missing PO/GRN, supplier, other PO, quantity, price, duplicate) reported together, match_result on the invoice, reject_supplier_invoice, supplier_invoice_history.
 //   v90 Duplicate-billing check counts only accepted (matched/approved/paid) invoices.
 //   v91 supplier_invoice_import_drafts for AI-read supplier invoices (read-only to the app; written by the API).
-const SCHEMA_VERSION = 91;
+//   v92 Cash movements (pay-in/out, bank drop, adjustment), expected cash incl. movements, day_close_preview, stricter close/reopen, closed-day lock on expenses, cash counts/movements, payments and completed orders.
+//   v93 cash.manage can read the close preview and daily closings.
+const SCHEMA_VERSION = 93;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

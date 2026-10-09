@@ -37,6 +37,7 @@ export default async function DayClosePage({ params }: { params: Promise<{ slug:
           closings={(data ?? []) as Closing[]}
           canClose={can(perms, role, 'finance.close_day')}
           canReopen={can(perms, role, 'finance.reopen_day')}
+          canManageCash={can(perms, role, 'cash.manage') || can(perms, role, 'finance.reconcile')}
         />
       )}
       {can(perms, role, 'finance.reconcile') && <CashCountPanel />}

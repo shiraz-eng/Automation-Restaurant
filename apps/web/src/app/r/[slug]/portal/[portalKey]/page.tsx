@@ -974,6 +974,7 @@ export default async function PortalHome({
                   closings={(closingsRes.data ?? []) as Closing[]}
                   canClose={has('finance.close_day')}
                   canReopen={has('finance.reopen_day')}
+                  canManageCash={hasAny(['cash.manage', 'finance.reconcile'])}
                 />
               )}
               {includeCashCount && <CashCountPanel />}
