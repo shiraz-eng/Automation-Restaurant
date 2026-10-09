@@ -159,7 +159,7 @@ export function PurchasingClient({
   payable: PayableRow[];
   canInvoice: boolean;
   canMatch: boolean;
-  /** invoices.approve or payables.manage — matches approve_supplier_invoice()'s has_perm check. */
+  /** invoices.approve — matches approve_supplier_invoice()'s has_perm check (0095). */
   canApproveInvoice?: boolean;
   canPay: boolean;
   canManagePayables: boolean;

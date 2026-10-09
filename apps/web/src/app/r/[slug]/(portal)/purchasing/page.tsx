@@ -30,7 +30,7 @@ export default async function PurchasingPage({
     canInvoice || canMatch || can(perms, role, 'invoices.view') || can(perms, role, 'invoices.approve');
   const canPay = can(perms, role, 'payables.record_payment');
   const canManagePayables = can(perms, role, 'payables.manage');
-  const canApproveInvoice = can(perms, role, 'invoices.approve') || canManagePayables;
+  const canApproveInvoice = can(perms, role, 'invoices.approve');
   const canViewPayables = can(perms, role, 'payables.view') || can(perms, role, 'finance.view');
   const canManagePO = can(perms, role, 'purchases.update');
   const canApprovePO = can(perms, role, 'purchases.approve');

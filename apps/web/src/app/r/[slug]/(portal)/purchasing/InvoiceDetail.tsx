@@ -74,7 +74,7 @@ export function InvoiceDetail({
 }: {
   invoiceId: string;
   canMatch: boolean;
-  /** invoices.approve / payables.manage — approve and reject. */
+  /** invoices.approve — approve and reject (paying is separate). */
   canApprove: boolean;
   /** payables.manage — resolve exceptions. */
   canResolve: boolean;

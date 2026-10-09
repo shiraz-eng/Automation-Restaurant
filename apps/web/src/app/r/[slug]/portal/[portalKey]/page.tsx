@@ -926,7 +926,7 @@ export default async function PortalHome({
                   slug={slug}
                   canInvoice={has('invoices.create')}
                   canMatch={has('invoices.match')}
-                  canApproveInvoice={hasAny(['invoices.approve', 'payables.manage'])}
+                  canApproveInvoice={has('invoices.approve')}
                   canPay={has('payables.record_payment')}
                   canManagePayables={has('payables.manage')}
                   canViewPayables={has('payables.view') || has('finance.view')}

@@ -100,6 +100,15 @@ begin
     else fails := fails + 1; res := res || format(E'FAIL C1 status after edit = %s\n', v_status); end if;
   exception when others then reset role; fails := fails + 1; res := res || 'FAIL C1 ' || sqlerrm || E'\n'; end;
 
+  -- ── Payer (payables.manage) cannot approve or reject: 0095 ──
+  perform set_config('request.jwt.claims', '${PAYER}', true); set local role authenticated;
+  n := 0;
+  begin perform public.approve_supplier_invoice(inv_ok); exception when insufficient_privilege then n := n + 1; end;
+  begin perform public.reject_supplier_invoice(inv_ok, 'payer rejecting'); exception when insufficient_privilege then n := n + 1; end;
+  reset role;
+  if n = 2 then res := res || E'PASS D0 the person who pays suppliers (payables.manage) cannot approve or reject invoices\n';
+  else fails := fails + 1; res := res || format(E'FAIL D0 payer was refused %s of 2\n', n); end if;
+
   -- ── Approver: invoices.approve ──
   perform set_config('request.jwt.claims', '${APPROVER}', true); set local role authenticated;
   begin
