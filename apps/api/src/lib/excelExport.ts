@@ -102,6 +102,7 @@ export const EXCEL_OPTIONAL_SHEETS = [
   'Daily Performance', 'Orders', 'Product Profitability', 'Deal Profitability', 'Promotions',
   'Purchasing', 'Accounts Payable', 'Supplier Payments', 'Supplier Performance', 'Inventory',
   'Expenses', 'Management Activity', 'AI Actions', 'Verification',
+  'Financial Ledger', 'Payables Aging', 'Cash & Day Close',
 ] as const;
 
 // Per-section export (Suppliers/Purchasing/Inventory/Orders/Expenses each
@@ -113,6 +114,7 @@ export const EXCEL_DOMAIN_SHEETS: Record<string, string[]> = {
   inventory: ['Inventory'],
   orders: ['Orders', 'Product Profitability', 'Deal Profitability'],
   expenses: ['Expenses'],
+  finance: ['Financial Ledger', 'Payables Aging', 'Cash & Day Close', 'Accounts Payable', 'Supplier Payments', 'Expenses'],
 };
 
 export async function buildExcelWorkbook(
@@ -710,6 +712,142 @@ export async function buildExcelWorkbook(
       else if (cell.value === 'FAIL') cell.font = { color: { argb: 'FFDC2626' }, bold: true };
       else if (cell.value === 'REVIEW') cell.font = { color: { argb: 'FFD97706' }, bold: true };
     });
+  }
+
+  // ── Finance sheets (Phase G): the ledger, payables aging, cash & close ──
+  const [ledgerRes, agingRes, closingsRes, movementsRes] = await Promise.all([
+    admin
+      .from('financial_events')
+      .select('business_date, occurred_at, category, event_type, signed_cents, payment_method, source_table, details')
+      .gte('business_date', fromDate)
+      .lte('business_date', toDate)
+      .order('occurred_at', { ascending: true })
+      .limit(5000),
+    admin.rpc('payables_aging'),
+    admin
+      .from('daily_closings')
+      .select('business_date, status, opening_cash_cents, expected_cash_cents, closing_cash_cents, difference_cents, cash_movements_cents, net_sales_cents, order_count, note')
+      .gte('business_date', fromDate)
+      .lte('business_date', toDate)
+      .order('business_date'),
+    admin
+      .from('cash_movements')
+      .select('business_date, created_at, kind, signed_cents, reason, reference')
+      .gte('business_date', fromDate)
+      .lte('business_date', toDate)
+      .order('created_at'),
+  ]);
+
+  const ledgerSheet = wb.addWorksheet('Financial Ledger');
+  addTable(
+    ledgerSheet,
+    [
+      { header: 'Business date', key: 'date', width: 13 },
+      { header: 'Time', key: 'time', width: 18 },
+      { header: 'Category', key: 'category', width: 12 },
+      { header: 'Event', key: 'event', width: 26 },
+      { header: 'Amount', key: 'amount', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Method', key: 'method', width: 13 },
+      { header: 'Source', key: 'source', width: 18 },
+      { header: 'Detail', key: 'detail', width: 40 },
+    ],
+    ((ledgerRes.data ?? []) as {
+      business_date: string; occurred_at: string; category: string; event_type: string; signed_cents: number;
+      payment_method: string | null; source_table: string; details: Record<string, unknown> | null;
+    }[]).map((e) => ({
+      date: e.business_date,
+      time: new Date(e.occurred_at).toISOString().replace('T', ' ').slice(0, 16),
+      category: e.category,
+      event: e.event_type,
+      amount: centsToDollars(Number(e.signed_cents)),
+      method: e.payment_method ?? '',
+      source: e.source_table,
+      detail: [e.details?.order_number && `order #${e.details.order_number}`, e.details?.invoice_number, e.details?.category,
+        e.details?.reason, e.details?.description].filter(Boolean).join(' · '),
+    })),
+    'No financial events in this period.',
+  );
+
+  const agingSheet = wb.addWorksheet('Payables Aging');
+  addTable(
+    agingSheet,
+    [
+      { header: 'Supplier', key: 'supplier', width: 24 },
+      { header: 'Invoices', key: 'invoices', width: 10 },
+      { header: 'Not yet due', key: 'current', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: '1-30 days', key: 'd30', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: '31-60 days', key: 'd60', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: '61-90 days', key: 'd90', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: '90+ days', key: 'd90p', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Total owed', key: 'total', width: 13, style: { numFmt: MONEY_FMT } },
+    ],
+    ((agingRes.data ?? []) as {
+      supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number; d31_60_cents: number;
+      d61_90_cents: number; d90_plus_cents: number; total_cents: number;
+    }[]).map((r) => ({
+      supplier: r.supplier_name,
+      invoices: r.invoices,
+      current: centsToDollars(Number(r.current_cents)),
+      d30: centsToDollars(Number(r.d1_30_cents)),
+      d60: centsToDollars(Number(r.d31_60_cents)),
+      d90: centsToDollars(Number(r.d61_90_cents)),
+      d90p: centsToDollars(Number(r.d90_plus_cents)),
+      total: centsToDollars(Number(r.total_cents)),
+    })),
+    'Nothing owed to suppliers.',
+  );
+
+  const cashSheet = wb.addWorksheet('Cash & Day Close');
+  addTable(
+    cashSheet,
+    [
+      { header: 'Business date', key: 'date', width: 13 },
+      { header: 'Status', key: 'status', width: 10 },
+      { header: 'Opening float', key: 'opening', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Movements', key: 'movements', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Expected cash', key: 'expected', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Counted cash', key: 'counted', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Difference', key: 'difference', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Net sales', key: 'net', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Orders', key: 'orders', width: 8 },
+      { header: 'Note', key: 'note', width: 36 },
+    ],
+    ((closingsRes.data ?? []) as {
+      business_date: string; status: string; opening_cash_cents: number; expected_cash_cents: number | null;
+      closing_cash_cents: number | null; difference_cents: number | null; cash_movements_cents: number;
+      net_sales_cents: number; order_count: number; note: string | null;
+    }[]).map((c) => ({
+      date: c.business_date,
+      status: c.status,
+      opening: centsToDollars(c.opening_cash_cents),
+      movements: centsToDollars(c.cash_movements_cents ?? 0),
+      expected: c.expected_cash_cents == null ? null : centsToDollars(c.expected_cash_cents),
+      counted: c.closing_cash_cents == null ? null : centsToDollars(c.closing_cash_cents),
+      difference: c.difference_cents == null ? null : centsToDollars(c.difference_cents),
+      net: centsToDollars(c.net_sales_cents),
+      orders: c.order_count,
+      note: c.note ?? '',
+    })),
+    'No days closed in this period.',
+  );
+  const movements = (movementsRes.data ?? []) as {
+    business_date: string; created_at: string; kind: string; signed_cents: number; reason: string; reference: string | null;
+  }[];
+  if (movements.length) {
+    cashSheet.addRow([]);
+    cashSheet.addRow(['Cash movements']).font = { bold: true };
+    cashSheet.addRow(['Business date', 'Time', 'Type', 'Amount', 'Reason', 'Reference']).font = { bold: true };
+    for (const m of movements) {
+      const row = cashSheet.addRow([
+        m.business_date,
+        new Date(m.created_at).toISOString().replace('T', ' ').slice(0, 16),
+        m.kind.replace('_', ' '),
+        centsToDollars(m.signed_cents),
+        m.reason,
+        m.reference ?? '',
+      ]);
+      row.getCell(4).numFmt = MONEY_FMT;
+    }
   }
 
   if (includeSheets && includeSheets.length > 0) {

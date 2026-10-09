@@ -64,6 +64,8 @@ const NAV_GROUPS: [string, NavItem[]][] = [
   [
     'Finance',
     [
+      ['finance', 'Finance overview', 'finance.view', false, 'accounting.finance'],
+      ['finance/ledger', 'Ledger', 'finance.view', false, 'accounting.finance'],
       ['expenses', 'Expenses', 'finance.view', false, 'accounting.finance'],
       ['billing', 'Billing', 'settings.view', true],
     ],

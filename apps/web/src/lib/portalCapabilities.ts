@@ -33,6 +33,8 @@ export type PortalCapabilities = {
   paymentReconcile: boolean;
   /** CashCountPanel (finance.reconcile). */
   cashCount: boolean;
+  /** LedgerAdjustmentForm — post_ledger_adjustment() (finance.adjust_ledger). */
+  ledgerAdjust: boolean;
   /** Restaurant Performance (the Dashboard's PerformancePanel +
    *  RestaurantIntelligencePanel) at the top of the Finance section, for a
    *  finance portal that doesn't also have the Analytics section. Its sales
@@ -116,6 +118,7 @@ export function resolvePortalCapabilities(permissions: string[]): PortalCapabili
     dayClose: hasAny(['finance.view', 'finance.close_day', 'cash.manage']),
     paymentReconcile: has('payments.reconcile'),
     cashCount: has('finance.reconcile'),
+    ledgerAdjust: has('finance.adjust_ledger'),
     // AnalyticsSection reuses the Dashboard's own PerformancePanel verbatim.
     // Its aggregate reports (sales_by_day/revenue_by_category/payment_mix/
     // feedback_summary) accept orders.view, analytics.view or any finance
@@ -167,7 +170,7 @@ export function portalSections(caps: PortalCapabilities): PortalSection[] {
       (caps.recipes || caps.ingredientCosts) && { id: 'recipes', label: 'Recipes & Food Cost' },
       caps.inventory && { id: 'inventory', label: 'Inventory' },
       (caps.suppliers || caps.purchasing) && { id: 'suppliers', label: 'Suppliers & Purchasing' },
-      (caps.finance || caps.dayClose || caps.paymentReconcile || caps.cashCount || caps.financePerformance) && { id: 'finance', label: 'Finance' },
+      (caps.finance || caps.dayClose || caps.paymentReconcile || caps.cashCount || caps.ledgerAdjust || caps.financePerformance) && { id: 'finance', label: 'Finance' },
       caps.analytics && { id: 'analytics', label: 'Restaurant Performance' },
       caps.reportHistory && { id: 'reports', label: 'Report History' },
       caps.reviews && { id: 'reviews', label: 'Reviews' },
@@ -221,7 +224,7 @@ export const SECTION_PERMISSION_KEYS: Record<string, string[]> = {
   finance: [
     'finance.view', 'finance.create_expense', 'finance.update_expense', 'finance.delete_expense', 'finance.view_profit',
     'finance.approve_expense', 'finance.pay_expense',
-    'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile', 'cash.manage',
+    'finance.close_day', 'finance.reopen_day', 'finance.reconcile', 'payments.reconcile', 'cash.manage', 'finance.adjust_ledger',
     // finance.view_cogs also unlocks Restaurant Performance's profit tiles.
     'finance.view_cogs',
   ],

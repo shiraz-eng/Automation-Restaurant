@@ -3500,7 +3500,7 @@ export const AI_ACTIONS: AiAction[] = [
       type: 'object',
       properties: {
         ...INTELLIGENCE_PERIOD_SCHEMA,
-        domain: { type: 'string', enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses'], description: 'Default complete (the full report).' },
+        domain: { type: 'string', enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses', 'finance'], description: 'Default complete (the full report).' },
       },
     },
     async describe(admin, args) {
@@ -3536,7 +3536,7 @@ export const AI_ACTIONS: AiAction[] = [
         },
         domain: {
           type: 'string',
-          enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses'],
+          enum: ['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses', 'finance'],
           description: 'Optional shortcut instead of naming sheets — a preset sheet list for that one section. Ignored if sheets is given explicitly. Default complete (the full workbook).',
         },
       },

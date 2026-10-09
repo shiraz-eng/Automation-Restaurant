@@ -54,6 +54,7 @@ import { AttendanceInsights } from '../../(portal)/scheduling/AttendanceInsights
 import { ReviewsManager } from '../../(portal)/reviews/ReviewsManager';
 import { ExceptionsPanel } from '../../(portal)/exceptions/ExceptionsPanel';
 import { ApprovalsPanel } from '../../(portal)/approvals/ApprovalsPanel';
+import { LedgerAdjustmentForm } from '../../(portal)/finance/ledger/LedgerAdjustmentForm';
 import { BrandKitSection } from '../../(portal)/settings/theme/BrandKitSection';
 import { fetchPortalTheme } from '@/lib/theme';
 import { PoliciesManager } from '../../(portal)/settings/policies/PoliciesManager';
@@ -161,6 +162,7 @@ export default async function PortalHome({
     ingredientCosts: includeIngredientCosts,
     paymentReconcile: includePaymentReconcile,
     cashCount: includeCashCount,
+    ledgerAdjust: includeLedgerAdjust,
     attendanceInsights: includeAttendanceInsights,
     aiApprovals: includeAiApprovals,
     variants: includeVariants,
@@ -940,7 +942,7 @@ export default async function PortalHome({
             </section>
           )}
 
-          {(canFinance || includeDayClose || includePaymentReconcile || includeCashCount || includeFinancePerformance) && (
+          {(canFinance || includeDayClose || includePaymentReconcile || includeCashCount || includeLedgerAdjust || includeFinancePerformance) && (
             <section id="finance" className="scroll-mt-16 space-y-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                 <h2 className="font-bold text-sm">Finance</h2>
@@ -978,6 +980,7 @@ export default async function PortalHome({
                 />
               )}
               {includeCashCount && <CashCountPanel />}
+              {includeLedgerAdjust && <LedgerAdjustmentForm defaultDate={new Date().toISOString().slice(0, 10)} />}
               {includePaymentReconcile && <PaymentReconciliationPanel />}
             </section>
           )}

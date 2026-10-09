@@ -221,6 +221,7 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
   inventory: ['inventory'],
   orders: ['products', 'deals', 'promotions'],
   expenses: ['sales_trend', 'expenses'],
+  finance: ['sales_trend', 'expenses', 'supplier_payments', 'purchasing'],
 };
 const DOMAIN_REPORT_TITLES: Record<string, string> = {
   suppliers: 'Supplier Payments Report',
@@ -228,6 +229,7 @@ const DOMAIN_REPORT_TITLES: Record<string, string> = {
   inventory: 'Inventory Report',
   orders: 'Orders Report',
   expenses: 'Financial Profit & Expenses Report',
+  finance: 'Finance Report — Profit & Loss, Expenses and Payables',
 };
 
 /**
@@ -278,11 +280,11 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
   y += 8;
 
   // ── Executive / Financial summary ─────────────────────────────────────
-  if (!isDomainReport || opts?.domain === 'expenses') {
+  if (!isDomainReport || opts?.domain === 'expenses' || opts?.domain === 'finance') {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11.5);
     doc.setTextColor(...BODY);
-    doc.text(opts?.domain === 'expenses' ? 'Financial Performance Summary' : 'Executive Summary', MARGIN, y);
+    doc.text(opts?.domain === 'expenses' || opts?.domain === 'finance' ? 'Financial Performance Summary' : 'Executive Summary', MARGIN, y);
     y += 3;
 
     const summaryRows: [string, string][] = [
@@ -312,7 +314,7 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
   }
 
   // ── Profit & Loss waterfall ──────────────────────────────────────────
-  if (data.profitDetail && (!isDomainReport || opts?.domain === 'expenses')) {
+  if (data.profitDetail && (!isDomainReport || opts?.domain === 'expenses' || opts?.domain === 'finance')) {
     const pd = data.profitDetail;
     y = ensureSpace(doc, y, 60);
     doc.setFont('helvetica', 'bold');

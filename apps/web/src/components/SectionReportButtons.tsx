@@ -5,7 +5,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export type ReportDomain = 'suppliers' | 'purchasing' | 'inventory' | 'orders' | 'expenses';
+export type ReportDomain = 'suppliers' | 'purchasing' | 'inventory' | 'orders' | 'expenses' | 'finance';
 export type SectionPeriod = 'today' | 'this_week' | 'this_month' | 'this_year' | 'last_year';
 type CustomRange = { from: string; to: string };
 
