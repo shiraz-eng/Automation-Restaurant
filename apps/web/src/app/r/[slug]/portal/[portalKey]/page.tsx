@@ -921,6 +921,7 @@ export default async function PortalHome({
                   holds={(purchHoldsRes.data ?? []) as unknown as Hold[]}
                   payable={(purchPayableRes.data ?? []) as unknown as PayableRow[]}
                   creditNotes={(purchCreditRes.data ?? []) as unknown as CreditNote[]}
+                  slug={slug}
                   canInvoice={has('invoices.create')}
                   canMatch={has('invoices.match')}
                   canApproveInvoice={hasAny(['invoices.approve', 'payables.manage'])}

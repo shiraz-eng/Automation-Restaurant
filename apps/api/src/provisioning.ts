@@ -332,7 +332,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v88 Expense approvers/payers can read the expenses they act on.
 //   v89 Invoice matching v2: typed holds (total, missing PO/GRN, supplier, other PO, quantity, price, duplicate) reported together, match_result on the invoice, reject_supplier_invoice, supplier_invoice_history.
 //   v90 Duplicate-billing check counts only accepted (matched/approved/paid) invoices.
-const SCHEMA_VERSION = 90;
+//   v91 supplier_invoice_import_drafts for AI-read supplier invoices (read-only to the app; written by the API).
+const SCHEMA_VERSION = 91;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

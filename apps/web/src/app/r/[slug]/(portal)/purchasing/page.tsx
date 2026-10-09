@@ -116,6 +116,7 @@ export default async function PurchasingPage({
           canDeletePO={can(perms, role, 'purchases.delete')}
           canViewInvoices={canViewInvoices}
           creditNotes={(creditRes.data ?? []) as unknown as CreditNote[]}
+          slug={slug}
         />
       )}
     </div>

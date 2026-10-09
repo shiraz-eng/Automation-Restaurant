@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { SmartImportPanel } from './SmartImportPanel';
 
 // Backend classification categories — same domains, snake_case to match apps/api/src/lib/importClassifier.ts.
-type Category = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplier_prices' | 'purchase_orders' | 'staff';
+type Category = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplier_prices' | 'purchase_orders' | 'staff' | 'supplier_invoice';
 
 /**
  * Entry point for AI-driven management actions that don't fit the chat's
@@ -29,6 +29,8 @@ export function AiAssistantPanel({
   canImportSupplierPrices,
   canImportPurchaseOrders,
   canImportStaff,
+  canImportSupplierInvoices = false,
+  canMatchInvoices = false,
 }: {
   slug: string;
   canImportMenu: boolean;
@@ -39,6 +41,9 @@ export function AiAssistantPanel({
   canImportSupplierPrices: boolean;
   canImportPurchaseOrders: boolean;
   canImportStaff: boolean;
+  /** invoices.create — read a supplier's invoice with AI. */
+  canImportSupplierInvoices?: boolean;
+  canMatchInvoices?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -51,11 +56,13 @@ export function AiAssistantPanel({
     canImportSupplierPrices && 'supplier_prices',
     canImportPurchaseOrders && 'purchase_orders',
     canImportStaff && 'staff',
+    canImportSupplierInvoices && 'supplier_invoice',
   ].filter((c): c is Category => c !== false);
 
   if (available.length === 0) return null;
 
-  if (open) return <SmartImportPanel slug={slug} onClose={() => setOpen(false)} available={available} />;
+  if (open)
+    return <SmartImportPanel slug={slug} onClose={() => setOpen(false)} available={available} canMatchInvoices={canMatchInvoices} />;
 
   return (
     <button

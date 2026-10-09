@@ -10,11 +10,12 @@ import { SupplierImportPanel } from './SupplierImportPanel';
 import { SupplierPriceImportPanel } from './SupplierPriceImportPanel';
 import { PoImportPanel } from './PoImportPanel';
 import { StaffImportPanel } from './StaffImportPanel';
+import { SupplierInvoiceImportPanel } from './SupplierInvoiceImportPanel';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const MAX_BYTES = 10 * 1024 * 1024;
 
-type Category = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplier_prices' | 'purchase_orders' | 'staff' | 'unknown';
+type Category = 'menu' | 'inventory' | 'recipes' | 'tables' | 'suppliers' | 'supplier_prices' | 'purchase_orders' | 'staff' | 'supplier_invoice' | 'unknown';
 
 const LABELS: Record<Category, string> = {
   menu: 'Menu',
@@ -25,6 +26,7 @@ const LABELS: Record<Category, string> = {
   supplier_prices: 'Supplier Prices',
   purchase_orders: 'Purchase Orders',
   staff: 'Staff',
+  supplier_invoice: 'Supplier Invoice',
   unknown: "I'm not sure",
 };
 
@@ -42,12 +44,15 @@ export function SmartImportPanel({
   slug,
   onClose,
   available,
+  canMatchInvoices = false,
 }: {
   slug: string;
   onClose: () => void;
   /** Which domains this caller is actually allowed to use — an override
    *  can only offer (and classification can only route to) one of these. */
   available: Category[];
+  /** invoices.match — the supplier-invoice panel offers to run the match. */
+  canMatchInvoices?: boolean;
 }) {
   const supabase = usePortalSupabase();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,8 +74,13 @@ export function SmartImportPanel({
   async function handleFile(f: File) {
     setError(null);
     const lower = f.name.toLowerCase();
-    if (!lower.endsWith('.csv') && !lower.endsWith('.txt') && !lower.endsWith('.pdf')) {
-      setError('Only CSV, plain text, or PDF files are supported right now.');
+    const isImage = /\.(jpe?g|png|webp)$/.test(lower);
+    if (!lower.endsWith('.csv') && !lower.endsWith('.txt') && !lower.endsWith('.pdf') && !isImage) {
+      setError('Upload a PDF, CSV or text file — or a photo (JPG, PNG, WebP) of a supplier invoice.');
+      return;
+    }
+    if (isImage && !available.includes('supplier_invoice')) {
+      setError('Photos can only be read as supplier invoices. Upload a PDF, CSV or text file instead.');
       return;
     }
     if (f.size > MAX_BYTES) {
@@ -146,6 +156,8 @@ export function SmartImportPanel({
         return <PoImportPanel {...props} />;
       case 'staff':
         return <StaffImportPanel {...props} />;
+      case 'supplier_invoice':
+        return <SupplierInvoiceImportPanel {...props} canMatch={canMatchInvoices} />;
     }
   }
 
@@ -170,7 +182,7 @@ export function SmartImportPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.txt,text/csv,text/plain,application/pdf"
+            accept={`.csv,.txt,text/csv,text/plain,application/pdf${available.includes('supplier_invoice') ? ',.jpg,.jpeg,.png,.webp' : ''}`}
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

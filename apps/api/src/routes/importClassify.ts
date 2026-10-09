@@ -2,7 +2,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { z } from 'zod';
 import { requirePortalPerm } from '../middleware/portalAuth';
 import { isAllowedOrigin, aiEnabled, env } from '../env';
-import { extractPdfText, extractPlainText, extractionDetail } from '../lib/aiDocumentEngine';
+import { extractDocumentText, extractionDetail } from '../lib/aiDocumentEngine';
 import { classifyImportDocument } from '../lib/importClassifier';
 
 /**
@@ -30,9 +30,6 @@ importClassifyRouter.use((req: Request, res: Response, next: NextFunction) => {
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const bodySchema = z.object({ slug: z.string().min(1), storagePath: z.string().min(1), filename: z.string().min(1).max(200) });
-function isPdf(filename: string): boolean {
-  return filename.toLowerCase().endsWith('.pdf');
-}
 
 importClassifyRouter.post('/classify-import', express.json(), requirePortalPerm('ai.view'), async (req: Request, res: Response) => {
   if (!aiEnabled) {
@@ -50,7 +47,7 @@ importClassifyRouter.post('/classify-import', express.json(), requirePortalPerm(
 
   let rawText: string;
   try {
-    rawText = isPdf(filename) ? await extractPdfText(buffer) : extractPlainText(buffer);
+    rawText = await extractDocumentText(buffer, filename);
   } catch (err) {
     console.error('[classify-import] extraction failed:', err);
     return res.status(422).json({ error: 'file_extraction_failed', message: `Could not read this file (${extractionDetail(err)}).`, detail: extractionDetail(err) });

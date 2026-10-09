@@ -24,6 +24,7 @@ export const IMPORT_CATEGORIES = [
   'supplier_prices',
   'purchase_orders',
   'staff',
+  'supplier_invoice',
   'unknown',
 ] as const;
 export type ImportCategory = (typeof IMPORT_CATEGORIES)[number];
@@ -43,12 +44,13 @@ The categories are:
 - "supplier_prices": a specific supplier's price list — items priced by that one supplier, possibly with purchase units/MOQ/lead time.
 - "purchase_orders": an order/restock request — a supplier name plus a list of items and quantities to order.
 - "staff": a staff roster — people's names, emails, and roles.
+- "supplier_invoice": a bill/invoice a supplier sent for goods already delivered — an invoice number, invoice date, the restaurant as the customer, billed lines with quantities and prices, tax and an amount due. (A price list with no invoice number or amount due is "supplier_prices"; a request to order goods is "purchase_orders".)
 - "unknown": genuinely doesn't fit any of the above, or you cannot tell.
 
 If a document could plausibly fit more than one category, pick the SINGLE category that best matches its primary, dominant content — do not pick "unknown" just because it also has a secondary detail from another category.
 
 Respond with ONLY a single JSON object matching exactly this shape, no other text, no markdown fences:
-{"category":"menu"|"inventory"|"recipes"|"tables"|"suppliers"|"supplier_prices"|"purchase_orders"|"staff"|"unknown","reasoning":string}`;
+{"category":"menu"|"inventory"|"recipes"|"tables"|"suppliers"|"supplier_prices"|"purchase_orders"|"staff"|"supplier_invoice"|"unknown","reasoning":string}`;
 
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',

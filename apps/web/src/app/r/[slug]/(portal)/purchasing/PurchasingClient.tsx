@@ -6,6 +6,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { InvoiceDetail } from './InvoiceDetail';
+import { SupplierInvoiceImportPanel } from '../ai/SupplierInvoiceImportPanel';
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; unit: string; name: string };
@@ -148,6 +149,7 @@ export function PurchasingClient({
   canDeletePO = false,
   canViewInvoices = canInvoice || canMatch,
   creditNotes = [],
+  slug,
 }: {
   suppliers: Supplier[];
   items: Item[];
@@ -176,6 +178,8 @@ export function PurchasingClient({
   canViewInvoices?: boolean;
   /** Recent supplier credit notes (payables.view / payables.manage). */
   creditNotes?: CreditNote[];
+  /** Restaurant slug — enables "Read an invoice with AI" (needs the AI API). */
+  slug?: string;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -313,6 +317,7 @@ export function PurchasingClient({
   const [invDiscount, setInvDiscount] = useState('');
   const [invFile, setInvFile] = useState<File | null>(null);
   const [openInvoice, setOpenInvoice] = useState<string | null>(null);
+  const [aiInvoiceOpen, setAiInvoiceOpen] = useState(false);
 
   const [cnSupplier, setCnSupplier] = useState('');
   const [cnInvoice, setCnInvoice] = useState('');
@@ -806,7 +811,19 @@ export function PurchasingClient({
       {/* Supplier invoices */}
       {(canInvoice || canMatch || canViewInvoices) && (
         <section>
-          <h2 className="font-bold text-sm mb-3">Supplier invoices</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="font-bold text-sm">Supplier invoices</h2>
+            {canInvoice && slug && !aiInvoiceOpen && (
+              <Button variant="ghost" onClick={() => setAiInvoiceOpen(true)}>
+                ✨ Read an invoice with AI
+              </Button>
+            )}
+          </div>
+          {canInvoice && slug && aiInvoiceOpen && (
+            <div className="mb-3">
+              <SupplierInvoiceImportPanel slug={slug} canMatch={canMatch} onClose={() => setAiInvoiceOpen(false)} />
+            </div>
+          )}
           {canInvoice && (
           <Card className="mb-3">
             <form onSubmit={createInvoice} className="space-y-3">
