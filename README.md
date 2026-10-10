@@ -187,6 +187,13 @@ the only protection. **The AI never approves or pays anything.**
 Operating profit = net sales − food cost − approved expenses dated in the
 period.
 
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/finance-overview.jpg" alt="Finance overview"><br><b>Finance overview</b>: net sales, food cost, gross and operating profit, payments received, money owed, food cost % against target, what needs attention, month by month</td>
+    <td width="50%"><img src="docs/screenshots/ledger.jpg" alt="Ledger"><br><b>Ledger</b>: every money event with its business day and a link to its source; totals per category; corrections only, never edits</td>
+  </tr>
+</table>
+
 ## Multi-branch
 
 A restaurant on the Enterprise plan (`branches.multi`) can run several
@@ -235,6 +242,20 @@ close, shifts and attendance.
 - In the API, a branch-limited login acts with its own token, so every
   database rule applies to it. An owner viewing one branch gets a service
   client that filters branch tables itself.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/branches.jpg" alt="Branches"><br><b>Branches</b>: each location with its code and status, the branch selector in the menu, and which branches each login may use</td>
+    <td width="50%"><img src="docs/screenshots/branch-comparison.jpg" alt="Branch comparison"><br><b>Branch comparison</b>: orders, sales, food cost, profit, money owed, low stock and day close per branch, adding up to the restaurant total</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/dashboard-branches.jpg" alt="Dashboard branches panel"><br><b>Dashboard</b>: with All branches selected, this month branch by branch</td>
+    <td><img src="docs/screenshots/branch-stock-transfer.jpg" alt="Branch stock and transfer"><br><b>Inventory at one branch</b>: that branch's stock, and sending stock to another branch</td>
+  </tr>
+</table>
+
+Screenshots: the BBQ Tonight test restaurant. The DHA and Clifton branches hold
+demo orders (`apps/api/scripts/seed-demo-branches.ts`).
 
 Not per branch yet: priority allocation pools, and each branch's timezone and
 currency (saved, but the restaurant's own are used, so consolidated totals
