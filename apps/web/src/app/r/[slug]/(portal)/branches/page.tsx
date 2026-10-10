@@ -25,7 +25,8 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
       .select('id, code, name, address, city, country, timezone, currency_code, phone, opening_hours, status, status_reason, is_default, created_at')
       .order('is_default', { ascending: false })
       .order('name'),
-    canManage ? t.client.from('portals').select('id, name, status, branch_ids').order('name') : Promise.resolve({ data: [] }),
+    // Not the Super Admin portal: it holds every permission, so it always sees every branch.
+    canManage ? t.client.from('portals').select('id, name, status, branch_ids').neq('type', 'super_admin').order('name') : Promise.resolve({ data: [] }),
     loadBranchContext(t.client),
     canPrice ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name') : Promise.resolve({ data: [] }),
     canPrice ? t.client.from('branch_menu_overrides').select('branch_id, menu_item_id, variant_id, price_cents, is_available') : Promise.resolve({ data: [] }),
