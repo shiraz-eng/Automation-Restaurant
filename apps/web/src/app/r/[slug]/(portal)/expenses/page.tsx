@@ -7,6 +7,8 @@ import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { ExpensesManager, type ExpenseSupplier } from './ExpensesManager';
 import { EXPENSE_SELECT, type Expense } from './expenseShared';
+import { FinancePeriodBar } from '@/components/FinancePeriodBar';
+import { addDays, rangeLabel, resolveFinancePeriod, todayIn, zonedDayStart } from '@/lib/financePeriod';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Finance' };
@@ -50,53 +52,34 @@ export default async function ExpensesPage({
   const canApprove = can(perms, role, 'finance.approve_expense');
   const canPay = can(perms, role, 'finance.pay_expense');
 
-  const today = new Date();
-  const formatYmd = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-  const activePeriod =
-    sParams?.period === '2_months'
-      ? '2_months'
-      : sParams?.period === 'custom' && sParams?.from && sParams?.to
-        ? 'custom'
-        : '1_month';
-
-  let fromDate: Date;
-  let toDate: Date = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-  let fromStr: string;
-  let toStr: string = formatYmd(today);
-  let periodLabel = 'Last 30 Days (1 Month)';
-
-  if (activePeriod === '2_months') {
-    fromDate = new Date(today.getTime() - 60 * 86400_000);
-    fromDate.setHours(0, 0, 0, 0);
-    fromStr = formatYmd(fromDate);
-    periodLabel = 'Last 60 Days (2 Months)';
-  } else if (activePeriod === 'custom' && sParams.from && sParams.to) {
-    fromStr = sParams.from;
-    toStr = sParams.to;
-    fromDate = new Date(`${sParams.from}T00:00:00`);
-    toDate = new Date(`${sParams.to}T23:59:59`);
-    periodLabel = `${sParams.from} to ${sParams.to}`;
-  } else {
-    // 1 Month (last 30 days)
-    fromDate = new Date(today.getTime() - 30 * 86400_000);
-    fromDate.setHours(0, 0, 0, 0);
-    fromStr = formatYmd(fromDate);
-    periodLabel = 'Last 30 Days (1 Month)';
-  }
+  const { data: tzRow } = await t.client.from('business_settings').select('timezone').eq('id', true).maybeSingle();
+  const tz = tzRow?.timezone ?? 'UTC';
+  // Old links used ?period=1_month / 2_months.
+  const legacy = sParams.period === '1_month' ? { period: '30d' } : sParams.period === '2_months' ? { period: 'custom', from: addDays(todayIn(tz), -59), to: todayIn(tz) } : sParams;
+  const range = resolveFinancePeriod(legacy, tz, '30d');
+  const fromStr = range.from;
+  const toStr = range.to;
+  // Day boundaries in the restaurant's own time zone.
+  const fromDate = zonedDayStart(fromStr, tz);
+  const toDate = new Date(zonedDayStart(addDays(toStr, 1), tz).getTime() - 1);
+  const periodLabel = range.label === rangeLabel(fromStr, toStr) ? range.label : `${range.label} (${rangeLabel(fromStr, toStr)})`;
 
   const [
     { data: expenses, error },
     profitRes,
     dailySalesRes,
     { data: suppliers },
+    { data: openRows },
   ] = await Promise.all([
+    // Only expenses dated in the chosen period — the list, charts and PDF all follow it.
     t.client
       .from('expenses')
       .select(EXPENSE_SELECT)
+      .gte('expense_date', fromStr)
+      .lte('expense_date', toStr)
       .order('expense_date', { ascending: false })
-      .limit(500),
+      .order('created_at', { ascending: false })
+      .limit(2000),
     canViewProfit
       ? t.client.rpc('period_profitability', { p_from: fromDate.toISOString(), p_to: toDate.toISOString() })
       : Promise.resolve({ data: null }),
@@ -104,7 +87,16 @@ export default async function ExpensesPage({
     canWrite
       ? t.client.from('suppliers').select('id, name').eq('is_active', true).order('name')
       : Promise.resolve({ data: null }),
+    // Waiting for approval / payment, whatever their date — the banner must not lose old ones.
+    t.client.from('expenses').select('status, amount_cents').in('status', ['submitted', 'approved']).limit(5000),
   ]);
+  const open = ((openRows ?? []) as { status: string; amount_cents: number }[]);
+  const openSummary = {
+    awaiting: open.filter((r) => r.status === 'submitted').length,
+    awaitingCents: open.filter((r) => r.status === 'submitted').reduce((n, r) => n + Number(r.amount_cents), 0),
+    unpaid: open.filter((r) => r.status === 'approved').length,
+    unpaidCents: open.filter((r) => r.status === 'approved').reduce((n, r) => n + Number(r.amount_cents), 0),
+  };
 
   const profit = ((profitRes.data as ProfitRow[] | null) ?? [])[0] ?? null;
   const dailySales = (dailySalesRes.data as Array<{ business_date: string; net_sales_cents: number; gross_sales_cents: number; discount_cents: number; refunded_cents: number; orders_count: number }> | null) ?? [];
@@ -129,7 +121,16 @@ export default async function ExpensesPage({
           expenses={(expenses as Expense[] | null) ?? []}
           profit={profit}
           dailySales={dailySales}
-          activePeriod={activePeriod}
+          periodBar={
+            <FinancePeriodBar
+              basePath={`/r/${slug}/expenses`}
+              period={range.period}
+              from={fromStr}
+              to={toStr}
+              compareLabel={`Showing ${rangeLabel(fromStr, toStr)}`}
+            />
+          }
+          openSummary={openSummary}
           periodFromIso={fromDate.toISOString()}
           periodToIso={toDate.toISOString()}
           fromStr={fromStr}

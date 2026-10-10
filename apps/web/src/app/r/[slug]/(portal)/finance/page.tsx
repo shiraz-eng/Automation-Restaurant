@@ -8,7 +8,8 @@ import { getTenantEntitlement } from '@/lib/entitlements';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { formatCents } from '@/lib/format';
-import { resolveFinancePeriod, PERIOD_LABELS, todayIn } from '@/lib/financePeriod';
+import { resolveFinancePeriod, rangeLabel, monthsInRange, monthLabel, monthEnd, todayIn } from '@/lib/financePeriod';
+import { FinancePeriodBar } from '@/components/FinancePeriodBar';
 import { FoodCostTarget } from './FoodCostTarget';
 
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,20 @@ export default async function FinanceOverviewPage({
     t.client.from('daily_closings').select('business_date').eq('status', 'closed').gte('business_date', twoWeeksAgo),
   ]);
 
+  // Month by month, when the period covers more than one month (latest 24 months at most).
+  const months = monthsInRange(range.from, range.to).slice(-24);
+  const monthly =
+    months.length > 1
+      ? await Promise.all(
+          months.map(async (ym) => {
+            const mFrom = `${ym}-01` < range.from ? range.from : `${ym}-01`;
+            const mTo = monthEnd(`${ym}-01`) > range.to ? range.to : monthEnd(`${ym}-01`);
+            const { data } = await t.client.rpc('ledger_summary', { p_from: mFrom, p_to: mTo });
+            return { ym, from: mFrom, to: mTo, ...bucket((data as SummaryRow[] | null) ?? []) };
+          }),
+        )
+      : [];
+
   const now = bucket((cur.data as SummaryRow[] | null) ?? []);
   const before = bucket((prev.data as SummaryRow[] | null) ?? []);
   const targetPct = (settings?.food_cost_target_bps ?? 3000) / 100;
@@ -132,20 +147,13 @@ export default async function FinanceOverviewPage({
         <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="finance" label="Finance" />
       </div>
 
-      <nav className="flex flex-wrap gap-1.5 text-xs">
-        {(Object.keys(PERIOD_LABELS) as (keyof typeof PERIOD_LABELS)[]).map((p) => (
-          <Link
-            key={p}
-            href={`${base}/finance?period=${p}`}
-            className={`rounded-full border px-3 py-1 ${range.period === p ? 'border-primary bg-primary text-primary-fg' : 'border-border'}`}
-          >
-            {PERIOD_LABELS[p]}
-          </Link>
-        ))}
-        <span className="self-center text-muted ml-1">
-          {range.from === range.to ? range.from : `${range.from} → ${range.to}`} · vs {range.prevFrom} → {range.prevTo}
-        </span>
-      </nav>
+      <FinancePeriodBar
+        basePath={`${base}/finance`}
+        period={range.period}
+        from={range.from}
+        to={range.to}
+        compareLabel={`${rangeLabel(range.from, range.to)} · vs ${rangeLabel(range.prevFrom, range.prevTo)}`}
+      />
 
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Kpi label="Net sales" cents={now.revenue} prev={before.revenue} href={ledger('revenue')} />
@@ -206,6 +214,47 @@ export default async function FinanceOverviewPage({
           </Link>
         ))}
       </section>
+
+      {monthly.length > 1 && (
+        <section>
+          <h2 className="font-bold text-sm mb-2">Month by month</h2>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-left text-xs">
+              <thead className="text-muted border-b border-border">
+                <tr>
+                  <th className="p-2.5 font-semibold">Month</th>
+                  <th className="p-2.5 font-semibold text-right">Net sales</th>
+                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost</th>}
+                  {canCogs && <th className="p-2.5 font-semibold text-right">Gross profit</th>}
+                  <th className="p-2.5 font-semibold text-right">Expenses</th>
+                  {canCogs && <th className="p-2.5 font-semibold text-right">Operating profit</th>}
+                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost %</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {[...monthly].reverse().map((m) => (
+                  <tr key={m.ym} className="border-b border-border/60 last:border-0">
+                    <td className="p-2.5 font-semibold">
+                      <Link href={`${base}/finance?period=custom&from=${m.from}&to=${m.to}`} className="hover:underline">
+                        {monthLabel(m.ym)}
+                      </Link>
+                    </td>
+                    <Money c={m.revenue} />
+                    {canCogs && <Money c={m.cogs} />}
+                    {canCogs && <Money c={m.gross} />}
+                    <Money c={m.expenses} />
+                    {canCogs && <Money c={m.operating} bold />}
+                    {canCogs && (
+                      <td className="p-2.5 text-right font-mono">{m.revenue > 0 ? `${Math.round((m.cogs / m.revenue) * 1000) / 10}%` : '—'}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1 text-[11px] text-muted">Newest month first. Click a month to open it.</p>
+        </section>
+      )}
 
       {canPayables && (
         <section>

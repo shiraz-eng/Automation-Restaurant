@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
@@ -7,7 +8,8 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { formatCents, formatDateTime } from '@/lib/format';
-import { resolveFinancePeriod, PERIOD_LABELS } from '@/lib/financePeriod';
+import { resolveFinancePeriod, monthLabel } from '@/lib/financePeriod';
+import { FinancePeriodBar } from '@/components/FinancePeriodBar';
 import { LedgerAdjustmentForm } from './LedgerAdjustmentForm';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +52,10 @@ type LedgerEvent = {
 };
 type SummaryRow = { category: string; net_cents: number; increase_cents: number; decrease_cents: number; events: number };
 
+const LIMIT = 1000;
+const SORTS = [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['largest', 'Largest amount'], ['smallest', 'Smallest amount']] as const;
+type SortKey = (typeof SORTS)[number][0];
+
 const humanise = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
 export default async function LedgerPage({
@@ -57,7 +63,7 @@ export default async function LedgerPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ period?: string; from?: string; to?: string; category?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; category?: string; sort?: string }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
@@ -74,21 +80,32 @@ export default async function LedgerPage({
 
   const { data: settings } = await t.client.from('business_settings').select('timezone').maybeSingle();
   // A link with from/to (e.g. from the Finance overview) is a custom range.
-  const range = resolveFinancePeriod(sp.from && sp.to && !sp.period ? { ...sp, period: 'custom' } : sp, settings?.timezone ?? 'UTC');
+  const range = resolveFinancePeriod(sp, settings?.timezone ?? 'UTC');
+  const sort = SORTS.some(([k]) => k === sp.sort) ? (sp.sort as SortKey) : 'newest';
   const category = CATEGORIES.includes(sp.category as (typeof CATEGORIES)[number]) ? (sp.category as string) : null;
 
   const [summaryRes, eventsRes] = await Promise.all([
     t.client.rpc('ledger_summary', { p_from: range.from, p_to: range.to }),
-    t.client.rpc('ledger_events', { p_from: range.from, p_to: range.to, p_category: category, p_limit: 500 }),
+    t.client.rpc('ledger_events', { p_from: range.from, p_to: range.to, p_category: category, p_limit: LIMIT }),
   ]);
   const summary = (summaryRes.data as SummaryRow[] | null) ?? [];
-  const events = (eventsRes.data as LedgerEvent[] | null) ?? [];
+  const events = ((eventsRes.data as LedgerEvent[] | null) ?? []).slice().sort((a, b) => {
+    if (sort === 'largest') return Number(b.amount_cents) - Number(a.amount_cents);
+    if (sort === 'smallest') return Number(a.amount_cents) - Number(b.amount_cents);
+    const byTime = a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.id - b.id;
+    return sort === 'oldest' ? byTime : -byTime;
+  });
+  // Month headings (with the month's net) when sorted by date across more than one month.
+  const byDate = sort === 'newest' || sort === 'oldest';
+  const monthNet = new Map<string, number>();
+  for (const e of events) monthNet.set(e.business_date.slice(0, 7), (monthNet.get(e.business_date.slice(0, 7)) ?? 0) + Number(e.signed_cents));
+  const groupByMonth = byDate && monthNet.size > 1;
   const error = summaryRes.error?.message ?? eventsRes.error?.message;
 
   const base = `/r/${slug}`;
   const href = (q: Record<string, string | null>) => {
     const p = new URLSearchParams();
-    const merged = { from: range.from, to: range.to, category, ...q };
+    const merged = { period: 'custom', from: range.from, to: range.to, category, sort: sort === 'newest' ? null : sort, ...q };
     for (const [k, v] of Object.entries(merged)) if (v) p.set(k, v);
     return `${base}/finance/ledger?${p.toString()}`;
   };
@@ -110,32 +127,13 @@ export default async function LedgerPage({
         </div>
       </div>
 
-      <form method="get" className="flex flex-wrap items-end gap-2 text-xs">
-        <div className="flex flex-wrap gap-1.5">
-          {(Object.keys(PERIOD_LABELS) as (keyof typeof PERIOD_LABELS)[]).map((p) => (
-            <Link
-              key={p}
-              href={`${base}/finance/ledger?period=${p}${category ? `&category=${category}` : ''}`}
-              className={`rounded-full border px-3 py-1 ${range.period === p ? 'border-primary bg-primary text-primary-fg' : 'border-border'}`}
-            >
-              {PERIOD_LABELS[p]}
-            </Link>
-          ))}
-        </div>
-        <label className="flex flex-col gap-0.5">
-          <span className="text-muted">From</span>
-          <input type="date" name="from" defaultValue={range.from} className="rounded border border-border bg-surface px-2 py-1" />
-        </label>
-        <label className="flex flex-col gap-0.5">
-          <span className="text-muted">To</span>
-          <input type="date" name="to" defaultValue={range.to} className="rounded border border-border bg-surface px-2 py-1" />
-        </label>
-        <input type="hidden" name="period" value="custom" />
-        {category && <input type="hidden" name="category" value={category} />}
-        <button type="submit" className="rounded border border-border px-3 py-1 font-semibold">
-          Apply
-        </button>
-      </form>
+      <FinancePeriodBar
+        basePath={`${base}/finance/ledger`}
+        period={range.period}
+        from={range.from}
+        to={range.to}
+        keep={{ category, sort: sort === 'newest' ? null : sort }}
+      />
 
       {error && <p className="rounded border border-danger/40 bg-danger/10 p-2 text-xs text-danger">Could not load the ledger: {error}</p>}
 
@@ -167,8 +165,20 @@ export default async function LedgerPage({
       <section>
         <h2 className="font-bold text-sm mb-2">
           {category ? CATEGORY_LABEL[category] : 'All entries'} · {range.label}
-          {events.length === 500 && <span className="text-muted font-normal"> (latest 500 shown — narrow the dates for more)</span>}
+          {events.length === LIMIT && <span className="text-muted font-normal"> (latest {LIMIT} shown — narrow the dates for more)</span>}
         </h2>
+        <div className="flex flex-wrap items-center gap-1.5 mb-2 text-xs">
+          <span className="text-muted">Sort:</span>
+          {SORTS.map(([k, label]) => (
+            <Link
+              key={k}
+              href={href({ sort: k === 'newest' ? null : k })}
+              className={`rounded-full border px-2.5 py-0.5 ${sort === k ? 'border-primary bg-primary text-primary-fg' : 'border-border'}`}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
         {events.length === 0 ? (
           <p className="text-xs text-muted">No ledger entries in this period.</p>
         ) : (
@@ -185,11 +195,21 @@ export default async function LedgerPage({
                 </tr>
               </thead>
               <tbody>
-                {events.map((e) => {
+                {events.map((e, i) => {
                   const path = SOURCE_PATH[e.source_table];
                   const reason = typeof e.details?.reason === 'string' ? (e.details.reason as string) : null;
+                  const ym = e.business_date.slice(0, 7);
+                  const newMonth = groupByMonth && (i === 0 || events[i - 1].business_date.slice(0, 7) !== ym);
                   return (
-                    <tr key={e.id} className="border-b border-border/60 last:border-0 align-top">
+                    <Fragment key={e.id}>
+                    {newMonth && (
+                      <tr className="bg-main/60 border-b border-border">
+                        <td colSpan={4} className="p-2 font-bold">{monthLabel(ym)}</td>
+                        <td className="p-2 text-right font-mono font-bold">{formatCents(monthNet.get(ym) ?? 0)}</td>
+                        <td className="p-2 text-muted">net for the month</td>
+                      </tr>
+                    )}
+                    <tr className="border-b border-border/60 last:border-0 align-top">
                       <td className="p-2 whitespace-nowrap text-muted">{formatDateTime(e.occurred_at)}</td>
                       <td className="p-2 whitespace-nowrap font-mono">{e.business_date}</td>
                       <td className="p-2">
@@ -217,6 +237,7 @@ export default async function LedgerPage({
                         {e.actor_role && <span className="text-muted"> · {e.actor_role}</span>}
                       </td>
                     </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>

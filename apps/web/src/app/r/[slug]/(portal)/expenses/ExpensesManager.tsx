@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 
 import { isPostedExpense, type Expense, type ExpenseStatus } from './expenseShared';
+import { monthLabel } from '@/lib/financePeriod';
 
 export type { Expense, ExpenseStatus } from './expenseShared';
 
@@ -141,7 +142,8 @@ export function ExpensesManager({
   expenses,
   profit,
   dailySales = [],
-  activePeriod = '1_month',
+  periodBar,
+  openSummary,
   periodFromIso,
   periodToIso,
   fromStr,
@@ -159,7 +161,10 @@ export function ExpensesManager({
   expenses: Expense[];
   profit: ProfitRow | null;
   dailySales?: DaySalesRow[];
-  activePeriod?: '1_month' | '2_months' | 'custom';
+  /** The shared Finance date picker (the Expenses page passes it; custom portals show a fixed period). */
+  periodBar?: React.ReactNode;
+  /** Expenses awaiting approval / payment across ALL dates (the list itself only holds the chosen period). */
+  openSummary?: { awaiting: number; awaitingCents: number; unpaid: number; unpaidCents: number };
   periodFromIso: string;
   periodToIso: string;
   fromStr?: string;
@@ -183,6 +188,7 @@ export function ExpensesManager({
   const [editId, setEditId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | ExpenseStatus>('');
+  const [sortKey, setSortKey] = useState<'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'category'>('newest');
   const [receipt, setReceipt] = useState<File | null>(null);
   const [payFor, setPayFor] = useState<Expense | null>(null);
   const [payMethod, setPayMethod] = useState('bank_transfer');
@@ -192,8 +198,6 @@ export function ExpensesManager({
 
   // Profit graph controls
   const [chartMode, setChartMode] = useState<'daily' | 'cumulative'>('daily');
-  const [customRangeFrom, setCustomRangeFrom] = useState(fromStr || '');
-  const [customRangeTo, setCustomRangeTo] = useState(toStr || '');
 
   // Client hydration flag for safe ResponsiveContainer mounting
   const [isMounted, setIsMounted] = useState(false);
@@ -433,8 +437,8 @@ export function ExpensesManager({
     const awaiting = expenses.filter((x) => x.status === 'submitted');
     const unpaid = expenses.filter((x) => x.status === 'approved');
     const sum = (xs: Expense[]) => xs.reduce((s, x) => s + x.amount_cents, 0);
-    return { awaiting: awaiting.length, awaitingCents: sum(awaiting), unpaid: unpaid.length, unpaidCents: sum(unpaid) };
-  }, [expenses]);
+    return openSummary ?? { awaiting: awaiting.length, awaitingCents: sum(awaiting), unpaid: unpaid.length, unpaidCents: sum(unpaid) };
+  }, [expenses, openSummary]);
 
   // Filtered expenses list (every status, so drafts and approvals are visible)
   const filtered = useMemo(
@@ -443,32 +447,44 @@ export function ExpensesManager({
         (ex) =>
           (!categoryFilter || ex.category === categoryFilter) &&
           (!statusFilter || (ex.status ?? 'paid') === statusFilter),
-      ),
-    [expenses, categoryFilter, statusFilter],
+      )
+      .slice()
+      .sort((a, b) => {
+        const byDate = a.expense_date < b.expense_date ? -1 : a.expense_date > b.expense_date ? 1 : 0;
+        switch (sortKey) {
+          case 'oldest':
+            return byDate;
+          case 'amount_desc':
+            return b.amount_cents - a.amount_cents || -byDate;
+          case 'amount_asc':
+            return a.amount_cents - b.amount_cents || -byDate;
+          case 'category':
+            return a.category.localeCompare(b.category) || -byDate;
+          default:
+            return -byDate;
+        }
+      }),
+    [expenses, categoryFilter, statusFilter, sortKey],
   );
+  // Month headings with each month's total, when sorted by date and the list spans several months.
+  const monthTotals = useMemo(() => {
+    const m = new Map<string, { count: number; cents: number; postedCents: number }>();
+    for (const ex of filtered) {
+      const k = ex.expense_date.slice(0, 7);
+      const cur = m.get(k) ?? { count: 0, cents: 0, postedCents: 0 };
+      cur.count += 1;
+      cur.cents += ex.amount_cents;
+      if (isPostedExpense(ex)) cur.postedCents += ex.amount_cents;
+      m.set(k, cur);
+    }
+    return m;
+  }, [filtered]);
+  const groupByMonth = (sortKey === 'newest' || sortKey === 'oldest') && monthTotals.size > 1;
   const filteredTotal = useMemo(() => filtered.reduce((s, ex) => s + ex.amount_cents, 0), [filtered]);
   const categoriesInUse = useMemo(
     () => Array.from(new Set(expenses.map((ex) => ex.category))).sort(),
     [expenses],
   );
-
-  // Period navigation
-  function switchPeriod(p: '1_month' | '2_months' | 'custom') {
-    if (!slug) return;
-    if (p === 'custom') {
-      const from = customRangeFrom || fromStr || todayLocal();
-      const to = customRangeTo || toStr || todayLocal();
-      router.push(`/r/${slug}/expenses?period=custom&from=${from}&to=${to}`);
-    } else {
-      router.push(`/r/${slug}/expenses?period=${p}`);
-    }
-  }
-
-  function applyCustomRange(e: React.FormEvent) {
-    e.preventDefault();
-    if (!slug || !customRangeFrom || !customRangeTo) return;
-    router.push(`/r/${slug}/expenses?period=custom&from=${customRangeFrom}&to=${customRangeTo}`);
-  }
 
   // Daily expenses aggregated with date normalization
   const expensesByDate = useMemo(() => {
@@ -596,64 +612,9 @@ export function ExpensesManager({
         <div className="rounded border border-danger/40 bg-danger/10 text-danger p-3 text-xs">{error}</div>
       )}
 
-      {/* Period Filter Tabs */}
+      {/* Period */}
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-border bg-main/40">
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-main border border-border/80 text-xs">
-          <button
-            onClick={() => switchPeriod('1_month')}
-            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-              activePeriod === '1_month'
-                ? 'bg-primary text-primary-fg shadow-sm'
-                : 'text-muted hover:text-body'
-            }`}
-          >
-            1 Month
-          </button>
-          <button
-            onClick={() => switchPeriod('2_months')}
-            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-              activePeriod === '2_months'
-                ? 'bg-primary text-primary-fg shadow-sm'
-                : 'text-muted hover:text-body'
-            }`}
-          >
-            2 Months
-          </button>
-          <button
-            onClick={() => switchPeriod('custom')}
-            className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-              activePeriod === 'custom'
-                ? 'bg-primary text-primary-fg shadow-sm'
-                : 'text-muted hover:text-body'
-            }`}
-          >
-            Custom Date
-          </button>
-        </div>
-
-        {activePeriod === 'custom' && (
-          <form onSubmit={applyCustomRange} className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-muted">From:</span>
-            <input
-              type="date"
-              value={customRangeFrom}
-              onChange={(e) => setCustomRangeFrom(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs"
-              required
-            />
-            <span className="text-muted">To:</span>
-            <input
-              type="date"
-              value={customRangeTo}
-              onChange={(e) => setCustomRangeTo(e.target.value)}
-              className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs"
-              required
-            />
-            <Button type="submit" variant="primary" className="py-1 px-3 text-xs h-auto">
-              Apply
-            </Button>
-          </form>
-        )}
+        {periodBar}
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="text-xs text-muted font-medium">
@@ -1189,6 +1150,19 @@ export function ExpensesManager({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <h2 className="font-bold text-sm">All Recorded Expenses</h2>
           <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted">Sort:</span>
+            <select
+              id="expense-sort"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+              className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs"
+            >
+              <option value="newest">Date: newest first</option>
+              <option value="oldest">Date: oldest first</option>
+              <option value="amount_desc">Amount: high to low</option>
+              <option value="amount_asc">Amount: low to high</option>
+              <option value="category">Category A–Z</option>
+            </select>
             <span className="text-muted">Filter:</span>
             <select
               value={statusFilter}
@@ -1238,11 +1212,24 @@ export function ExpensesManager({
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((ex) => {
+                  filtered.map((ex, i) => {
                     const st: ExpenseStatus = ex.status ?? 'paid';
                     const editable = st === 'draft' || st === 'submitted' || st === 'rejected';
+                    const ym = ex.expense_date.slice(0, 7);
+                    const mt = monthTotals.get(ym);
+                    const newMonth = groupByMonth && (i === 0 || filtered[i - 1].expense_date.slice(0, 7) !== ym);
                     return (
-                      <tr key={ex.id} className="border-b border-border/60 last:border-0 align-top">
+                      <Fragment key={ex.id}>
+                      {newMonth && mt && (
+                        <tr className="bg-main/60 border-b border-border">
+                          <td colSpan={4} className="p-2.5 font-bold">
+                            {monthLabel(ym)} <span className="font-normal text-muted">· {mt.count} expense{mt.count === 1 ? '' : 's'}</span>
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold">{formatCents(mt.postedCents)}</td>
+                          <td className="p-2.5 text-[10px] text-muted">approved / paid{mt.cents !== mt.postedCents ? ` · ${formatCents(mt.cents)} incl. pending` : ''}</td>
+                        </tr>
+                      )}
+                      <tr className="border-b border-border/60 last:border-0 align-top">
                         <td className="p-3 text-muted whitespace-nowrap">{ex.expense_date}</td>
                         <td className="p-3 font-semibold">{ex.category}</td>
                         <td className="p-3 text-muted">
@@ -1337,6 +1324,7 @@ export function ExpensesManager({
                           )}
                         </td>
                       </tr>
+                      </Fragment>
                     );
                   })
                 )}
