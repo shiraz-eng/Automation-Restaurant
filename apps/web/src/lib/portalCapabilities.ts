@@ -79,7 +79,7 @@ export type PortalCapabilities = {
   reviews: boolean;
   /** ExceptionsPanel — GET /api/ai/attention accepts notifications.*. */
   notifications: boolean;
-  /** BrandKitSection + PoliciesManager. */
+  /** BrandKitSection + Currency, Tax and Refund approvals settings. */
   settings: boolean;
   /** PortalsManager — delegated Portal Management. */
   portals: boolean;

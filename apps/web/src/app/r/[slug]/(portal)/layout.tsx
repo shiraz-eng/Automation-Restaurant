@@ -91,7 +91,9 @@ const NAV_GROUPS: [string, NavItem[]][] = [
     'Settings',
     [
       ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
-      ['settings/policies', 'Policies', 'settings.view', true],
+      ['settings/currency', 'Currency', 'settings.view', true],
+      ['settings/tax', 'Tax', 'settings.view', true],
+      ['settings/refunds', 'Refund approvals', 'settings.view', true],
     ],
   ],
 ];

@@ -14,7 +14,7 @@ import { formatCents } from '@/lib/format';
  * database check, so a direct RPC call is held to the same rule as the
  * Checkout page's own refund button.
  */
-export function PoliciesManager({
+export function RefundApprovalSettings({
   slug,
   maxRefundWithoutApprovalCents,
   canEdit,

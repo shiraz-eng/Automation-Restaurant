@@ -350,7 +350,7 @@ To give someone a screen to work on, create a **Portal** for them (**Portals →
   {
     keys: ['How do refunds and discounts work at checkout?', 'Refunds and discounts'],
     answer: `- **Discount** — on an open bill, click **Discount** and enter an amount and reason.
-- **Refund** — on a payment, click **refund**, then enter the amount and a reason. Refunds above your restaurant's limit (set under **Settings → Policies**) need someone with refund approval.
+- **Refund** — on a payment, click **refund**, then enter the amount and a reason. Refunds above your restaurant's limit (set under **Settings → Refund approvals**) need someone with refund approval.
 - **Void** — cancels a payment that hasn't been refunded.
 
 Each is logged with who did it. Give these permissions only to people who need them.

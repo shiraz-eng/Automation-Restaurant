@@ -58,7 +58,9 @@ import { ApprovalsPanel } from '../../(portal)/approvals/ApprovalsPanel';
 import { LedgerAdjustmentForm } from '../../(portal)/finance/ledger/LedgerAdjustmentForm';
 import { BrandKitSection } from '../../(portal)/settings/theme/BrandKitSection';
 import { fetchPortalTheme } from '@/lib/theme';
-import { PoliciesManager } from '../../(portal)/settings/policies/PoliciesManager';
+import { RefundApprovalSettings } from '../../(portal)/settings/refunds/RefundApprovalSettings';
+import { CurrencySettings } from '../../(portal)/settings/currency/CurrencySettings';
+import { TaxSettings } from '../../(portal)/settings/tax/TaxSettings';
 import {
   PortalsManager,
   type Portal as ManagedPortal,
@@ -562,7 +564,7 @@ export default async function PortalHome({
       ? t.client.from('permission_catalog').select('key, grp, label, type, risk_level').order('grp')
       : Promise.resolve({ data: null }),
     includeSettings
-      ? t.client.from('business_settings').select('max_refund_without_approval_cents').eq('id', true).maybeSingle()
+      ? t.client.from('business_settings').select('max_refund_without_approval_cents, currency_code, tax_enabled, tax_rate_bps').eq('id', true).maybeSingle()
       : Promise.resolve({ data: null }),
     includeAttendanceInsights && viewer
       ? t.client.from('memberships').select('id').eq('user_id', viewer.id).maybeSingle()
@@ -1120,7 +1122,16 @@ export default async function PortalHome({
           {includeSettings && (
             <section id="settings" className="scroll-mt-16 space-y-6">
               <h2 className="font-bold text-sm mb-3">Settings</h2>
-              <PoliciesManager
+              <CurrencySettings
+                currency={(policiesRes.data as { currency_code?: string | null } | null)?.currency_code ?? 'USD'}
+                canEdit={has('settings.update')}
+              />
+              <TaxSettings
+                taxEnabled={(policiesRes.data as { tax_enabled?: boolean | null } | null)?.tax_enabled ?? true}
+                taxRateBps={(policiesRes.data as { tax_rate_bps?: number | null } | null)?.tax_rate_bps ?? 800}
+                canEdit={has('settings.update')}
+              />
+              <RefundApprovalSettings
                 slug={slug}
                 maxRefundWithoutApprovalCents={
                   (policiesRes.data as { max_refund_without_approval_cents?: number | null } | null)

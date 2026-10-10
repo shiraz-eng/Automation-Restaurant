@@ -1,47 +1,8 @@
-import { notFound } from 'next/navigation';
-import { createTenantServerClient } from '@/lib/supabase/tenant-server';
-import { gatePortalPage, can } from '@/lib/permissions';
-import { PoliciesManager } from './PoliciesManager';
-import { TaxSettings } from './TaxSettings';
-import { CurrencySettings } from './CurrencySettings';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-
+// "Policies" was split into Settings → Currency, Tax and Refund approvals.
+// Old bookmarks land on Currency.
 export default async function PoliciesPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const t = await createTenantServerClient(slug);
-  if (!t) notFound();
-
-  const { role, perms } = await gatePortalPage(t.client, slug, 'settings.view', { ownerOnly: true });
-  const canEdit = can(perms, role, 'settings.update');
-
-  const { data, error } = await t.client
-    .from('business_settings')
-    .select('max_refund_without_approval_cents, tax_enabled, tax_rate_bps, currency_code')
-    .eq('id', true)
-    .maybeSingle();
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-xl font-black">Policies</h1>
-        <p className="text-muted text-xs mt-1">
-          Currency, tax and approval rules — enforced by the database itself, not just by which buttons a screen shows.
-        </p>
-      </div>
-      {error ? (
-        <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">{error.message}</div>
-      ) : (
-        <>
-          <CurrencySettings currency={data?.currency_code ?? 'USD'} canEdit={canEdit} />
-          <TaxSettings taxEnabled={data?.tax_enabled ?? true} taxRateBps={data?.tax_rate_bps ?? 800} canEdit={canEdit} />
-          <PoliciesManager
-            slug={slug}
-            maxRefundWithoutApprovalCents={data?.max_refund_without_approval_cents ?? null}
-            canEdit={canEdit}
-          />
-        </>
-      )}
-    </div>
-  );
+  redirect(`/r/${slug}/settings/currency`);
 }
