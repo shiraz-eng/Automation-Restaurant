@@ -344,7 +344,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v100 branch_summary(): every branch side by side from the same ledger (orders, sales, COGS, expenses, low stock, payables, day close, cash difference).
 //   v101 Stock per branch: branch_stock (inventory_items.stock_qty = total), per-branch availability and low stock, PO receiving into its branch, transfer_stock(), branch_stock_levels().
 //   v102 Branch menu: branch_menu_overrides (own price / switched off per branch), set_branch_menu_override(), place_order charges the branch price.
-const SCHEMA_VERSION = 102;
+//   v103 Deals follow the branch menu: a deal line cannot carry a dish (or size) its order's branch switched off.
+const SCHEMA_VERSION = 103;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -219,8 +219,14 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   // variant is no longer available (mirrors the modifier-option cleaning
   // above), then drop any group left with zero selectable options — a
   // required group with nothing to pick would strand the customer.
+  // A dish (or size) this branch switched off is not sold inside a deal either (0103): drop
+  // a deal whose fixed parts include one, and drop such choices from its option groups.
+  const switchedOff = (itemId: unknown, variantId: unknown) =>
+    (overrides.get(`${itemId}:${variantId ?? ''}`) ?? overrides.get(`${itemId}:`))?.is_available === false;
   const cleanedDeals = (deals ?? [])
     .filter((d: Record<string, unknown>) => !liveDealIds || liveDealIds.has(d.id as string))
+    .filter((d: Record<string, unknown>) =>
+      !((d.deal_components as Array<Record<string, unknown>>) ?? []).some((c) => switchedOff(c.menu_item_id, c.variant_id)))
     .map((d: Record<string, unknown>) => ({
     ...d,
     deal_option_groups: ((d.deal_option_groups as Array<Record<string, unknown>>) ?? [])
@@ -228,6 +234,7 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
         ...g,
         deal_option_items: ((g.deal_option_items as Array<Record<string, unknown>>) ?? [])
           .filter((oi) => {
+            if (switchedOff(oi.menu_item_id, oi.variant_id)) return false;
             const variant = one(oi.menu_variants as Record<string, unknown> | Record<string, unknown>[] | null);
             const item = one(oi.menu_items as Record<string, unknown> | Record<string, unknown>[] | null);
             if (oi.variant_id) {

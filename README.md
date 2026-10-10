@@ -187,6 +187,59 @@ the only protection. **The AI never approves or pays anything.**
 Operating profit = net sales − food cost − approved expenses dated in the
 period.
 
+## Multi-branch
+
+A restaurant on the Enterprise plan (`branches.multi`) can run several
+locations from one account. The restaurant is the organization; each location
+is a **branch** in the same database. A restaurant with one location keeps
+working exactly as before: everything it already has belongs to its default
+branch, `MAIN`.
+
+**Shared by every branch:** the menu, recipes, deals, suppliers, staff and
+settings.
+
+**Owned by one branch:** orders and their payments, tables and QR codes,
+reservations, stock levels and stock movements, low-stock alerts, purchase
+orders and supplier invoices, expenses, cash counts and movements, the day
+close, shifts and attendance.
+
+| Task | Where | Permission |
+| --- | --- | --- |
+| Add, edit, deactivate or archive a branch; set the default | Branches | `branches.manage` |
+| Limit a portal or a staff member to some branches | Branches → Which branches each login may use | `branches.manage` |
+| Give a branch its own price for a dish, or switch a dish off there | Branches → Menu prices by branch | `menu.update` or `branches.manage` |
+| Move stock from one branch to another | Inventory (with a branch selected) | `stock.update` |
+| See every branch side by side | Finance → Branch comparison, and the dashboard | `finance.view` |
+
+- **Branch selector.** It sits in the portal menu. It shows one branch or All branches, and only lists the
+  branches the login may use. Choosing All is for viewing: a new order, a
+  stock count or a day close always needs one branch selected.
+- **Guest orders.** A table's QR code carries its branch (`/order/<slug>?table=…&b=DHA`).
+  The guest sees that branch's prices and dishes, and the order is placed in it.
+- **Stock.** `inventory_items.stock_qty` is the total across branches;
+  `branch_stock` holds each branch's level. Sales, waste, counts and deliveries
+  change only their own branch. A transfer is two stock movements with one
+  transfer reference.
+- **Day close.** Each branch closes its own day and counts its own cash.
+- **Consolidation.** `branch_summary(from, to)` reads the same ledger as the
+  Finance pages. Branch rows add up exactly to the restaurant's totals, so
+  nothing is counted twice. Entries that belong to the whole restaurant are
+  listed on their own.
+
+**Who can see a branch is enforced in the database.**
+- A `branch_wall` row-security policy sits on every branch table.
+- Reporting functions read branch-scoped views.
+- Triggers refuse to move a row into a branch the login may not use.
+- The selected branch travels as the `x-branch-ids` request header. It can
+  only narrow what a login sees, never widen it.
+- In the API, a branch-limited login acts with its own token, so every
+  database rule applies to it. An owner viewing one branch gets a service
+  client that filters branch tables itself.
+
+Not per branch yet: priority allocation pools, and each branch's timezone and
+currency (saved, but the restaurant's own are used, so consolidated totals
+stay in one currency and one business day).
+
 ## Architecture
 
 ```
@@ -230,6 +283,7 @@ period.
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
 | `/r/<slug>/finance`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
+| `/r/<slug>/branches`, `/r/<slug>/finance/branches` | Manage branches; compare branches (Enterprise) |
 | `/r/<slug>/portal/<portalKey>` | A custom portal, composed from its permissions |
 | `/order/<slug>?table=…` | Guest ordering, tracking and feedback |
 | `/admin` | Platform super-admin |
@@ -272,7 +326,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **95**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **103**).
 
 Roll it out to every live restaurant:
 
@@ -313,6 +367,13 @@ It covers the security hardening, ledger, expense workflow, invoice matching,
 day close and finance overview suites, a full fictional restaurant day
 (`test-finance-scenario.ts`) and cross-restaurant isolation against the live
 API (`test-tenant-isolation.ts`).
+
+Multi-branch: `test-branches.ts <project_ref>` (isolation, permissions, plan
+limit, per-branch day close, stock, transfers, receiving, branch prices, deals,
+consolidation) and `test-branch-fetch.ts` (the owner's branch filter). Any
+database suite can rehearse a migration that is not applied yet: set
+`PRE_SQL=<file.sql>`, or pass `--with-migration <file.sql>` to
+`test-branches.ts`. The migration runs inside the same rolled-back transaction.
 
 ## Known limitations
 

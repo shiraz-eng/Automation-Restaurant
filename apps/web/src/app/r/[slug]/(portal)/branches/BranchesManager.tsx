@@ -23,7 +23,8 @@ export type ManagedBranch = {
   is_default: boolean;
   created_at: string;
 };
-export type BranchLogin = { id: string; name: string; status: string; branch_ids: string[] | null };
+/** A portal login or a staff member (memberships); both can be limited to branches. */
+export type BranchLogin = { id: string; name: string; status: string; branch_ids: string[] | null; kind: 'portal' | 'member'; detail?: string };
 
 const TIMEZONES = ['Asia/Karachi', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Qatar', 'Asia/Kolkata', 'Asia/Dhaka', 'Europe/London', 'America/New_York', 'UTC'];
 const EMPTY = { code: '', name: '', address: '', city: '', country: '', timezone: '', currency_code: '', phone: '', hours: '' };
@@ -338,6 +339,9 @@ export function BranchesManager({
                     <tr key={l.id} className="border-b border-border/60 last:border-0">
                       <td className="p-2.5 font-semibold">
                         {l.name}
+                        <span className="ml-1.5 rounded bg-main px-1.5 py-0.5 text-[10px] font-normal text-muted">
+                          {l.kind === 'member' ? (l.detail ?? 'staff') : 'portal'}
+                        </span>
                         <span className="ml-1.5 font-normal text-muted">{ids.length === 0 ? 'all branches' : `${ids.length} branch${ids.length === 1 ? '' : 'es'}`}</span>
                       </td>
                       {branches.filter((b) => b.status !== 'archived').map((b) => (
@@ -357,7 +361,7 @@ export function BranchesManager({
                           <Button
                             disabled={busy}
                             onClick={() =>
-                              void run(() => supabase.rpc('set_login_branches', { p_kind: 'portal', p_id: l.id, p_branch_ids: ids }), `${l.name} updated.`).then(
+                              void run(() => supabase.rpc('set_login_branches', { p_kind: l.kind, p_id: l.id, p_branch_ids: ids }), `${l.name} updated.`).then(
                                 (ok) => ok && setLoginEdits((m) => { const n = { ...m }; delete n[l.id]; return n; }),
                               )
                             }

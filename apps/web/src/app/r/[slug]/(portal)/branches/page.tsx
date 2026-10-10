@@ -19,7 +19,7 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
   const canManage = can(perms, role, 'branches.manage');
   const canPrice = canManage || can(perms, role, 'menu.update');
 
-  const [branchesRes, portalsRes, ctx, menuRes, overridesRes] = await Promise.all([
+  const [branchesRes, portalsRes, ctx, menuRes, overridesRes, membersRes] = await Promise.all([
     t.client
       .from('branches')
       .select('id, code, name, address, city, country, timezone, currency_code, phone, opening_hours, status, status_reason, is_default, created_at')
@@ -29,7 +29,17 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
     loadBranchContext(t.client),
     canPrice ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name') : Promise.resolve({ data: [] }),
     canPrice ? t.client.from('branch_menu_overrides').select('branch_id, menu_item_id, variant_id, price_cents, is_available') : Promise.resolve({ data: [] }),
+    // Staff logins (not the owner, who always sees every branch).
+    canManage
+      ? t.client.from('memberships').select('id, full_name, email, role, status, branch_ids').neq('role', 'owner').order('full_name')
+      : Promise.resolve({ data: [] }),
   ]);
+  const logins: BranchLogin[] = [
+    ...((portalsRes.data ?? []) as Omit<BranchLogin, 'kind'>[]).map((p) => ({ ...p, kind: 'portal' as const })),
+    ...((membersRes.data ?? []) as { id: string; full_name: string | null; email: string; role: string; status: string; branch_ids: string[] | null }[]).map(
+      (m) => ({ id: m.id, name: m.full_name || m.email, status: m.status, branch_ids: m.branch_ids, kind: 'member' as const, detail: m.role }),
+    ),
+  ];
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -49,7 +59,7 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
         <BranchesManager
           slug={slug}
           branches={(branchesRes.data ?? []) as ManagedBranch[]}
-          logins={((portalsRes.data ?? []) as BranchLogin[])}
+          logins={logins}
           canManage={canManage}
           multiEntitled={ent.isEntitled('branches.multi')}
           currentBranchId={ctx.selectedId}

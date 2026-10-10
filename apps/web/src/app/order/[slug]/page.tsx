@@ -41,6 +41,18 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
 
   try {
     const client = createClient(config.url, config.anonKey);
+    // Multi-branch: the same branch prices, switched-off dishes and branch availability as
+    // the Express route. No code (or before migration 0098) = the main branch.
+    let branchId: string | null = null;
+    if (branchCode) {
+      const { data: b } = await client.from('branches').select('id').eq('code', branchCode).eq('status', 'active').maybeSingle();
+      branchId = (b as { id: string } | null)?.id ?? null;
+    }
+    const { data: overrideRows } = branchId
+      ? await client.from('branch_menu_overrides').select('menu_item_id, variant_id, price_cents, is_available').eq('branch_id', branchId)
+      : { data: [] };
+    type Override = { menu_item_id: string; variant_id: string | null; price_cents: number | null; is_available: boolean | null };
+    const overrides = new Map(((overrideRows ?? []) as Override[]).map((o) => [`${o.menu_item_id}:${o.variant_id ?? ''}`, o]));
     const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }, liveDeals] =
       await Promise.all([
         client.from('menu_categories').select('id, name, sort_order').order('sort_order'),
@@ -53,7 +65,7 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
         client.rpc('get_brand_kit'),
         // The backend's authoritative availability (guest-readable) — the
         // same rows the Express route reduces to computed_available.
-        client.from('product_availability').select('menu_item_id, variant_id, status'),
+        client.from('product_availability').select('menu_item_id, variant_id, status').setHeader('x-branch-ids', branchId ?? ''),
         // Deals sellable right now on the customer menu — same rule as the
         // Express route and place_order (tenant-migrations/0064).
         client.rpc('live_deal_ids', { p_sales_channel: 'customer_portal' }),
@@ -69,15 +81,21 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
     type AvailRow = { menu_item_id: string; variant_id: string | null; status: string };
     const availRows = (availabilityRows ?? []) as AvailRow[];
     const computedAvailable = (rows: AvailRow[]) => rows.length === 0 || !rows.every((r) => r.status === 'unavailable');
-    const cleanedItems = ((items ?? []) as Record<string, unknown>[]).map((it) => {
+    const cleanedItems = ((items ?? []) as Record<string, unknown>[])
+      .filter((it) => overrides.get(`${it.id}:`)?.is_available !== false)
+      .map((it) => {
       const itemRows = availRows.filter((r) => r.menu_item_id === it.id);
+      const whole = overrides.get(`${it.id}:`);
       return {
         ...it,
+        price_cents: whole?.price_cents ?? it.price_cents,
         computed_available: computedAvailable(itemRows),
         menu_variants: ((it.menu_variants as Record<string, unknown>[] | null) ?? [])
           .filter((v) => v.is_available && (!v.track_availability || ((v.available_qty as number) ?? 0) > 0))
+          .filter((v) => overrides.get(`${it.id}:${v.id}`)?.is_available !== false)
           .map((v): Record<string, unknown> => ({
             ...v,
+            price_cents: overrides.get(`${it.id}:${v.id}`)?.price_cents ?? whole?.price_cents ?? v.price_cents,
             computed_available: computedAvailable(
               itemRows.some((r) => r.variant_id === v.id)
                 ? itemRows.filter((r) => r.variant_id === v.id)
@@ -97,7 +115,11 @@ async function getMenu(slug: string, config?: { url: string; anonKey: string } |
     return {
       categories: (categories ?? []) as MenuCategory[],
       items: cleanedItems as unknown as MenuItem[],
-      deals: ((deals ?? []) as { id: string }[]).filter((d) => !liveDealIds || liveDealIds.has(d.id)) as unknown as DealLite[],
+      deals: ((deals ?? []) as { id: string; deal_components?: { menu_item_id: string | null; variant_id: string | null }[] }[])
+        .filter((d) => !liveDealIds || liveDealIds.has(d.id))
+        // A deal with a dish this branch switched off is not sold here (0103).
+        .filter((d) => !(d.deal_components ?? []).some((c) =>
+          (overrides.get(`${c.menu_item_id}:${c.variant_id ?? ''}`) ?? overrides.get(`${c.menu_item_id}:`))?.is_available === false)) as unknown as DealLite[],
       brandKit: brandKit ?? null,
     };
   } catch (err) {

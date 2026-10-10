@@ -16,6 +16,33 @@ import { getFreshConnection } from './supabaseOAuth';
  * Legacy tenants (provisioned into the platform org) still have a stored
  * service_key; those are used directly.
  */
+// Tables whose rows belong to one branch (tenant-migrations/0098). The service key skips row
+// security, so a scoped (owner viewing one branch) client adds the branch filter to direct
+// reads of these itself; RPC reports are already narrowed by the x-branch-ids header (0099).
+const BRANCH_TABLES = new Set([
+  'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+  'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+  'expenses', 'cash_counts', 'cash_movements', 'financial_events', 'shifts', 'attendance',
+]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** fetch for a scoped service client: reads of branch tables only return the given branches. */
+export function branchFilteringFetch(branchIds: string[], base: typeof fetch = fetch): typeof fetch {
+  const ids = branchIds.filter((x) => UUID_RE.test(x));
+  return (input, init) => {
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    if (ids.length && (method === 'GET' || method === 'HEAD')) {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+      const m = url.pathname.match(/\/rest\/v1\/([a-z_]+)$/);
+      if (m && BRANCH_TABLES.has(m[1]!) && !url.searchParams.has('branch_id')) {
+        url.searchParams.append('branch_id', `in.(${ids.join(',')})`);
+        return base(input instanceof Request ? new Request(url, input) : url.toString(), init);
+      }
+    }
+    return base(input, init);
+  };
+}
+
 type TenantClient = {
   admin: SupabaseClient;
   projectUrl: string;
@@ -81,7 +108,7 @@ export async function tenantServiceClient(tenantId: string): Promise<TenantClien
     scoped: (branchIds) =>
       createClient(proj.project_url, key, {
         auth: { persistSession: false, autoRefreshToken: false },
-        global: { headers: { 'x-branch-ids': branchIds.join(',') } },
+        global: { headers: { 'x-branch-ids': branchIds.join(',') }, fetch: branchFilteringFetch(branchIds) },
       }),
     asUser: (accessToken, branchIds) =>
       createClient(proj.project_url, proj.anon_key ?? key, {

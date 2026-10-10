@@ -280,6 +280,26 @@ begin
         perform public.set_branch_menu_override(b_main, v_mi, null, 1, null);
         fails := fails + 1; res := res || E'FAIL B21 a DHA login priced MAIN\x27s menu\n';
       exception when insufficient_privilege then res := res || E'PASS B21 a DHA login cannot change MAIN\x27s menu prices\n'; end;
+
+      -- ── 0103: a deal cannot carry a dish the branch switched off ──
+      if to_regprocedure('app.guard_branch_deal_line()') is not null then
+        perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+        insert into public.deals (name, price_cents) values ('QA deal', 70000) returning id into v_uuid;
+        insert into public.orders (order_number, status, subtotal_cents, total_cents, channel, branch_id)
+          values ((select coalesce(max(order_number), 0) + 1 from public.orders), 'pending', 0, 0, 'takeaway', b_main) returning id into v_uuid2;
+        insert into public.order_lines (order_id, menu_item_id, variant_id, name_snapshot, unit_price_cents, qty, line_total_cents, deal_id)
+          values (v_uuid2, v_mi, v_mv, 'QA dish', 0, 1, 0, v_uuid);
+        insert into public.orders (order_number, status, subtotal_cents, total_cents, channel, branch_id)
+          values ((select coalesce(max(order_number), 0) + 1 from public.orders), 'pending', 0, 0, 'takeaway', b_dha.id) returning id into v_uuid2;
+        begin
+          insert into public.order_lines (order_id, menu_item_id, variant_id, name_snapshot, unit_price_cents, qty, line_total_cents, deal_id)
+            values (v_uuid2, v_mi, v_mv, 'QA dish', 0, 1, 0, v_uuid);
+          fails := fails + 1; res := res || E'FAIL B23 DHA sold a switched-off dish inside a deal\n';
+        exception when check_violation then
+          if sqlerrm like 'deal_item_unavailable%' then res := res || E'PASS B23 a deal at DHA cannot include the dish DHA switched off; MAIN still sells it\n';
+          else fails := fails + 1; res := res || 'FAIL B23 ' || sqlerrm || E'\n'; end if;
+        end;
+      end if;
     end if;
 
     -- ── 0100: consolidated = sum of branches ──
