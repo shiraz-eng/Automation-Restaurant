@@ -1,9 +1,9 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { Button, Card, Select } from '@/components/ui';
+import { Button, Card, Input, Select } from '@/components/ui';
 import { formatCents, formatDateTime } from '@/lib/format';
 import { downloadReceiptPdf } from '@/lib/generateReceipt';
 import { DEFAULT_RECEIPT_CONFIG, type ReceiptConfig, type ReceiptContext } from '@/lib/receiptTemplate';
@@ -17,6 +17,18 @@ import { downloadKotTicket } from '@/lib/generateKotTicket';
 // see the Cancel button for the replacement void path.
 const EDITABLE_STATUSES = ['pending', 'in_kitchen', 'ready', 'served'] as const;
 const TERMINAL_LABEL: Record<string, string> = { paid: 'Paid', void: 'Void' };
+
+const STATUS_FILTERS: [string, string, (s: string) => boolean][] = [
+  ['all', 'All', () => true],
+  ['open', 'Open', (s) => s === 'pending' || s === 'in_kitchen' || s === 'ready'],
+  ['served', 'Served', (s) => s === 'served'],
+  ['paid', 'Paid', (s) => s === 'paid'],
+  ['void', 'Void', (s) => s === 'void'],
+];
+type SortKey = 'time' | 'number' | 'total' | 'items' | 'status';
+type SortDir = 'asc' | 'desc';
+// Kitchen-to-paid order, so sorting by status follows how far along an order is.
+const STATUS_RANK: Record<string, number> = { pending: 0, in_kitchen: 1, ready: 2, served: 3, paid: 4, void: 5 };
 
 type Line = {
   name_snapshot: string;
@@ -80,6 +92,67 @@ export function OrdersClient({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'time', dir: 'desc' });
+
+  const channels = useMemo(() => [...new Set(orders.map((o) => o.channel).filter(Boolean))].sort(), [orders]);
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const statusOk = STATUS_FILTERS.find(([k]) => k === statusFilter)?.[2] ?? (() => true);
+    const value = (o: Order): number | string => {
+      switch (sort.key) {
+        case 'number':
+          return o.order_number;
+        case 'total':
+          return o.total_cents;
+        case 'items':
+          return o.order_lines?.length ?? 0;
+        case 'status':
+          return STATUS_RANK[o.status] ?? 9;
+        default:
+          return o.created_at;
+      }
+    };
+    return orders
+      .filter((o) => statusOk(o.status))
+      .filter((o) => channelFilter === 'all' || o.channel === channelFilter)
+      .filter(
+        (o) =>
+          !q ||
+          String(o.order_number).includes(q) ||
+          (o.table_label ?? '').toLowerCase().includes(q) ||
+          (o.customer_name ?? '').toLowerCase().includes(q) ||
+          (o.order_lines ?? []).some((l) => l.name_snapshot.toLowerCase().includes(q)),
+      )
+      .sort((a, b) => {
+        const va = value(a);
+        const vb = value(b);
+        const cmp = va < vb ? -1 : va > vb ? 1 : a.order_number - b.order_number;
+        return sort.dir === 'asc' ? cmp : -cmp;
+      });
+  }, [orders, search, statusFilter, channelFilter, sort]);
+
+  function sortBy(key: SortKey) {
+    setSort((s) =>
+      s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'number' || key === 'status' ? 'asc' : 'desc' },
+    );
+  }
+  function sortHeader(key: SortKey, label: string, right = false) {
+    const active = sort.key === key;
+    return (
+      <th
+        className={`p-3 font-semibold ${right ? 'text-right' : ''}`}
+        aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button type="button" onClick={() => sortBy(key)} className={`hover:text-body ${active ? 'text-body' : ''}`}>
+          {label}
+          {active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+        </button>
+      </th>
+    );
+  }
 
   async function setStatus(id: string, status: string) {
     setSavingId(id);
@@ -207,19 +280,81 @@ export function OrdersClient({
   return (
     <Card className="p-0 overflow-hidden">
       {error && <div className="bg-danger/10 text-danger text-xs p-3">{error}</div>}
+      <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border text-xs">
+        <Input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search order #, table, customer or dish"
+          aria-label="Search orders"
+          className="w-full sm:w-64"
+        />
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
+          {STATUS_FILTERS.map(([key, label, test]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setStatusFilter(key)}
+              aria-pressed={statusFilter === key}
+              className={`rounded-full border px-2.5 py-1 ${
+                statusFilter === key ? 'border-primary bg-primary text-primary-fg' : 'border-border text-muted'
+              }`}
+            >
+              {label} <span className="opacity-70">({orders.filter((o) => test(o.status)).length})</span>
+            </button>
+          ))}
+        </div>
+        {channels.length > 1 && (
+          <Select value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)} aria-label="Filter by order type">
+            <option value="all">All order types</option>
+            {channels.map((c) => (
+              <option key={c} value={c}>
+                {c.replace('_', ' ')}
+              </option>
+            ))}
+          </Select>
+        )}
+        <Select
+          value={`${sort.key}:${sort.dir}`}
+          onChange={(e) => {
+            const [key, dir] = e.target.value.split(':') as [SortKey, SortDir];
+            setSort({ key, dir });
+          }}
+          aria-label="Sort orders"
+        >
+          <option value="time:desc">Newest first</option>
+          <option value="time:asc">Oldest first</option>
+          <option value="total:desc">Total: high to low</option>
+          <option value="total:asc">Total: low to high</option>
+          <option value="number:desc">Order #: high to low</option>
+          <option value="number:asc">Order #: low to high</option>
+          <option value="status:asc">Status: kitchen to paid</option>
+          <option value="items:desc">Most items</option>
+        </Select>
+        <span className="text-muted ml-auto">
+          {visible.length} of {orders.length}
+        </span>
+      </div>
       <table className="w-full text-left text-xs">
         <thead className="text-muted border-b border-border">
           <tr>
-            <th className="p-3 font-semibold">#</th>
+            {sortHeader('number', '#')}
             <th className="p-3 font-semibold">Where</th>
-            <th className="p-3 font-semibold">Items</th>
-            <th className="p-3 font-semibold text-right">Total</th>
-            <th className="p-3 font-semibold">Status</th>
-            <th className="p-3 font-semibold text-right">Time</th>
+            {sortHeader('items', 'Items')}
+            {sortHeader('total', 'Total', true)}
+            {sortHeader('status', 'Status')}
+            {sortHeader('time', 'Time', true)}
           </tr>
         </thead>
         <tbody>
-          {orders.map((o) => {
+          {visible.length === 0 && (
+            <tr>
+              <td colSpan={6} className="p-6 text-center text-muted">
+                No orders match these filters.
+              </td>
+            </tr>
+          )}
+          {visible.map((o) => {
             const isTerminal = o.status === 'paid' || o.status === 'void';
             return (
             <Fragment key={o.id}>

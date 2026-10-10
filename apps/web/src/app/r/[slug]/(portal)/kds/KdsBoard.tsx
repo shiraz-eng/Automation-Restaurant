@@ -6,7 +6,7 @@ import { LaneTabs } from './components/LaneTabs';
 import { StationFilter } from './components/StationFilter';
 import { KotCard } from './components/KotCard';
 import { KotInspector } from './components/KotInspector';
-import { laneOf, primaryAction, stationsForKot, type Kot, type Lane, type LineStatus, type RecipeComponentRow } from './kitchenTypes';
+import { laneOf, primaryAction, stationsForKot, type Kot, type Lane, type LaneFilter, type LineStatus, type RecipeComponentRow } from './kitchenTypes';
 import { printKotTicket } from '@/lib/generateKotTicket';
 
 const ACTIVE_STATUSES = ['pending', 'in_kitchen', 'ready'];
@@ -22,6 +22,7 @@ export function KdsBoard({
   recipeComponents,
   canEdit,
   stationRoutingEntitled,
+  initialError,
 }: {
   slug: string;
   restaurantName: string;
@@ -33,21 +34,27 @@ export function KdsBoard({
    *  no single write surface here worth a DB trigger; hiding the filter and
    *  always leaving `station` at 'all' is the whole enforcement). */
   stationRoutingEntitled: boolean;
+  /** The server-side ticket query's error, shown instead of an empty board. */
+  initialError?: string | null;
 }) {
   const supabase = usePortalSupabase();
   const [kots, setKots] = useState<Kot[]>(initial);
-  const [lane, setLane] = useState<Lane>('new');
+  // Opens on every open ticket: a kitchen whose tickets are all older than
+  // DELAY_MINUTES used to land on an empty "New" lane and see nothing.
+  const [lane, setLane] = useState<LaneFilter>('all');
+  const [loadError, setLoadError] = useState<string | null>(initialError ?? null);
   const [station, setStation] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyLine, setBusyLine] = useState<Set<string>>(new Set());
   const [, forceTick] = useState(0);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('orders')
       .select(SELECT)
       .in('status', ACTIVE_STATUSES)
       .order('created_at', { ascending: true });
+    setLoadError(error ? error.message : null);
     if (data) setKots(data as unknown as Kot[]);
   }, [supabase]);
 
@@ -72,7 +79,7 @@ export function KdsBoard({
   }, [supabase, slug, load]);
 
   const laneCounts = useMemo(() => {
-    const counts: Record<Lane, number> = { new: 0, preparing: 0, ready: 0, delayed: 0, completed: completedToday };
+    const counts: Record<LaneFilter, number> = { all: kots.length, new: 0, preparing: 0, ready: 0, delayed: 0, completed: completedToday };
     for (const k of kots) counts[laneOf(k)]++;
     return counts;
   }, [kots, completedToday]);
@@ -91,8 +98,10 @@ export function KdsBoard({
 
   const shown = useMemo(
     () =>
+      // Only open tickets are loaded, so the Completed lane shows a count, not cards.
       kots.filter((k) => {
-        if (lane !== 'completed' && laneOf(k) !== lane) return false;
+        if (lane === 'completed') return false;
+        if (lane !== 'all' && laneOf(k) !== lane) return false;
         if (station !== 'all' && !stationsForKot(k).includes(station)) return false;
         return true;
       }),
@@ -120,6 +129,9 @@ export function KdsBoard({
 
   return (
     <div className="space-y-4">
+      {loadError && (
+        <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-3 text-xs">Could not load kitchen tickets: {loadError}</div>
+      )}
       <LaneTabs counts={laneCounts} active={lane} onPick={setLane} />
       {stationRoutingEntitled && <StationFilter stations={stations} counts={stationCounts} active={station} onPick={setStation} />}
 
@@ -127,7 +139,13 @@ export function KdsBoard({
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {shown.length === 0 ? (
             <div className="col-span-full rounded-lg border border-border bg-surface p-10 text-center text-muted text-sm">
-              {lane === 'completed' ? "No orders completed yet today." : 'No tickets in this lane.'}
+              {lane === 'completed'
+                ? completedToday > 0
+                  ? `${completedToday} order${completedToday === 1 ? '' : 's'} completed today. Past tickets are in KOT History.`
+                  : 'No orders completed yet today.'
+                : lane === 'all'
+                  ? 'No open tickets. New orders appear here automatically.'
+                  : `No tickets in this lane. ${kots.length} open ticket${kots.length === 1 ? '' : 's'} in total. See All open.`}
             </div>
           ) : (
             shown.map((k) => (

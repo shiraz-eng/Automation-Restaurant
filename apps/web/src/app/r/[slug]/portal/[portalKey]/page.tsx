@@ -708,6 +708,7 @@ export default async function PortalHome({
                 slug={slug}
                 restaurantName={t.config.restaurantName}
                 initial={(kdsOrdersRes.data ?? []) as unknown as Kot[]}
+                initialError={'error' in kdsOrdersRes ? (kdsOrdersRes.error?.message ?? null) : null}
                 completedToday={kdsCompletedTodayRes.count ?? 0}
                 recipeComponents={(kdsRecipeComponentsRes.data ?? []) as unknown as RecipeComponentRow[]}
                 canEdit={has('kitchen.update_status')}

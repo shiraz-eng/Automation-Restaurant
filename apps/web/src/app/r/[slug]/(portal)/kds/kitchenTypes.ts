@@ -67,6 +67,10 @@ export const LANE_LABEL: Record<Lane, string> = {
   completed: 'Completed',
 };
 
+/** What the board can filter by: every open ticket, or one lane. */
+export type LaneFilter = 'all' | Lane;
+export const FILTER_LABEL: Record<LaneFilter, string> = { all: 'All open', ...LANE_LABEL };
+
 export function ageMinutes(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 60000;
 }

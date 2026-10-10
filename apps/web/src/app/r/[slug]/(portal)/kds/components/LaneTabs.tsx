@@ -1,9 +1,10 @@
 'use client';
 
-import { LANE_LABEL, type Lane } from '../kitchenTypes';
+import { FILTER_LABEL, type LaneFilter } from '../kitchenTypes';
 
-const ORDER: Lane[] = ['new', 'preparing', 'ready', 'delayed', 'completed'];
-const TONE: Record<Lane, string> = {
+const ORDER: LaneFilter[] = ['all', 'new', 'preparing', 'ready', 'delayed', 'completed'];
+const TONE: Record<LaneFilter, string> = {
+  all: 'text-body',
   new: 'text-body',
   preparing: 'text-warn',
   ready: 'text-ok',
@@ -11,7 +12,7 @@ const TONE: Record<Lane, string> = {
   completed: 'text-muted',
 };
 
-export function LaneTabs({ counts, active, onPick }: { counts: Record<Lane, number>; active: Lane; onPick: (l: Lane) => void }) {
+export function LaneTabs({ counts, active, onPick }: { counts: Record<LaneFilter, number>; active: LaneFilter; onPick: (l: LaneFilter) => void }) {
   return (
     <div className="flex gap-1 overflow-x-auto no-scrollbar border-b border-border">
       {ORDER.map((lane) => {
@@ -24,7 +25,7 @@ export function LaneTabs({ counts, active, onPick }: { counts: Record<Lane, numb
               isActive ? `border-primary ${TONE[lane]}` : 'border-transparent text-muted hover:text-body'
             }`}
           >
-            {LANE_LABEL[lane].toUpperCase()} <span className="tabular-nums opacity-70">({counts[lane]})</span>
+            {FILTER_LABEL[lane].toUpperCase()} <span className="tabular-nums opacity-70">({counts[lane]})</span>
           </button>
         );
       })}

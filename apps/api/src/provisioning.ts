@@ -337,7 +337,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v93 cash.manage can read the close preview and daily closings.
 //   v94 Finance overview: food-cost target, food_cost_watch(), payables_aging().
 //   v95 Only invoices.approve (or owner/manager) approves/rejects supplier invoices; payables.manage no longer does.
-const SCHEMA_VERSION = 95;
+//   v96 Low-stock reorder emails: pending_low_stock_reorders() ordered by a column that does not exist; fixed.
+const SCHEMA_VERSION = 96;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

@@ -21,7 +21,8 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
         'id, order_number, status, channel, table_label, customer_name, subtotal_cents, discount_cents, tax_cents, total_cents, refunded_cents, paid_at, created_at, order_lines(name_snapshot, variant_name_snapshot, qty, unit_price_cents, line_total_cents, kds_status, modifiers, customer_note), payments(method, amount_cents, reference, status)',
       )
       .order('created_at', { ascending: false })
-      .limit(50),
+      // The latest 200; the list sorts, filters and searches them in the browser.
+      .limit(200),
     t.client
       .from('business_settings')
       .select('restaurant_name, receipt_config, phone, address, tax_rate_bps, tax_id')

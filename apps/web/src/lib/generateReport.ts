@@ -141,6 +141,19 @@ export type ReportProfitDetail = {
   net_profit_margin_pct: number | null;
 } | null;
 
+export type ReportOrder = {
+  order_number: number;
+  created_at: string;
+  status: string;
+  channel: string;
+  table_label: string | null;
+  items: number;
+  total_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  payment_method: string | null;
+};
+
 export type ReportData = {
   restaurantName: string;
   logoUrl?: string | null;
@@ -166,6 +179,8 @@ export type ReportData = {
   inventoryReconciliation?: ReportInventory;
   inventoryItems?: ReportInventoryItem[];
   stockMovements?: ReportStockMovement[];
+  /** Every order in the period — the Orders report only. */
+  orders?: ReportOrder[];
   aiInsights?: ReportAiInsights;
   aiSummary: string | null;
   // Brand Kit's accent color ("R G B" channel string, same format
@@ -212,14 +227,14 @@ function parseChannels(channels: string | null | undefined): [number, number, nu
 // Executive Summary / Profit & Loss / AI Summary that only make sense on
 // the complete report.
 export type ReportSection =
-  | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
+  | 'orders' | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
   | 'purchasing' | 'supplier_payments' | 'deals' | 'promotions' | 'inventory'
   | 'management_activity' | 'attention_items' | 'ai_insights';
 export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
   suppliers: ['supplier_payments'],
   purchasing: ['purchasing'],
   inventory: ['inventory'],
-  orders: ['products', 'deals', 'promotions'],
+  orders: ['orders', 'products', 'deals', 'promotions'],
   expenses: ['sales_trend', 'expenses'],
   finance: ['sales_trend', 'expenses', 'supplier_payments', 'purchasing'],
 };
@@ -697,6 +712,56 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       }
     } else {
       y += 6;
+    }
+  }
+
+  // ── Orders (the Orders report) ──────────────────────────────────────────
+  if (data.orders && showSection('orders')) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Orders', MARGIN, y);
+    y += 5;
+    const counted = data.orders.filter((o) => o.status !== 'void');
+    const byStatus = data.orders.reduce<Record<string, number>>((m, o) => ((m[o.status] = (m[o.status] ?? 0) + 1), m), {});
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTED);
+    doc.text(
+      `${data.orders.length} order(s) · ${Object.entries(byStatus).map(([s, n]) => `${n} ${s.replace('_', ' ')}`).join(', ')} · ` +
+        `total ${formatCents(counted.reduce((s, o) => s + o.total_cents, 0))} (void excluded)` +
+        (counted.some((o) => o.refunded_cents) ? ` · refunded ${formatCents(counted.reduce((s, o) => s + o.refunded_cents, 0))}` : ''),
+      MARGIN,
+      y,
+      { maxWidth: PAGE_W - MARGIN * 2 },
+    );
+    y += 4;
+    if (data.orders.length === 0) {
+      doc.text('No orders in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['#', 'Time', 'Where', 'Items', 'Total', 'Discount', 'Refunded', 'Status', 'Paid by']],
+        body: data.orders.map((o) => [
+          String(o.order_number),
+          new Date(o.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+          o.table_label ?? o.channel.replace('_', ' '),
+          String(o.items),
+          formatCents(o.total_cents),
+          o.discount_cents ? formatCents(o.discount_cents) : '',
+          o.refunded_cents ? formatCents(o.refunded_cents) : '',
+          o.status.replace('_', ' '),
+          o.payment_method ?? '',
+        ]),
+        styles: { fontSize: 7.5, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 0: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
     }
   }
 

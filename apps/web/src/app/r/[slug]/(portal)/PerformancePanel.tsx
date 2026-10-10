@@ -594,10 +594,10 @@ export function PerformancePanel({
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res = await fetch(`${API}/api/ai/confirm`, {
+      const res = await fetch(`${API}/api/ai/report-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-        body: JSON.stringify({ slug, name: 'generate_report', args: customRange ? { from: customRange.from, to: customRange.to } : { period } }),
+        body: JSON.stringify({ slug, ...(customRange ? { from: customRange.from, to: customRange.to } : { period }) }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.result) {

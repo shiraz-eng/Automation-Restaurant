@@ -67,10 +67,10 @@ export function SectionReportButtons({
     setBusy('pdf');
     setError(null);
     try {
-      const res = await fetch(`${API}/api/ai/confirm`, {
+      const res = await fetch(`${API}/api/ai/report-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-        body: JSON.stringify({ slug, name: 'generate_report', args: { ...rangeArgs, domain } }),
+        body: JSON.stringify({ slug, ...rangeArgs, domain }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.result) {
@@ -80,8 +80,9 @@ export function SectionReportButtons({
       body.result.restaurantName = body.result.restaurantName || restaurantName;
       const { saveAndStoreReportPdf, REPORT_DOMAIN_SECTIONS } = await import('@/lib/generateReport');
       await saveAndStoreReportPdf(body.result, { sections: REPORT_DOMAIN_SECTIONS[domain], domain }, { supabase, auditId: body.auditId ?? null, domain });
-    } catch {
-      setError('Network error.');
+    } catch (err) {
+      console.error('[report pdf]', err);
+      setError(err instanceof TypeError ? 'Network error — check your connection and try again.' : `Could not build the ${label} PDF: ${(err as Error)?.message ?? 'unknown error'}`);
     } finally {
       setBusy(null);
     }

@@ -4,7 +4,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, buildReportData, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
+import { supabaseAdmin } from '../supabase';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
@@ -1081,6 +1082,58 @@ aiRouter.get('/pending', requirePortalPerm('ai.approve_sensitive_action'), async
  * a caller can never point this at another restaurant's data by editing
  * the query string.
  */
+/**
+ * POST /api/ai/report-pdf — the data behind a section or full PDF report.
+ * Same figures as the assistant's generate_report action (buildReportData),
+ * but with no AI involved: it needs only reports.generate, not an AI provider
+ * or the AI permissions, so the Orders / Inventory / Finance … report buttons
+ * work for any login that may generate reports. jsPDF renders it in the browser.
+ */
+const reportPdfSchema = z.object({
+  slug: z.string().min(1).max(100),
+  period: z.string().max(40).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  domain: z.enum(['complete', 'suppliers', 'purchasing', 'inventory', 'orders', 'expenses', 'finance']).optional(),
+});
+aiRouter.post('/report-pdf', express.json(), requirePortalPerm('reports.generate'), async (req: Request, res: Response) => {
+  const parsed = reportPdfSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: 'invalid_request', message: 'Choose a period or a from/to date range.' });
+  const { admin, slug, userId, email, role } = req.tenant!;
+  const { slug: _slug, ...args } = parsed.data;
+  try {
+    const built = await buildReportData(admin, args);
+    if (!built.ok) return res.status(422).json({ error: 'invalid_period', message: built.error });
+    const [{ data: tenantRow }, { data: brandKitRows }] = await Promise.all([
+      supabaseAdmin.from('tenants').select('restaurant_name').eq('slug', slug).maybeSingle(),
+      admin.rpc('get_brand_kit'),
+    ]);
+    const brandKitRow = Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows;
+    const result = {
+      ...built.data,
+      restaurantName: tenantRow?.restaurant_name || slug,
+      logoUrl: brandKitRow?.logo_url ?? null,
+      primaryColor: brandKitRow?.primary_color ?? null,
+    };
+    const { from, to } = resolvePeriod(args);
+    const auditId = await logExportAudit(admin, {
+      format: 'pdf',
+      domain: args.domain ?? 'complete',
+      periodLabel: built.data.periodLabel,
+      from,
+      to,
+      userId,
+      email,
+      role,
+      status: 'ready',
+    });
+    return res.json({ result, auditId });
+  } catch (err) {
+    console.error('[report-pdf] failed:', err);
+    return res.status(500).json({ error: 'report_failed', message: 'The report could not be built. Please try again.' });
+  }
+});
+
 aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: Request, res: Response) => {
   const { admin, slug, userId, email, role } = req.tenant!;
   const range = resolvePeriod({ period: req.query.period, from: req.query.from, to: req.query.to });

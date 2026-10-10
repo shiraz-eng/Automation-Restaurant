@@ -4437,10 +4437,25 @@ type BuiltReportData = {
   // just period-scoped here instead of capped to the latest 15.
   stockMovements?: { item_name: string; delta_qty: number; reason: string; note: string | null; created_at: string }[];
   aiInsights?: { positives: string[]; areasToReview: { area: string; evidence: string; recommendation: string }[] };
+  // Every order placed in the period — only for the Orders report (domain 'orders').
+  orders?: ReportOrderRow[];
   aiSummary: string | null;
 };
 
-async function buildReportData(
+export type ReportOrderRow = {
+  order_number: number;
+  created_at: string;
+  status: string;
+  channel: string;
+  table_label: string | null;
+  items: number;
+  total_cents: number;
+  discount_cents: number;
+  refunded_cents: number;
+  payment_method: string | null;
+};
+
+export async function buildReportData(
   admin: SupabaseClient,
   args: Record<string, unknown>,
 ): Promise<{ ok: true; data: BuiltReportData } | { ok: false; error: string }> {
@@ -4496,6 +4511,36 @@ async function buildReportData(
       .lte('created_at', to.toISOString())
       .order('created_at', { ascending: false }),
   ]);
+
+  // The Orders report lists the orders themselves (capped at 1,000).
+  let orders: ReportOrderRow[] | undefined;
+  if (args.domain === 'orders') {
+    const { data: orderRows } = await admin
+      .from('orders')
+      .select('order_number, created_at, status, channel, table_label, total_cents, discount_cents, refunded_cents, order_lines(qty), payments(method, status)')
+      .gte('created_at', from.toISOString())
+      .lte('created_at', to.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(1000);
+    type Row = {
+      order_number: number; created_at: string; status: string; channel: string; table_label: string | null;
+      total_cents: number; discount_cents: number | null; refunded_cents: number | null;
+      order_lines: { qty: number }[] | null; payments: { method: string; status: string | null }[] | null;
+    };
+    orders = ((orderRows ?? []) as unknown as Row[]).map((o) => ({
+      order_number: o.order_number,
+      created_at: o.created_at,
+      status: o.status,
+      channel: o.channel,
+      table_label: o.table_label,
+      items: (o.order_lines ?? []).reduce((n, l) => n + Number(l.qty ?? 0), 0),
+      total_cents: o.total_cents,
+      discount_cents: o.discount_cents ?? 0,
+      refunded_cents: o.refunded_cents ?? 0,
+      payment_method:
+        [...new Set((o.payments ?? []).filter((p) => p.status !== 'voided').map((p) => p.method))].join(' + ') || null,
+    }));
+  }
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
   const canSeeProfit = !profitRes.error && !!profit;
@@ -4619,6 +4664,7 @@ async function buildReportData(
       inventoryReconciliation: inventoryRecRes as BuiltReportData['inventoryReconciliation'],
       inventoryItems,
       stockMovements,
+      orders,
       aiInsights: {
         positives: (positivesRes as { highlights: string[] }).highlights,
         areasToReview: (areasRes as { areas: { area: string; evidence: string; recommendation: string }[] }).areas,
