@@ -1165,6 +1165,8 @@ aiRouter.get('/export/excel', requirePortalPerm('reports.export'), async (req: R
         to: req.query.to,
       },
       includeSheets,
+      // Only the full workbook, finance and expenses carry the restaurant-wide summary sheets.
+      Boolean(sheetsParam) || domain === 'complete' || domain === 'finance' || domain === 'expenses',
     );
     if (!built.ok) {
       await logExportAudit(admin, { format: 'excel', domain, periodLabel: range.label, from: range.from, to: range.to, sheets: includeSheets, userId, email, role, status: 'failed', error: built.error });

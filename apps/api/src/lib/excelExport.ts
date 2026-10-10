@@ -130,6 +130,8 @@ export async function buildExcelWorkbook(
   // than threading a condition through each of the 16 sheet-building
   // blocks, which stays untouched and exactly as already verified.
   includeSheets?: string[],
+  // Section exports other than finance/expenses hold ONLY their own sheets (no whole-restaurant summary).
+  withAnchors = true,
 ): Promise<{ ok: true; workbook: ExcelJS.Workbook; periodLabel: string } | { ok: false; error: string }> {
   const { from, to, label } = resolvePeriod(rangeArgs);
   const fromIso = from.toISOString();
@@ -853,7 +855,7 @@ export async function buildExcelWorkbook(
   }
 
   if (includeSheets && includeSheets.length > 0) {
-    const keep = new Set([...EXCEL_ANCHOR_SHEETS, ...includeSheets]);
+    const keep = new Set([...(withAnchors ? EXCEL_ANCHOR_SHEETS : []), ...includeSheets]);
     for (const sheet of [...wb.worksheets]) {
       if (!keep.has(sheet.name)) wb.removeWorksheet(sheet.id);
     }

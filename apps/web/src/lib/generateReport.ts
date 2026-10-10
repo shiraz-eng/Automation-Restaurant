@@ -155,6 +155,15 @@ export type ReportOrder = {
 };
 
 export type ReportMonth = { month: string; from: string; to: string; net_sales_cents: number; cogs_cents: number; expenses_cents: number };
+export type ReportLedgerCategory = { category: string; net_cents: number; increase_cents: number; decrease_cents: number; events: number };
+export type ReportDayClose = {
+  business_date: string; status: string; net_sales_cents: number; expected_cash_cents: number | null;
+  counted_cash_cents: number | null; difference_cents: number | null; cash_movements_cents: number | null; note: string | null;
+};
+export type ReportPurchaseOrder = {
+  po_number: number; supplier: string | null; status: string; created_at: string; expected_at: string | null;
+  received_at: string | null; lines: number; total_cents: number; received_cents: number;
+};
 export type ReportPayablesAging = {
   supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number;
   d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number;
@@ -190,6 +199,10 @@ export type ReportData = {
   /** Finance report: the period month by month (ledger) and supplier payables by age. */
   monthly?: ReportMonth[];
   payablesAging?: ReportPayablesAging[];
+  ledgerByCategory?: ReportLedgerCategory[];
+  dayCloses?: ReportDayClose[];
+  /** Purchasing report: every purchase order raised in the period. */
+  purchaseOrders?: ReportPurchaseOrder[];
   aiInsights?: ReportAiInsights;
   aiSummary: string | null;
   // Brand Kit's accent color ("R G B" channel string, same format
@@ -236,21 +249,19 @@ function parseChannels(channels: string | null | undefined): [number, number, nu
 // Executive Summary / Profit & Loss / AI Summary that only make sense on
 // the complete report.
 export type ReportSection =
-  | 'orders' | 'monthly' | 'payables_aging' | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
+  | 'orders' | 'monthly' | 'payables_aging' | 'ledger_categories' | 'cash_close' | 'purchase_orders' | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
   | 'purchasing' | 'supplier_payments' | 'deals' | 'promotions' | 'inventory'
   | 'management_activity' | 'attention_items' | 'ai_insights';
+// Each section report holds ONLY that section's content (the complete
+// dashboard report is the one with no domain).
 export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
-  suppliers: ['supplier_payments'],
-  purchasing: ['purchasing'],
+  suppliers: ['supplier_payments', 'payables_aging'],
+  purchasing: ['purchasing', 'purchase_orders'],
   inventory: ['inventory'],
   orders: ['orders', 'products', 'deals', 'promotions'],
   expenses: ['sales_trend', 'expenses'],
-  // The full dashboard report, plus the period month by month and payables aging.
-  finance: [
-    'monthly', 'sales_trend', 'products', 'expenses', 'revenue_mix', 'customer_experience', 'staff_attendance',
-    'purchasing', 'supplier_payments', 'payables_aging', 'deals', 'promotions', 'inventory',
-    'management_activity', 'attention_items', 'ai_insights',
-  ],
+  // Money only: the summary and P&L (always shown for finance), then ledger, months, sales, expenses, payables, cash.
+  finance: ['ledger_categories', 'monthly', 'sales_trend', 'expenses', 'supplier_payments', 'payables_aging', 'cash_close'],
 };
 const DOMAIN_REPORT_TITLES: Record<string, string> = {
   suppliers: 'Supplier Payments Report',
@@ -383,6 +394,42 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       y + 4,
     );
     y += 10;
+  }
+
+  // ── Ledger by category (Finance report) ─────────────────────────────
+  if (data.ledgerByCategory && data.ledgerByCategory.length > 0 && showSection('ledger_categories')) {
+    y = ensureSpace(doc, y, 30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Financial Ledger by Category', MARGIN, y);
+    y += 3;
+    const label: Record<string, string> = {
+      revenue: 'Sales', cogs: 'Food cost', payment: 'Customer payments', expense: 'Expenses', payable: 'Supplier payables',
+      inventory: 'Inventory value', waste: 'Waste', cash: 'Cash', close: 'Day close', purchasing: 'Purchasing', adjustment: 'Adjustments',
+    };
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      head: [['Category', 'Increases', 'Decreases', 'Net', 'Entries']],
+      body: data.ledgerByCategory.map((r) => [
+        label[r.category] ?? r.category,
+        formatCents(r.increase_cents),
+        formatCents(r.decrease_cents),
+        formatCents(r.net_cents),
+        String(r.events),
+      ]),
+      styles: { fontSize: 8.5, cellPadding: 1.5 },
+      headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text('Every money event recorded automatically in the period. Cash and day-close entries are information only.', MARGIN, y);
+    y += 8;
   }
 
   // ── Month by month (Finance report) ─────────────────────────────────
@@ -814,6 +861,76 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
         headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
         footStyles: { fillColor: [241, 245, 249], textColor: [17, 17, 17], fontStyle: 'bold' },
         columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+  }
+
+  // ── Cash & day close (Finance report) ──────────────────────────────
+  if (data.dayCloses && showSection('cash_close')) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Cash & Day Close', MARGIN, y);
+    y += 3;
+    if (data.dayCloses.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No days were closed in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      const m = (c: number | null) => (c == null ? '—' : formatCents(c));
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Day', 'Status', 'Net sales', 'Cash movements', 'Expected cash', 'Counted', 'Difference', 'Note']],
+        body: data.dayCloses.map((c) => [
+          c.business_date, c.status, formatCents(c.net_sales_cents), m(c.cash_movements_cents),
+          m(c.expected_cash_cents), m(c.counted_cash_cents), m(c.difference_cents), c.note ?? '',
+        ]),
+        styles: { fontSize: 7.5, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
+    }
+  }
+
+  // ── Purchase orders (Purchasing report) ─────────────────────────────
+  if (data.purchaseOrders && showSection('purchase_orders')) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Purchase Orders', MARGIN, y);
+    y += 3;
+    if (data.purchaseOrders.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('No purchase orders were raised in this period.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '');
+      const total = data.purchaseOrders.reduce((n, po) => n + po.total_cents, 0);
+      const received = data.purchaseOrders.reduce((n, po) => n + po.received_cents, 0);
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['PO #', 'Raised', 'Supplier', 'Lines', 'Status', 'Expected', 'Received', 'Value', 'Received value']],
+        body: data.purchaseOrders.map((po) => [
+          String(po.po_number), day(po.created_at), po.supplier ?? '—', String(po.lines), po.status.replace('_', ' '),
+          po.expected_at ?? '', day(po.received_at), formatCents(po.total_cents), formatCents(po.received_cents),
+        ]),
+        foot: [['Total', '', `${data.purchaseOrders.length} order(s)`, '', '', '', '', formatCents(total), formatCents(received)]],
+        styles: { fontSize: 7.5, cellPadding: 1.3 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        footStyles: { fillColor: [241, 245, 249], textColor: [17, 17, 17], fontStyle: 'bold' },
+        columnStyles: { 0: { halign: 'right' }, 3: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       y = (doc as any).lastAutoTable.finalY + 8;

@@ -4441,6 +4441,10 @@ type BuiltReportData = {
   orders?: ReportOrderRow[];
   // Finance report only: the period month by month, from the ledger, and what is owed by age.
   monthly?: { month: string; from: string; to: string; net_sales_cents: number; cogs_cents: number; expenses_cents: number }[];
+  ledgerByCategory?: { category: string; net_cents: number; increase_cents: number; decrease_cents: number; events: number }[];
+  dayCloses?: { business_date: string; status: string; net_sales_cents: number; expected_cash_cents: number | null; counted_cash_cents: number | null; difference_cents: number | null; cash_movements_cents: number | null; note: string | null }[];
+  // Purchasing report: every purchase order raised in the period.
+  purchaseOrders?: { po_number: number; supplier: string | null; status: string; created_at: string; expected_at: string | null; received_at: string | null; lines: number; total_cents: number; received_cents: number }[];
   payablesAging?: { supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number; d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number }[];
   aiSummary: string | null;
 };
@@ -4548,6 +4552,21 @@ export async function buildReportData(
   // The Finance report adds the period month by month (from the ledger) and payables aging.
   let monthly: BuiltReportData['monthly'];
   let payablesAging: BuiltReportData['payablesAging'];
+  if (args.domain === 'finance' || args.domain === 'suppliers') {
+    const { data: agingRows } = await admin.rpc('payables_aging');
+    payablesAging = ((agingRows ?? []) as NonNullable<BuiltReportData['payablesAging']>).map((r) => ({
+      supplier_name: r.supplier_name,
+      invoices: Number(r.invoices),
+      current_cents: Number(r.current_cents),
+      d1_30_cents: Number(r.d1_30_cents),
+      d31_60_cents: Number(r.d31_60_cents),
+      d61_90_cents: Number(r.d61_90_cents),
+      d90_plus_cents: Number(r.d90_plus_cents),
+      total_cents: Number(r.total_cents),
+    }));
+  }
+  let ledgerByCategory: BuiltReportData['ledgerByCategory'];
+  let dayCloses: BuiltReportData['dayCloses'];
   if (args.domain === 'finance') {
     const addDay = (ymd: string, n: number) => {
       const d = new Date(`${ymd}T00:00:00Z`);
@@ -4564,7 +4583,7 @@ export async function buildReportData(
       months.push({ month: start.slice(0, 7), from: mFrom, to: mEnd > days.to ? days.to : mEnd });
       start = nextStart;
     }
-    const [monthRows, agingRes] = await Promise.all([
+    const [monthRows, ledgerRes, closesRes] = await Promise.all([
       Promise.all(
         months.map(async (m) => {
           const { data } = await admin.rpc('ledger_summary', { p_from: m.from, p_to: m.to });
@@ -4572,19 +4591,60 @@ export async function buildReportData(
           return { ...m, net_sales_cents: by('revenue'), cogs_cents: by('cogs'), expenses_cents: by('expense') };
         }),
       ),
-      admin.rpc('payables_aging'),
+      admin.rpc('ledger_summary', { p_from: days.from, p_to: days.to }),
+      admin
+        .from('daily_closings')
+        .select('business_date, status, net_sales_cents, expected_cash_cents, closing_cash_cents, difference_cents, cash_movements_cents, note')
+        .gte('business_date', days.from)
+        .lte('business_date', days.to)
+        .order('business_date', { ascending: true }),
     ]);
     monthly = monthRows;
-    payablesAging = ((agingRes.data ?? []) as NonNullable<BuiltReportData['payablesAging']>).map((r) => ({
-      supplier_name: r.supplier_name,
-      invoices: Number(r.invoices),
-      current_cents: Number(r.current_cents),
-      d1_30_cents: Number(r.d1_30_cents),
-      d31_60_cents: Number(r.d31_60_cents),
-      d61_90_cents: Number(r.d61_90_cents),
-      d90_plus_cents: Number(r.d90_plus_cents),
-      total_cents: Number(r.total_cents),
+    ledgerByCategory = ((ledgerRes.data ?? []) as { category: string; net_cents: number; increase_cents: number; decrease_cents: number; events: number }[]).map((r) => ({
+      category: r.category,
+      net_cents: Number(r.net_cents),
+      increase_cents: Number(r.increase_cents),
+      decrease_cents: Number(r.decrease_cents),
+      events: Number(r.events),
     }));
+    dayCloses = ((closesRes.data ?? []) as { business_date: string; status: string; net_sales_cents: number; expected_cash_cents: number | null; closing_cash_cents: number | null; difference_cents: number | null; cash_movements_cents: number | null; note: string | null }[]).map((c) => ({
+      business_date: c.business_date,
+      status: c.status,
+      net_sales_cents: Number(c.net_sales_cents),
+      expected_cash_cents: c.expected_cash_cents,
+      counted_cash_cents: c.closing_cash_cents,
+      difference_cents: c.difference_cents,
+      cash_movements_cents: c.cash_movements_cents,
+      note: c.note,
+    }));
+  }
+  let purchaseOrders: BuiltReportData['purchaseOrders'];
+  if (args.domain === 'purchasing') {
+    const { data: poRows } = await admin
+      .from('purchase_orders')
+      .select('po_number, status, created_at, expected_at, received_at, subtotal_cents, suppliers(name), purchase_order_lines(qty, received_qty, rejected_qty, unit_cost_cents)')
+      .gte('created_at', from.toISOString())
+      .lte('created_at', to.toISOString())
+      .order('created_at', { ascending: true })
+      .limit(1000);
+    type PoRow = {
+      po_number: number; status: string; created_at: string; expected_at: string | null; received_at: string | null; subtotal_cents: number;
+      suppliers: { name: string } | null; purchase_order_lines: { qty: number; received_qty: number; rejected_qty: number; unit_cost_cents: number }[] | null;
+    };
+    purchaseOrders = ((poRows ?? []) as unknown as PoRow[]).map((po) => {
+      const lines = po.purchase_order_lines ?? [];
+      return {
+        po_number: po.po_number,
+        supplier: po.suppliers?.name ?? null,
+        status: po.status,
+        created_at: po.created_at,
+        expected_at: po.expected_at,
+        received_at: po.received_at,
+        lines: lines.length,
+        total_cents: Number(po.subtotal_cents) || lines.reduce((n, l) => n + Math.round(Number(l.qty) * Number(l.unit_cost_cents)), 0),
+        received_cents: lines.reduce((n, l) => n + Math.round((Number(l.received_qty) - Number(l.rejected_qty ?? 0)) * Number(l.unit_cost_cents)), 0),
+      };
+    });
   }
 
   const profit = (profitRes.data as FullProfitRow[] | null)?.[0];
@@ -4712,6 +4772,9 @@ export async function buildReportData(
       orders,
       monthly,
       payablesAging,
+      ledgerByCategory,
+      dayCloses,
+      purchaseOrders,
       aiInsights: {
         positives: (positivesRes as { highlights: string[] }).highlights,
         areasToReview: (areasRes as { areas: { area: string; evidence: string; recommendation: string }[] }).areas,
