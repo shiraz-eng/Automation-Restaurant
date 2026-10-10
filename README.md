@@ -22,7 +22,7 @@ live data.
 | 🤖 | **AI Smart Import** | Upload an existing menu, recipe, inventory or supplier PDF. AI builds a draft, and nothing is saved until the owner approves it. |
 | 💬 | **AI on every side** | The owner assistant answers from live data and reads or writes PDFs. Guests get a menu assistant, and visitors get a website AI Guide. |
 | 📱 | **QR ordering, no app** | Guests scan the table, order, track it live from kitchen to table, order more and leave feedback. They never sign up. |
-| 💰 | **True profit, live** | Net sales, tax, food cost, every expense and net profit for any period, exported as a branded PDF or Excel file. |
+| 💰 | **True profit, live** | Every sale, refund, food cost, expense, supplier bill and cash movement is written to one financial ledger as it happens, so P&L, payables and the day close always agree. Exported as a branded PDF or Excel file. |
 | 🔁 | **Closed purchasing loop** | Low stock → purchase order → goods received → stock updated → supplier bill due on that supplier's terms. |
 | 🛡️ | **Portals built from permissions** | Each staff portal is composed from individual permissions, enforced by the database rather than just hidden buttons. |
 | 🏢 | **A database per restaurant** | Every restaurant gets its own Supabase project, provisioned automatically at sign-up. |
@@ -68,8 +68,8 @@ live data.
 | **Kitchen** | Kitchen Display (KOT queue → preparing → ready), the ingredients each ticket consumes, portions left per dish, KOT history |
 | **Menu & recipes** | Categories, variants, modifiers, deals, promotions; recipes in base units (g / ml / piece) linked to dishes; per-dish food cost and margin; availability calculated from stock |
 | **Inventory** | Stock on hand, low-stock thresholds and email alerts, automatic deduction by recipe on every order, shared-ingredient impact across dishes |
-| **Purchasing** | Supplier directory with payment terms, purchase requests → purchase orders → goods received → stock update → supplier bills |
-| **Finance** | Live performance panel (any period, restaurant time zone), net sales, tax collected, gross and net profit, expenses, day close, branded PDF and Excel P&L exports |
+| **Purchasing** | Supplier directory with payment terms, purchase requests → purchase orders → goods received → stock update → supplier invoices with a 3-way match (PO ↔ delivery ↔ invoice), typed exceptions, credit notes, and AI reading of invoice PDFs and photos |
+| **Finance** | Finance overview (P&L vs the previous period, food cost % vs target, payables aging, needs-attention list), append-only ledger with corrections, expense approval workflow, supplier payables, cash movements and a locked day close, branded PDF and Excel finance reports — see [Finance model](#finance-model) |
 | **Staff & access** | Staff without logins (name, job, shift), custom portals built from individual permissions with a live preview, approvals, audit log, attendance and scheduling |
 | **AI** | Owner assistant (live answers from restaurant data, reads and creates PDFs, every chat saved), Smart Import (upload a menu, recipe, inventory, supplier, table, staff or PO document → reviewable draft → approve), customer menu assistant, website AI Guide |
 | **Brand** | Brand Kit (logo, colours, receipt style) applied to the menu, receipts, invoices and reports |
@@ -88,6 +88,104 @@ live data.
 | 10. Stock | Every ingredient in the order's recipes is deducted; availability updates. |
 | 11. Purchasing | Low stock alerts the owner and drafts a purchase order to the supplier. |
 | 12. Results | Dashboard, reports and the AI assistant all read the same numbers. |
+
+## Finance model
+
+Every finance screen, report and AI answer reads from one place: the
+**financial ledger** (`financial_events`). Database triggers write an entry
+whenever money moves, so nobody re-types figures and the numbers cannot drift
+apart.
+
+```
+ orders · payments · refunds ─┐
+ expenses (approved / paid) ──┤
+ supplier invoices · payments ┼──>  financial_events  ──>  Finance overview · Ledger · P&L
+ credit notes · stock · waste ┤     (append-only)          Day close · PDF / Excel · AI
+ cash movements · day close ──┘
+```
+
+### What the ledger records
+
+| Category | Written when | Effect |
+| --- | --- | --- |
+| Sales | An order is served or paid; reversed on refund or void | Net sales (subtotal − discount − refunds) |
+| Food cost | The same orders, using each line's recipe cost | COGS, the same figure the profit report uses |
+| Customer payments | Payment taken, refunded or voided | Money held from customers |
+| Expenses | An expense is **approved** (never while still a draft or submitted) | Operating cost on its expense date |
+| Supplier payables | An invoice is **approved** (+); supplier payment or credit note (−) | What the restaurant owes |
+| Inventory and waste | Goods received, stock adjustments, spoilage, at cost | Stock value |
+| Cash, day close, purchasing | Till movements, counts, closes, purchase orders | Information only; no balance change |
+| Adjustments | A person with **Adjust ledger** posts a correction with a reason | Fixes a figure; nothing existing is changed |
+
+Ledger rows can't be edited or deleted, even by the database owner. A mistake is
+fixed by posting a reasoned correction, which is also written to the audit log.
+
+### The workflows
+
+- **Expenses:** draft → submitted → approved → paid (or rejected / void).
+  An expense counts as a cost only once it is approved, and it is counted once
+  even after it is paid. Receipts are stored in a private bucket.
+- **Supplier invoices:** received → 3-way match against the purchase order and
+  the goods received → matched or on hold → approved → partially paid / paid.
+  - A hold is typed: total, missing PO, supplier, PO mismatch, missing delivery,
+    quantity, price, duplicate or other.
+  - A rejected invoice keeps its reason and full history.
+  - The AI can read an invoice PDF or photo into a draft, but a person always
+    reviews and applies it.
+- **Cash and day close:**
+  - Pay-ins, pay-outs, bank drops and adjustments each need a reason, and none
+    can be edited afterwards.
+  - The close preview shows sales, payments by method, expected cash and any
+    exceptions.
+  - Any difference between counted and expected cash needs a reason.
+  - A closed day is locked: no new orders, payments, expenses, counts or
+    movements can be dated to it. Refunds are still allowed.
+  - Reopening a day needs its own permission and a reason.
+
+### Separation of duties
+
+Each step needs its own permission, so the person who records, approves and
+pays can be three different people.
+
+| Step | Permission |
+| --- | --- |
+| Record or edit an expense | `finance.create_expense` / `finance.update_expense` |
+| Approve or reject an expense | `finance.approve_expense` |
+| Pay an expense | `finance.pay_expense` |
+| Create or match a supplier invoice | `invoices.create` / `invoices.match` |
+| Approve or reject a supplier invoice | `invoices.approve` (not `payables.manage`) |
+| Pay a supplier | `payables.record_payment` |
+| Cash movements | `cash.manage` |
+| Close / reopen a day | `finance.close_day` / `finance.reopen_day` |
+| Post a ledger correction | `finance.adjust_ledger` |
+| See food cost and profit | `finance.view_cogs` / `finance.view_profit` |
+
+The owner holds all of them. Other roles and portals get exactly the ones they
+are granted, and each one works the same way in a custom portal. Every check runs in the database: hiding a button is never
+the only protection. **The AI never approves or pays anything.**
+
+### Finance screens and reports
+
+- **Finance overview** (`/r/<slug>/finance`):
+  - Net sales, food cost, gross profit, operating expenses, operating profit and
+    payments received, compared with the previous period.
+  - Food cost % against the restaurant's target (editable; 30% by default).
+  - Money owed to suppliers and overdue.
+  - A needs-attention list: unclosed days, invoice exceptions, invoices waiting
+    for the 3-way match, expenses awaiting approval.
+  - Payables aging (not yet due, 1–30, 31–60, 61–90, 90+ days).
+  - A food-cost watch of dishes over target or whose recipe cost rose in the
+    last 30 days.
+- **Ledger** (`/r/<slug>/finance/ledger`): every entry, filterable by period and
+  category, with totals and a link back to the screen where its source record
+  is managed.
+- **Finance report:** a branded PDF (P&L, expenses, supplier payments,
+  purchasing) and an Excel workbook (ledger, payables aging, cash & day close,
+  accounts payable, supplier payments, expenses), in the restaurant's own time
+  zone.
+
+Operating profit = net sales − food cost − approved expenses dated in the
+period.
 
 ## Architecture
 
@@ -131,6 +229,7 @@ live data.
 | `/onboarding/…` | Payment confirmation, database connection, provisioning status, set password |
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
+| `/r/<slug>/finance`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
 | `/r/<slug>/portal/<portalKey>` | A custom portal, composed from its permissions |
 | `/order/<slug>?table=…` | Guest ordering, tracking and feedback |
 | `/admin` | Platform super-admin |
@@ -173,7 +272,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **82**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **95**).
 
 Roll it out to every live restaurant:
 
@@ -200,6 +299,20 @@ Scheduled jobs (low-stock alerts and similar) call the API's cron routes with
 example `rbac-test.cjs`, `portals-test.cjs`, `realtime-test.cjs`,
 `test-recipe-linking.ts`, `test-availability-engine.ts` and
 `test-performance-access.ts`.
+
+The finance suites run against every reachable restaurant in one go. Each
+database test is a single transaction that is rolled back, so no real data
+changes:
+
+```bash
+cd apps/api
+bash scripts/run-finance-suite.sh
+```
+
+It covers the security hardening, ledger, expense workflow, invoice matching,
+day close and finance overview suites, a full fictional restaurant day
+(`test-finance-scenario.ts`) and cross-restaurant isolation against the live
+API (`test-tenant-isolation.ts`).
 
 ## Known limitations
 
