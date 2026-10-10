@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveTenantClient } from '../lib/tenantAdmin';
+import { fetchCurrency, runWithCurrency } from '../lib/currencyContext';
 
 /**
  * Tenant + caller context attached by requirePortalPerm(). Routes read
@@ -80,7 +81,8 @@ export function requirePortalPerm(need: string | string[]) {
     }
     const svc = resolved.client;
 
-    const { data, error } = await svc.admin.auth.getUser(token);
+    // The restaurant's currency is looked up alongside the caller check, so it costs no extra round trip.
+    const [{ data, error }, currency] = await Promise.all([svc.admin.auth.getUser(token), fetchCurrency(svc.admin)]);
     if (error || !data?.user) {
       return res
         .status(401)
@@ -120,6 +122,6 @@ export function requirePortalPerm(need: string | string[]) {
       permissions,
       portalId: meta.kind === 'portal' && typeof meta.portal_id === 'string' ? meta.portal_id : null,
     };
-    next();
+    runWithCurrency(currency, () => next());
   };
 }

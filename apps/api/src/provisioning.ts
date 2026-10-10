@@ -338,7 +338,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v94 Finance overview: food-cost target, food_cost_watch(), payables_aging().
 //   v95 Only invoices.approve (or owner/manager) approves/rejects supplier invoices; payables.manage no longer does.
 //   v96 Low-stock reorder emails: pending_low_stock_reorders() ordered by a column that does not exist; fixed.
-const SCHEMA_VERSION = 96;
+//   v97 Restaurant currency: get_currency() (public), set_currency() (settings.update, audited), currency_code format check.
+const SCHEMA_VERSION = 97;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

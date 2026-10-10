@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import QRCode from 'qrcode';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { loadTenantCurrency } from '@/lib/currencyServer';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
@@ -104,6 +105,8 @@ export default async function PortalHome({
   const { w } = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
+  // Money on this server-rendered page uses the restaurant's currency.
+  await loadTenantCurrency(t.client);
 
   const { data: portal } = await t.client
     .from('portals')

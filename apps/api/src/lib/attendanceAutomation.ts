@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../supabase';
+import { forEachActiveTenant } from './tenantSweep';
 import { tenantServiceClient } from './tenantAdmin';
 
 /**
@@ -24,13 +25,8 @@ export async function runAttendanceAutoAbsentSweepForTenant(tenantId: string): P
 
 /** Sweeps every active tenant. One tenant's failure never stops the rest. */
 export async function runAttendanceAutoAbsentSweepAllTenants(): Promise<void> {
-  const { data: rows } = await supabaseAdmin.from('tenants').select('id, slug').eq('status', 'active');
-  for (const t of (rows ?? []) as { id: string; slug: string }[]) {
-    try {
-      const marked = await runAttendanceAutoAbsentSweepForTenant(t.id);
-      if (marked > 0) console.log(`[attendance] ${t.slug}: marked ${marked} absence(s) automatically`);
-    } catch (err) {
-      console.error(`[attendance] sweep error for ${t.slug}:`, err);
-    }
-  }
+  await forEachActiveTenant('attendance', async (tenantId, slug) => {
+    const marked = await runAttendanceAutoAbsentSweepForTenant(tenantId);
+    if (marked > 0) console.log(`[attendance] ${slug}: marked ${marked} absence(s) automatically`);
+  });
 }

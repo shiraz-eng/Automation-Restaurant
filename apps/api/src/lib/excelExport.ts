@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { excelMoneyFormat } from './currencyContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolvePeriod, computeAttentionItems, forwardRange, AI_TOOLS } from './aiTools';
 
@@ -33,7 +34,8 @@ import { resolvePeriod, computeAttentionItems, forwardRange, AI_TOOLS } from './
 // Platform black — the same default the app and PDF reports use.
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF18181B' } };
 const HEADER_FONT: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FFFFFFFF' } };
-const MONEY_FMT = '$#,##0.00';
+// The restaurant's currency (request context set by requirePortalPerm) — e.g. "Rs"#,##0.00.
+const moneyFmt = () => excelMoneyFormat();
 const PCT_FMT = '0.0"%"';
 
 function styleHeaderRow(row: ExcelJS.Row) {
@@ -232,7 +234,7 @@ export async function buildExcelWorkbook(
   for (const [label2, value] of execRows) {
     const r = exec.addRow([label2, value]);
     if (typeof value === 'number' && label2.includes('%')) r.getCell(2).numFmt = PCT_FMT;
-    else if (typeof value === 'number' && !label2.match(/^(Orders)$/)) r.getCell(2).numFmt = MONEY_FMT;
+    else if (typeof value === 'number' && !label2.match(/^(Orders)$/)) r.getCell(2).numFmt = moneyFmt();
     r.getCell(1).font = { color: { argb: 'FF64748B' } };
     r.getCell(2).font = { bold: true };
   }
@@ -243,7 +245,7 @@ export async function buildExcelWorkbook(
     profitSheet,
     [
       { header: 'Metric', key: 'metric', width: 26 },
-      { header: 'Amount', key: 'amount', width: 16, style: { numFmt: MONEY_FMT } },
+      { header: 'Amount', key: 'amount', width: 16, style: { numFmt: moneyFmt() } },
       { header: 'Calculation', key: 'calc', width: 40 },
       { header: 'Source', key: 'source', width: 14 },
     ],
@@ -274,9 +276,9 @@ export async function buildExcelWorkbook(
     daily,
     [
       { header: 'Date', key: 'date', width: 14 },
-      { header: 'Net Sales', key: 'net_sales', width: 14, style: { numFmt: MONEY_FMT } },
+      { header: 'Net Sales', key: 'net_sales', width: 14, style: { numFmt: moneyFmt() } },
       { header: 'Orders', key: 'orders', width: 10 },
-      { header: 'AOV', key: 'aov', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'AOV', key: 'aov', width: 12, style: { numFmt: moneyFmt() } },
     ],
     dailyRows,
   );
@@ -309,11 +311,11 @@ export async function buildExcelWorkbook(
       { header: 'Date', key: 'date', width: 12 },
       { header: 'Where', key: 'where', width: 14 },
       { header: 'Status', key: 'status', width: 12 },
-      { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Discount', key: 'discount', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Tax', key: 'tax', width: 10, style: { numFmt: MONEY_FMT } },
-      { header: 'Total', key: 'total', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Refunded', key: 'refunded', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Discount', key: 'discount', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Tax', key: 'tax', width: 10, style: { numFmt: moneyFmt() } },
+      { header: 'Total', key: 'total', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Refunded', key: 'refunded', width: 12, style: { numFmt: moneyFmt() } },
       { header: 'Paid', key: 'paid', width: 8 },
     ],
     orderRows,
@@ -347,9 +349,9 @@ export async function buildExcelWorkbook(
     [
       { header: 'Item', key: 'item', width: 26 },
       { header: 'Units', key: 'units', width: 10 },
-      { header: 'Revenue', key: 'revenue', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'COGS', key: 'cogs', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Contribution', key: 'contribution', width: 14, style: { numFmt: MONEY_FMT } },
+      { header: 'Revenue', key: 'revenue', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'COGS', key: 'cogs', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Contribution', key: 'contribution', width: 14, style: { numFmt: moneyFmt() } },
       { header: 'Margin %', key: 'margin_pct', width: 10, style: { numFmt: PCT_FMT } },
     ],
     productRows,
@@ -377,11 +379,11 @@ export async function buildExcelWorkbook(
     [
       { header: 'Deal', key: 'deal', width: 22 },
       { header: 'Units', key: 'units', width: 10 },
-      { header: 'Revenue', key: 'revenue', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'À la carte value', key: 'list_value', width: 16, style: { numFmt: MONEY_FMT } },
-      { header: 'Customer Saving', key: 'customer_saving', width: 16, style: { numFmt: MONEY_FMT } },
-      { header: 'COGS', key: 'cogs', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Contribution', key: 'contribution', width: 14, style: { numFmt: MONEY_FMT } },
+      { header: 'Revenue', key: 'revenue', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'À la carte value', key: 'list_value', width: 16, style: { numFmt: moneyFmt() } },
+      { header: 'Customer Saving', key: 'customer_saving', width: 16, style: { numFmt: moneyFmt() } },
+      { header: 'COGS', key: 'cogs', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Contribution', key: 'contribution', width: 14, style: { numFmt: moneyFmt() } },
       { header: 'Margin %', key: 'margin_pct', width: 10, style: { numFmt: PCT_FMT } },
     ],
     dealRows,
@@ -409,8 +411,8 @@ export async function buildExcelWorkbook(
       { header: 'Code', key: 'code', width: 12 },
       { header: 'Kind', key: 'kind', width: 10 },
       { header: 'Redemptions', key: 'redemptions', width: 12 },
-      { header: 'Discount Given', key: 'discount_given', width: 14, style: { numFmt: MONEY_FMT } },
-      { header: 'Order Revenue', key: 'order_revenue', width: 14, style: { numFmt: MONEY_FMT } },
+      { header: 'Discount Given', key: 'discount_given', width: 14, style: { numFmt: moneyFmt() } },
+      { header: 'Order Revenue', key: 'order_revenue', width: 14, style: { numFmt: moneyFmt() } },
     ],
     promoRows,
     'No promotions redeemed in this period.',
@@ -440,7 +442,7 @@ export async function buildExcelWorkbook(
       { header: 'Created', key: 'created', width: 12 },
       { header: 'Expected', key: 'expected', width: 12 },
       { header: 'Received', key: 'received', width: 12 },
-      { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Subtotal', key: 'subtotal', width: 12, style: { numFmt: moneyFmt() } },
     ],
     poRows,
     'No purchase orders created in this period.',
@@ -469,13 +471,13 @@ export async function buildExcelWorkbook(
     ap,
     [
       { header: 'Supplier', key: 'supplier', width: 20 },
-      { header: 'Invoiced', key: 'invoiced', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Approved', key: 'approved', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Paid', key: 'paid', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'On Hold', key: 'on_hold', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Credited', key: 'credited', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Outstanding', key: 'outstanding', width: 14, style: { numFmt: MONEY_FMT } },
-      { header: 'Overdue', key: 'overdue', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Invoiced', key: 'invoiced', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Approved', key: 'approved', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Paid', key: 'paid', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'On Hold', key: 'on_hold', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Credited', key: 'credited', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Outstanding', key: 'outstanding', width: 14, style: { numFmt: moneyFmt() } },
+      { header: 'Overdue', key: 'overdue', width: 12, style: { numFmt: moneyFmt() } },
     ],
     apRows,
     'No supplier invoices recorded yet.',
@@ -498,7 +500,7 @@ export async function buildExcelWorkbook(
     [
       { header: 'Date', key: 'date', width: 12 },
       { header: 'Supplier', key: 'supplier', width: 20 },
-      { header: 'Amount', key: 'amount', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Amount', key: 'amount', width: 12, style: { numFmt: moneyFmt() } },
       { header: 'Method', key: 'method', width: 14 },
       { header: 'Reference', key: 'reference', width: 16 },
     ],
@@ -562,8 +564,8 @@ export async function buildExcelWorkbook(
       { header: 'Unit', key: 'unit', width: 8 },
       { header: 'On Hand', key: 'on_hand', width: 12 },
       { header: 'Min Threshold', key: 'min_threshold', width: 14 },
-      { header: 'Unit Cost', key: 'unit_cost', width: 12, style: { numFmt: '$#,##0.0000' } },
-      { header: 'Value', key: 'value', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Unit Cost', key: 'unit_cost', width: 12, style: { numFmt: excelMoneyFormat(4) } },
+      { header: 'Value', key: 'value', width: 12, style: { numFmt: moneyFmt() } },
       { header: 'Low Stock', key: 'low_stock', width: 10 },
     ],
     invRows,
@@ -584,7 +586,7 @@ export async function buildExcelWorkbook(
       { header: 'Date', key: 'date', width: 12 },
       { header: 'Category', key: 'category', width: 18 },
       { header: 'Description', key: 'description', width: 30 },
-      { header: 'Amount', key: 'amount', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Amount', key: 'amount', width: 12, style: { numFmt: moneyFmt() } },
     ],
     expenseRows,
     'No expense records dated in this period.',
@@ -628,7 +630,7 @@ export async function buildExcelWorkbook(
   styleHeaderRow(actHeader);
   for (const [labelText, value] of activityRows) {
     const r = activitySheet.addRow([labelText, value]);
-    if (labelText.includes('Total')) r.getCell(2).numFmt = MONEY_FMT;
+    if (labelText.includes('Total')) r.getCell(2).numFmt = moneyFmt();
     r.getCell(1).font = { color: { argb: 'FF64748B' } };
     r.getCell(2).font = { bold: true };
   }
@@ -746,7 +748,7 @@ export async function buildExcelWorkbook(
       { header: 'Time', key: 'time', width: 18 },
       { header: 'Category', key: 'category', width: 12 },
       { header: 'Event', key: 'event', width: 26 },
-      { header: 'Amount', key: 'amount', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Amount', key: 'amount', width: 13, style: { numFmt: moneyFmt() } },
       { header: 'Method', key: 'method', width: 13 },
       { header: 'Source', key: 'source', width: 18 },
       { header: 'Detail', key: 'detail', width: 40 },
@@ -774,12 +776,12 @@ export async function buildExcelWorkbook(
     [
       { header: 'Supplier', key: 'supplier', width: 24 },
       { header: 'Invoices', key: 'invoices', width: 10 },
-      { header: 'Not yet due', key: 'current', width: 13, style: { numFmt: MONEY_FMT } },
-      { header: '1-30 days', key: 'd30', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: '31-60 days', key: 'd60', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: '61-90 days', key: 'd90', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: '90+ days', key: 'd90p', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Total owed', key: 'total', width: 13, style: { numFmt: MONEY_FMT } },
+      { header: 'Not yet due', key: 'current', width: 13, style: { numFmt: moneyFmt() } },
+      { header: '1-30 days', key: 'd30', width: 12, style: { numFmt: moneyFmt() } },
+      { header: '31-60 days', key: 'd60', width: 12, style: { numFmt: moneyFmt() } },
+      { header: '61-90 days', key: 'd90', width: 12, style: { numFmt: moneyFmt() } },
+      { header: '90+ days', key: 'd90p', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Total owed', key: 'total', width: 13, style: { numFmt: moneyFmt() } },
     ],
     ((agingRes.data ?? []) as {
       supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number; d31_60_cents: number;
@@ -803,12 +805,12 @@ export async function buildExcelWorkbook(
     [
       { header: 'Business date', key: 'date', width: 13 },
       { header: 'Status', key: 'status', width: 10 },
-      { header: 'Opening float', key: 'opening', width: 13, style: { numFmt: MONEY_FMT } },
-      { header: 'Movements', key: 'movements', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Expected cash', key: 'expected', width: 13, style: { numFmt: MONEY_FMT } },
-      { header: 'Counted cash', key: 'counted', width: 13, style: { numFmt: MONEY_FMT } },
-      { header: 'Difference', key: 'difference', width: 12, style: { numFmt: MONEY_FMT } },
-      { header: 'Net sales', key: 'net', width: 12, style: { numFmt: MONEY_FMT } },
+      { header: 'Opening float', key: 'opening', width: 13, style: { numFmt: moneyFmt() } },
+      { header: 'Movements', key: 'movements', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Expected cash', key: 'expected', width: 13, style: { numFmt: moneyFmt() } },
+      { header: 'Counted cash', key: 'counted', width: 13, style: { numFmt: moneyFmt() } },
+      { header: 'Difference', key: 'difference', width: 12, style: { numFmt: moneyFmt() } },
+      { header: 'Net sales', key: 'net', width: 12, style: { numFmt: moneyFmt() } },
       { header: 'Orders', key: 'orders', width: 8 },
       { header: 'Note', key: 'note', width: 36 },
     ],
@@ -846,7 +848,7 @@ export async function buildExcelWorkbook(
         m.reason,
         m.reference ?? '',
       ]);
-      row.getCell(4).numFmt = MONEY_FMT;
+      row.getCell(4).numFmt = moneyFmt();
     }
   }
 

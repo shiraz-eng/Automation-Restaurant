@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { formatCents } from '@/lib/format';
+import { activeCurrency, formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
 import type { Product, ModOption, DealMatch, DealLite, MenuCategory } from './StorefrontClient';
@@ -105,6 +105,7 @@ export function CustomerAiChat({
     const payload = {
       slug,
       restaurant_name: restaurantName,
+      currency: activeCurrency(),
       messages: next.slice(-10),
       cart_lines: cartSnapshot,
       session_id: guestSessionId(),

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { formatMoney } from '@automation-restaurant/shared';
+import { currencyPromptLine } from './currencyContext';
 
 /**
  * The customer-facing sales/recommendation assistant's tool allowlist.
@@ -708,19 +710,23 @@ export type CustomerAiMenuContext = {
   items?: { name: string; category?: string | null; price_cents: number; description?: string | null }[];
   deals?: { name: string; price_cents: number; description?: string | null }[];
   categories?: string[];
+  /** The restaurant's currency code (get_currency()). */
+  currency?: string;
 };
 
 export const CUSTOMER_SYSTEM_PROMPT = (restaurantName: string, menuContext?: CustomerAiMenuContext) => {
   const itemsText = (menuContext?.items ?? [])
     .slice(0, 100)
-    .map((i) => `- ${i.name}${i.category ? ` [Category: ${i.category}]` : ''}: ${(i.price_cents / 100).toFixed(2)}${i.description ? ` — ${i.description}` : ''}`)
+    .map((i) => `- ${i.name}${i.category ? ` [Category: ${i.category}]` : ''}: ${formatMoney(i.price_cents, menuContext?.currency)}${i.description ? ` — ${i.description}` : ''}`)
     .join('\n');
   const dealsText = (menuContext?.deals ?? [])
-    .map((d) => `- ${d.name}: ${(d.price_cents / 100).toFixed(2)}${d.description ? ` — ${d.description}` : ''}`)
+    .map((d) => `- ${d.name}: ${formatMoney(d.price_cents, menuContext?.currency)}${d.description ? ` — ${d.description}` : ''}`)
     .join('\n');
   const catsText = (menuContext?.categories ?? []).join(', ');
 
   return `You are the AI dining concierge and ordering assistant for ${restaurantName}, talking with guests on the restaurant's ordering page. Speak and interact dynamically like ChatGPT: intelligent, witty when fitting, warm, perceptive, and genuinely helpful.
+
+${currencyPromptLine(menuContext?.currency)} When a guest gives a budget, read it in this currency.
 
 How to converse (dynamic like ChatGPT):
 - Speak naturally and conversationally — warm, engaging, and attentive. Never recite rigid scripts, repetitive canned phrases, or sound robotic.

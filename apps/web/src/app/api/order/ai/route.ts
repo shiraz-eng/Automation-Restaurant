@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { currencyInfo, formatMoney } from '@automation-restaurant/shared';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -454,6 +455,8 @@ export async function POST(req: Request) {
     const json = await req.json();
     const messages: Array<{ role: string; content: string }> = json.messages ?? [];
     const restaurantName: string = json.restaurant_name ?? 'this restaurant';
+    // Display only (the guest's page sends the restaurant's currency); unknown codes fall back to USD.
+    const currency = currencyInfo(typeof json.currency === 'string' ? json.currency : null);
     const items: MenuContextItem[] = json.menu_items ?? [];
     const deals: MenuContextDeal[] = json.menu_deals ?? [];
     const categories: string[] = Array.isArray(json.menu_categories) ? json.menu_categories : [];
@@ -488,14 +491,16 @@ export async function POST(req: Request) {
 
     const menuText = items
       .slice(0, 100)
-      .map((i) => `- ${i.name}${i.category ? ` [Category: ${i.category}]` : ''}: ${(i.price_cents / 100).toFixed(2)}${i.description ? ` — ${i.description}` : ''}`)
+      .map((i) => `- ${i.name}${i.category ? ` [Category: ${i.category}]` : ''}: ${formatMoney(i.price_cents, currency.code)}${i.description ? ` — ${i.description}` : ''}`)
       .join('\n');
     const dealsText = deals
-      .map((d) => `- ${d.name}: ${(d.price_cents / 100).toFixed(2)}${d.description ? ` — ${d.description}` : ''}`)
+      .map((d) => `- ${d.name}: ${formatMoney(d.price_cents, currency.code)}${d.description ? ` — ${d.description}` : ''}`)
       .join('\n');
 
     // Generic, dynamic ChatGPT-style concierge prompt with strict menu grounding, group deals, and health persuasion
     const systemPrompt = `You are the AI dining concierge and ordering assistant for ${restaurantName}, operating dynamically and conversationally just like ChatGPT.
+
+Currency: prices are in ${currency.name} (${currency.code}). Always write prices like ${formatMoney(125050, currency.code)}, never "$" or another currency, and read a guest's budget in ${currency.code}.
 
 Persona & Dynamic Style:
 - Talk like ChatGPT: intelligent, warm, perceptive, witty when fitting, and completely natural. Never sound robotic, canned, or script-like.

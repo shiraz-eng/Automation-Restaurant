@@ -1,3 +1,4 @@
+import { formatCents } from '@/lib/format';
 // Shared shapes and pure helpers for the Deals & Combos workspace. The
 // status/validity/price maths here only DISPLAYS what the database stores —
 // selling rules are enforced server-side (tenant-migrations/0064).
@@ -184,14 +185,7 @@ export function timeLabel(t: string | null): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export function money(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    }).format(cents / 100);
-  } catch {
-    return (cents / 100).toFixed(2);
-  }
+/** Same formatting as everywhere else (the restaurant's currency and locale). */
+export function money(cents: number, currency?: string | null): string {
+  return formatCents(cents, currency);
 }

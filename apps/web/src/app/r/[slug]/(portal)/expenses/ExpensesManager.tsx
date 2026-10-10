@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
-import { formatCents } from '@/lib/format';
+import { formatCents, axisMoney } from '@/lib/format';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
 import { ExpenseCalculator } from './ExpenseCalculator';
 import {
@@ -799,7 +799,7 @@ export function ExpensesManager({
                     tickLine={false}
                     width={65}
                     domain={yDomain}
-                    tickFormatter={(v) => (v < 0 ? `-$${Math.abs(v).toLocaleString()}` : `$${v.toLocaleString()}`)}
+                    tickFormatter={(v) => axisMoney(v)}
                   />
                   <ReferenceLine y={0} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
                   <Tooltip

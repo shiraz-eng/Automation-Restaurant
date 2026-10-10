@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { loadTenantCurrency } from '@/lib/currencyServer';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
@@ -62,6 +63,8 @@ export default async function LedgerPage({
   const sp = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
+  // Money on this server-rendered page uses the restaurant's currency.
+  await loadTenantCurrency(t.client);
   const { role, perms } = await gatePortalPage(t.client, slug, 'finance.view');
   const ent = await getTenantEntitlement(t.client, t.config.tier);
   if (!ent.isEntitled('accounting.finance')) {

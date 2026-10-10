@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { forEachActiveTenant } from './tenantSweep';
 import { supabaseAdmin } from '../supabase';
 import { tenantServiceClient } from './tenantAdmin';
 import { sendEmail } from './mailer';
@@ -193,15 +194,11 @@ export async function runLowStockSweepForTenant(
   });
 }
 
-/** Sweeps every active tenant. One tenant's failure never stops the rest. */
+/** Sweeps every active tenant, several at once. One tenant's failure never stops the rest. */
 export async function runLowStockSweepAllTenants(): Promise<void> {
-  const { data: rows } = await supabaseAdmin.from('tenants').select('id, slug').eq('status', 'active');
-  for (const t of (rows ?? []) as { id: string; slug: string }[]) {
-    try {
-      const { attempted, sent } = await runLowStockSweepForTenant(t.id);
-      if (attempted > 0) console.log(`[low-stock] ${t.slug}: ${sent}/${attempted} reorder email(s) sent`);
-    } catch (err) {
-      console.error(`[low-stock] sweep error for ${t.slug}:`, err);
-    }
-  }
+  await forEachActiveTenant('low-stock', async (tenantId, slug) => {
+    const { attempted, sent, message } = await runLowStockSweepForTenant(tenantId);
+    if (attempted > 0) console.log(`[low-stock] ${slug}: ${sent}/${attempted} reorder email(s) sent`);
+    else if (message?.startsWith('RPC error')) console.error(`[low-stock] ${slug}: ${message}`);
+  });
 }

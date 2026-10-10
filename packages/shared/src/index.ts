@@ -279,3 +279,4 @@ export function hasFeature(
 }
 
 export * from './saasMetrics';
+export * from './currency';

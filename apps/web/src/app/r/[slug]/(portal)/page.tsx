@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
+import { loadTenantCurrency } from '@/lib/currencyServer';
 import { gatePortalPage } from '@/lib/permissions';
 import { DashboardStat } from './DashboardStat';
 import { LiveRefresh } from '@/components/LiveRefresh';
@@ -32,6 +33,8 @@ export default async function DashboardPage({
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
+  // Money on this server-rendered page uses the restaurant's currency.
+  await loadTenantCurrency(t.client);
   const supabase = t.client;
 
   const { user, role: viewerRole, perms: viewerPerms } = await gatePortalPage(supabase, slug, '');

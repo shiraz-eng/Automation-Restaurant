@@ -4,7 +4,7 @@
 # Usage (from apps/api):  bash scripts/run-finance-suite.sh [ref ...]
 REFS=("$@")
 [ ${#REFS[@]} -eq 0 ] && REFS=(iwccsyjuplkwaxswpgyw uhfwoftjecgjemvwqdbp yloyvprgdkthzfcfbhrm qmeorneaiodipuhcyqhm ornkhhbehjigerfvmzlp)
-SUITES=(test-finance-hardening test-financial-ledger test-expense-workflow test-invoice-matching test-day-close test-finance-overview test-finance-scenario test-performance-access test-low-stock-reorder)
+SUITES=(test-finance-hardening test-financial-ledger test-expense-workflow test-invoice-matching test-day-close test-finance-overview test-finance-scenario test-performance-access test-low-stock-reorder test-currency)
 total_fail=0
 for ref in "${REFS[@]}"; do
   for s in "${SUITES[@]}"; do

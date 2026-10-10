@@ -6,6 +6,7 @@ import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
 import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, buildReportData, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { supabaseAdmin } from '../supabase';
+import { currencyPromptLine } from '../lib/currencyContext';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
@@ -91,7 +92,9 @@ async function currentTimeLine(admin: SupabaseClient): Promise<string> {
   } catch {
     formatted = now.toISOString();
   }
-  return `Current date/time at this restaurant: ${formatted} (${tz}). Resolve "tonight" / "tomorrow" / "this Friday" etc. against this, never against your own training cutoff.`;
+  // currencyPromptLine(): this request's currency (set by requirePortalPerm), so the model writes Rs / AED / … not $.
+  return `Current date/time at this restaurant: ${formatted} (${tz}). Resolve "tonight" / "tomorrow" / "this Friday" etc. against this, never against your own training cutoff.
+${currencyPromptLine()}`;
 }
 
 export const aiRouter = express.Router();

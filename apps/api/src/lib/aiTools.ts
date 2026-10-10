@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { money } from './currencyContext';
 import { permits } from '../middleware/portalAuth';
 import { runLowStockSweepWithAdmin } from './lowStockAutomation';
 
@@ -73,11 +74,10 @@ const clampInt = (v: unknown, def: number, max: number) => {
 /** Wrap customer-authored text so the model treats it as data, not instructions. */
 const untrusted = (s: string | null | undefined) =>
   s ? `<customer_text>${String(s).replace(/[<>]/g, '')}</customer_text>` : null;
-/** For the few tools (get_attention_items) that pre-compose a natural-language
- * message server-side rather than leaving presentation to the model — matches
- * apps/web's own formatCents (USD, en-US) so the number reads the same everywhere. */
-const formatCentsPlain = (cents: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+/** For the few tools (get_attention_items, action summaries) that pre-compose a
+ * natural-language message server-side rather than leaving presentation to the
+ * model — the restaurant's own currency, same format as apps/web's formatCents. */
+const formatCentsPlain = (cents: number) => money(cents);
 
 const UNPAID = ['pending', 'in_kitchen', 'ready', 'served'];
 const KITCHEN_ACTIVE = ['pending', 'in_kitchen', 'ready'];
@@ -2746,7 +2746,7 @@ export const AI_TOOLS: AiTool[] = [
       // pctChange() returns null both when there is truly no prior baseline
       // (prev === 0) and — confusingly — that reads the same as "no
       // change" if worded carelessly; say plainly when a comparison isn't
-      // meaningful rather than claiming "unchanged" over a $0 baseline.
+      // meaningful rather than claiming "unchanged" over a 0 baseline.
       const salesChange = c && p ? pctChange(c.net_sales_cents, p.net_sales_cents) : null;
       rows.push({
         domain: 'Sales',
@@ -3263,11 +3263,11 @@ export const AI_ACTIONS: AiAction[] = [
     async describe(admin, args) {
       const resolved = await resolvePoLines(admin, args);
       if (!resolved.ok) return resolved;
-      const lines = resolved.lines.map((l) => `${l.qty}${l.unitLabel} ${l.name} @ $${(l.unitCostCents / 100).toFixed(2)} = $${((l.qty * l.unitCostCents) / 100).toFixed(2)}`);
+      const lines = resolved.lines.map((l) => `${l.qty}${l.unitLabel} ${l.name} @ ${money(l.unitCostCents)} = ${money((l.qty * l.unitCostCents))}`);
       const subtotal = resolved.lines.reduce((s, l) => s + l.qty * l.unitCostCents, 0);
       return {
         ok: true,
-        summary: `Draft a purchase order for ${resolved.supplierName}: ${lines.join('; ')}. Subtotal $${(subtotal / 100).toFixed(2)}. Stays a DRAFT until a manager approves and sends it.`,
+        summary: `Draft a purchase order for ${resolved.supplierName}: ${lines.join('; ')}. Subtotal ${money(subtotal)}. Stays a DRAFT until a manager approves and sends it.`,
       };
     },
     async run(admin, args) {
@@ -3343,14 +3343,14 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'update_supplier_price',
     description:
-      "Update the price a specific supplier charges for one inventory item ALREADY in their catalog (e.g. \"Metro Foods now charges $0.85/kg for chicken\"). Only updates an existing catalog entry's price — it cannot add a new supplier/item pairing, which has other details (purchase unit, minimum order quantity) best set up in Suppliers first; if there's no catalog entry yet, this reports that rather than creating one. Proposes the change for a manager to confirm.",
+      "Update the price a specific supplier charges for one inventory item ALREADY in their catalog (e.g. \"Metro Foods now charges 0.85/kg for chicken\"). Only updates an existing catalog entry's price — it cannot add a new supplier/item pairing, which has other details (purchase unit, minimum order quantity) best set up in Suppliers first; if there's no catalog entry yet, this reports that rather than creating one. Proposes the change for a manager to confirm.",
     needs: 'supplier.manage',
     input_schema: {
       type: 'object',
       properties: {
         supplier_name: { type: 'string' },
         inventory_item_name: { type: 'string' },
-        new_price: { type: 'number', description: "The new price in the restaurant's normal currency units (e.g. 8.50 for $8.50), NOT cents — per the supplier's own purchase unit for this item (shown back in the proposal), not necessarily the item's stock base unit." },
+        new_price: { type: 'number', description: "The new price in the restaurant's normal currency units (e.g. 8.50), NOT cents — per the supplier's own purchase unit for this item (shown back in the proposal), not necessarily the item's stock base unit." },
       },
       required: ['supplier_name', 'inventory_item_name', 'new_price'],
     },
@@ -3362,7 +3362,7 @@ export const AI_ACTIONS: AiAction[] = [
       const newCents = Math.round(newPrice * 100);
       return {
         ok: true,
-        summary: `Update ${resolved.supplierName}'s price for ${resolved.itemName}${resolved.unitLabel ? ` (per ${resolved.unitLabel})` : ''} from $${(resolved.currentPriceCents / 100).toFixed(2)} to $${(newCents / 100).toFixed(2)}.`,
+        summary: `Update ${resolved.supplierName}'s price for ${resolved.itemName}${resolved.unitLabel ? ` (per ${resolved.unitLabel})` : ''} from ${money(resolved.currentPriceCents)} to ${money(newCents)}.`,
       };
     },
     async run(admin, args) {
@@ -3381,13 +3381,13 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'draft_deal',
     description:
-      'Propose a new fixed-price deal/combo bundling specific menu items (e.g. "create a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Soft Drinks for $25"). Always created NOT available to customers — a manager must review it in Deals and turn it on, exactly like draft_recipe never auto-activates. Does not build "choose one of" Build-Your-Own-Combo option groups — those have their own dedicated setup in Deals and need a human\'s judgment on choice/pricing rules. Every item must match an existing menu item (and variant, if it has more than one); any that don\'t are reported back rather than invented, and nothing is created until every line resolves.',
+      'Propose a new fixed-price deal/combo bundling specific menu items (e.g. "create a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Soft Drinks for 25"). Always created NOT available to customers — a manager must review it in Deals and turn it on, exactly like draft_recipe never auto-activates. Does not build "choose one of" Build-Your-Own-Combo option groups — those have their own dedicated setup in Deals and need a human\'s judgment on choice/pricing rules. Every item must match an existing menu item (and variant, if it has more than one); any that don\'t are reported back rather than invented, and nothing is created until every line resolves.',
     needs: 'deals.update',
     input_schema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        price: { type: 'number', description: "The deal's total price in the restaurant's normal currency units (e.g. 25 for $25), NOT cents." },
+        price: { type: 'number', description: "The deal's total price in the restaurant's normal currency units (e.g. 25), NOT cents." },
         description: { type: 'string' },
         items: {
           type: 'array',
@@ -3416,7 +3416,7 @@ export const AI_ACTIONS: AiAction[] = [
       const lineStr = resolved.lines.map((l) => `${l.qty}× ${l.label}`).join(', ');
       return {
         ok: true,
-        summary: `Create the deal "${dealName}" at $${(priceCents / 100).toFixed(2)}: ${lineStr} (à la carte value $${(itemsWorthCents / 100).toFixed(2)}). Created NOT available to customers — a manager must turn it on in Deals.`,
+        summary: `Create the deal "${dealName}" at ${money(priceCents)}: ${lineStr} (à la carte value ${money(itemsWorthCents)}). Created NOT available to customers — a manager must turn it on in Deals.`,
       };
     },
     async run(admin, args) {
@@ -3653,7 +3653,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'add_inventory_items',
     description:
-      'Add new inventory items or update stock/cost/thresholds for existing items directly from chat details (e.g. "add inventory: Tomato 5kg at $2/kg, Onion 10kg at $1/kg, min threshold 2kg"). Creates new items in inventory_items if they do not exist, or updates cost/stock/threshold if they already do. Proposes the structured items for the manager to review and confirm.',
+      'Add new inventory items or update stock/cost/thresholds for existing items directly from chat details (e.g. "add inventory: Tomato 5kg at 2/kg, Onion 10kg at 1/kg, min threshold 2kg"). Creates new items in inventory_items if they do not exist, or updates cost/stock/threshold if they already do. Proposes the structured items for the manager to review and confirm.',
     needs: 'stock.update',
     input_schema: {
       type: 'object',
@@ -3667,7 +3667,7 @@ export const AI_ACTIONS: AiAction[] = [
               name: { type: 'string', description: 'Item name, e.g. "Roma Tomatoes" or "Chicken Breast"' },
               unit: { type: 'string', description: 'Stock unit: kg, g, l, ml, unit, pcs, box, bottle, etc. Default "unit".' },
               stock_qty: { type: 'number', description: 'Initial quantity on hand (e.g. 5, 10.5). Default 0.' },
-              cost_cents_per_unit: { type: 'number', description: 'Cost per base unit in integer cents (e.g. $2.50 = 250 cents).' },
+              cost_cents_per_unit: { type: 'number', description: 'Cost per base unit in integer cents (e.g. 2.50 = 250 cents).' },
               min_threshold: { type: 'number', description: 'Low-stock warning threshold. Default 0.' },
               target_stock_qty: { type: 'number', description: 'Optional target stock level.' },
               supplier_name: { type: 'string', description: 'Optional supplier name.' },
@@ -3783,7 +3783,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'add_menu_items',
     description:
-      'Add new dishes or items to the restaurant menu directly from chat details (e.g. "add to menu: Chicken Biryani $14 in Mains, Mint Lemonade $5 in Drinks"). Creates the category if it doesn\'t exist, inserts the menu item, and creates a default variant with the given price. Proposes the dishes for manager confirmation.',
+      'Add new dishes or items to the restaurant menu directly from chat details (e.g. "add to menu: Chicken Biryani 14 in Mains, Mint Lemonade 5 in Drinks"). Creates the category if it doesn\'t exist, inserts the menu item, and creates a default variant with the given price. Proposes the dishes for manager confirmation.',
     needs: 'menu.update',
     input_schema: {
       type: 'object',
@@ -3796,7 +3796,7 @@ export const AI_ACTIONS: AiAction[] = [
             properties: {
               name: { type: 'string', description: 'Dish name, e.g. "Beef Seekh Kebab"' },
               category_name: { type: 'string', description: 'Category name, e.g. "Mains", "Starters", "Beverages"' },
-              price_cents: { type: 'number', description: 'Price in cents (e.g. $14.50 = 1450 cents).' },
+              price_cents: { type: 'number', description: 'Price in cents (e.g. 14.50 = 1450 cents).' },
               description: { type: 'string', description: 'Optional description of the dish.' },
             },
             required: ['name', 'price_cents'],
@@ -3882,7 +3882,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'record_expenses',
     description:
-      'Record one or more operating expenses (e.g. "record expense: Electricity $350 under Utilities, Cleaning supplies $40 under Supplies"). Categorizes each expense under Rent, Utilities, Labor, Marketing, Maintenance, Supplies, or Other. Each one is SUBMITTED for approval — it affects Net Profit only after someone with expense approval approves it in Finance. Proposes for manager confirmation.',
+      'Record one or more operating expenses (e.g. "record expense: Electricity 350 under Utilities, Cleaning supplies 40 under Supplies"). Categorizes each expense under Rent, Utilities, Labor, Marketing, Maintenance, Supplies, or Other. Each one is SUBMITTED for approval — it affects Net Profit only after someone with expense approval approves it in Finance. Proposes for manager confirmation.',
     needs: 'finance.create_expense',
     input_schema: {
       type: 'object',
@@ -3898,7 +3898,7 @@ export const AI_ACTIONS: AiAction[] = [
                 enum: ['Rent', 'Utilities', 'Labor', 'Marketing', 'Maintenance', 'Supplies', 'Other'],
                 description: 'Expense category',
               },
-              amount_cents: { type: 'number', description: 'Amount in cents (e.g. $50.00 = 5000 cents).' },
+              amount_cents: { type: 'number', description: 'Amount in cents (e.g. 50.00 = 5000 cents).' },
               description: { type: 'string', description: 'Description or details of the expense.' },
               expense_date: { type: 'string', description: 'YYYY-MM-DD date. Defaults to today.' },
               supplier_name: { type: 'string', description: 'Optional supplier name.' },
@@ -4045,7 +4045,7 @@ type PoLine = { inventoryItemId: string; name: string; unitLabel: string; qty: n
 /** Shared by draft_purchase_order's describe() and run() so both resolve
  *  supplier + items identically — describe() never promises a PO that run()
  *  would build differently. Never invents a price: an item with no active
- *  supplier_items row for this supplier is reported, not defaulted to $0. */
+ *  supplier_items row for this supplier is reported, not defaulted to 0. */
 async function resolvePoLines(
   admin: SupabaseClient,
   args: Record<string, unknown>,
@@ -4746,17 +4746,17 @@ HOW TO ANSWER
 - For a manual stock correction ("we found 5kg of chicken we hadn't counted", "add a delivery that didn't go through a PO"), use adjust_stock. For wastage/spoilage ("2kg of lettuce went off"), use record_waste — it always requires a reason and always deducts, never adds. For a physical stock count ("we counted 40kg of flour"), use submit_stock_count — it replaces the system figure outright and reports the variance, it does not add a delta on top. Never use adjust_stock for wastage or a count; each has its own action so the ledger reason is always accurate. All three take the quantity in the item's own stock unit, which is grams/ml/pieces, NOT necessarily what the person said (kg, L, boxes) — always check the item's real unit (get_low_stock / get_inventory_value) and convert before calling the tool (kg -> g and L -> ml are both x1000); the proposed summary always echoes the unit back, so double-check it reads right before it's offered for confirmation.
 - To order more of something from a supplier ("order 10kg of chicken from Metro Foods", "reorder everything that's low from their usual supplier"), use draft_purchase_order. It always creates a DRAFT — nothing is actually ordered until a manager approves and sends it in Purchasing, and you should say so plainly. Pricing comes from that supplier's own catalog; if an item has no price on file for the named supplier, the action reports exactly which — relay that rather than guessing a price or picking a different supplier yourself. If asked to reorder "everything low", first call get_low_stock to see what's actually low, then confirm with the manager which supplier before drafting — don't assume one.
 - For "what reservations do we have tonight/tomorrow/this week", "who's booked in", "how many covers", use get_reservations. To book one ("book a table for 4 tonight at 7 for John"), use create_reservation — resolve "tonight" / "tomorrow" / "this Friday" against the current date/time given to you at the top of this conversation into a real date-time yourself before calling it; never pass relative wording through. If a specific table is named and it doesn't match a real one, the action reports the real table names — relay that rather than booking against a table that doesn't exist.
-- To update what a supplier charges for something already in their catalog ("Metro Foods now charges $0.85/kg for chicken"), use update_supplier_price. It only updates a price already on file — if there's no catalog entry for that supplier/item pairing yet, it says so and you should point the manager to Suppliers rather than trying to invent one.
-- To create a new fixed-price bundle ("make a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Drinks for $25"), use draft_deal. It always creates the deal turned OFF (not visible to customers) — a manager must review and switch it on in Deals, exactly like draft_recipe never auto-activates. It cannot build "choose one of" Build-Your-Own-Combo option groups — say so and point to Deals if that's what's being asked for. State the à la carte value it returns alongside the deal price so the manager can see the discount at a glance. If an item name is ambiguous between variants (e.g. "Chicken Burger" when there's a Regular and a Large), the action reports the real options — ask which one rather than guessing.
+- To update what a supplier charges for something already in their catalog ("Metro Foods now charges 0.85/kg for chicken"), use update_supplier_price. It only updates a price already on file — if there's no catalog entry for that supplier/item pairing yet, it says so and you should point the manager to Suppliers rather than trying to invent one.
+- To create a new fixed-price bundle ("make a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Drinks for 25"), use draft_deal. It always creates the deal turned OFF (not visible to customers) — a manager must review and switch it on in Deals, exactly like draft_recipe never auto-activates. It cannot build "choose one of" Build-Your-Own-Combo option groups — say so and point to Deals if that's what's being asked for. State the à la carte value it returns alongside the deal price so the manager can see the discount at a glance. If an item name is ambiguous between variants (e.g. "Chicken Burger" when there's a Regular and a Large), the action reports the real options — ask which one rather than guessing.
 - To draft an Instagram post ("write an Instagram post for our new BBQ Combo deal"), use draft_social_post. It always creates a DRAFT, never posts anything — a manager must separately open the Social page, review it, and tap Publish there; there is no way to publish from chat at all. If related_type/related_name is given and matches a real deal/promotion/menu item that already has a photo on file, that photo is attached automatically; otherwise say plainly that the draft has no image yet and needs one added on the Social page before it can be published (Instagram requires an image). This is a completely separate feature from the "Import Menu from File" flow above.
 - To put a staff member on the rota ("schedule Sarah for Friday 9 to 5"), use create_shift — resolve "Friday" / "tomorrow" against the current date/time given to you into real dates first, same as a reservation. This only schedules a shift; it is NOT clocking someone in/out, marking attendance, or changing a role/permission — you have no tool for any of those.
 - To produce an actual PDF ("create my September report", "generate this month's report", "give me a report for last week"), use generate_report — it builds a real, downloadable PDF from the same figures get_period_profitability / get_sales_summary / get_top_products already use, nothing recomputed. Any period works: a preset (today … last_month, last_3_months, last_6_months, last_year) or an exact from/to range for anything else — e.g. "my August report" → from 2026-08-01 to 2026-08-31, resolved against the current date given above. For a section-only PDF (suppliers, purchasing, inventory, orders, expenses) pass domain. For a detailed spreadsheet instead of a PDF, use export_excel_report. Call the action straight away — don't ask the owner to confirm the period first unless it's genuinely unclear. Unlike every other action, confirming this one doesn't change any data — it just produces the file — so you can describe it that way rather than warning about a mutation.
 - For "how healthy is my restaurant" / "give me the big picture" / "how are we doing overall", use get_health_score — it's a direct summary of the exact same exception list get_attention_items returns (HEALTHY/WATCH/ATTENTION/CRITICAL), never a separately invented number or an industry benchmark. Always relay its stated reason, never just the band.
 - For "what should I expect tomorrow" / "how busy will we be" / demand questions, use get_demand_forecast. Always call it a FORECAST out loud (never state a forecast as if it already happened), and if it reports insufficient data, say so plainly rather than guessing a number yourself.
 - Rank problems when you list several: CRITICAL (operations blocked / money at risk) > HIGH (high-demand item unavailable at peak, kitchen badly delayed) > MEDIUM (rising prep times, stock near threshold) > LOW (small dip in a low-volume item).
-- To add inventory items or ingredients from chat ("add inventory: Tomato 5kg at $2/kg, Onion 10kg at $1/kg, min 2kg", "add these items to inventory"), IMMEDIATELY use add_inventory_items. Extract each item's name, unit, initial stock quantity, unit cost in cents, and min threshold into the items array. Propose the action straight away so the manager can confirm it. Never tell the manager to use a file import button if they provided the items in chat!
-- To add dishes or menu items from chat ("add menu item: Chicken Karahi $18 under Mains, Garlic Naan $3 under Breads"), use add_menu_items. Extract item name, category name, price in cents, and description. Propose the action straight away.
-- To record operating expenses in chat ("record expense: Electricity $250 under Utilities", "add expense: $60 cleaning supplies"), use record_expenses. Extract category (Rent, Utilities, Labor, Marketing, Maintenance, Supplies, Other), amount in cents, description, date, and supplier name. Propose the action straight away.
+- To add inventory items or ingredients from chat ("add inventory: Tomato 5kg at 2/kg, Onion 10kg at 1/kg, min 2kg", "add these items to inventory"), IMMEDIATELY use add_inventory_items. Extract each item's name, unit, initial stock quantity, unit cost in cents, and min threshold into the items array. Propose the action straight away so the manager can confirm it. Never tell the manager to use a file import button if they provided the items in chat!
+- To add dishes or menu items from chat ("add menu item: Chicken Karahi 18 under Mains, Garlic Naan 3 under Breads"), use add_menu_items. Extract item name, category name, price in cents, and description. Propose the action straight away.
+- To record operating expenses in chat ("record expense: Electricity 250 under Utilities", "add expense: 60 cleaning supplies"), use record_expenses. Extract category (Rent, Utilities, Labor, Marketing, Maintenance, Supplies, Other), amount in cents, description, date, and supplier name. Propose the action straight away.
 - To add staff members to the restaurant roster in chat ("add staff: Ali as Chef, Fatima as Cashier"), use add_staff_members. Extract full_name, job_title, phone, and email. Propose the action straight away.
 - For quick questions about the restaurant's data, keep it short — a busy manager is reading this between tables. For "explain / how / why / help me write" questions, be as complete as the question needs.
 

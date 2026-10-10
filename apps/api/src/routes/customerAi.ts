@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { tenantClientForSlug } from './public';
+import { fetchCurrency } from '../lib/currencyContext';
 import { CUSTOMER_AI_TOOLS, CUSTOMER_SYSTEM_PROMPT, type CustomerAiTool } from '../lib/customerAiTools';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
 import { openConversation, saveExchange, compact } from '../lib/aiChatStore';
@@ -316,10 +317,12 @@ customerAiRouter.post('/ai/chat', express.json({ limit: '100kb' }), async (req: 
     }));
   }
 
+  const currency = await fetchCurrency(tenant);
   const system = CUSTOMER_SYSTEM_PROMPT(restaurant_name || slug, {
     items,
     deals,
     categories,
+    currency,
   });
   const realCartLines = cart_lines ?? [];
   const run = (emit: Emitter) =>

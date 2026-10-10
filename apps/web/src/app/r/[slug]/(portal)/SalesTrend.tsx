@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { formatCents, formatDateTime } from '@/lib/format';
+import { formatCents, formatDateTime, axisMoney } from '@/lib/format';
 import {
   ResponsiveContainer,
   LineChart,
@@ -214,7 +214,7 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
               <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'rgb(var(--text-muted))' }} />
               <YAxis
                 tick={{ fontSize: 11, fill: 'rgb(var(--text-muted))' }}
-                tickFormatter={(v: number) => `$${v}`}
+                tickFormatter={(v: number) => axisMoney(v)}
                 width={52}
               />
               <Tooltip content={<DayTooltip />} />
@@ -298,7 +298,7 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
                       <XAxis dataKey="hour" tick={{ fontSize: 9, fill: 'rgb(var(--text-muted))' }} interval={2} />
                       <YAxis
                         tick={{ fontSize: 11, fill: 'rgb(var(--text-muted))' }}
-                        tickFormatter={(v: number) => `$${v}`}
+                        tickFormatter={(v: number) => axisMoney(v)}
                         width={52}
                       />
                       <Tooltip content={<HourTooltip />} cursor={{ fill: 'rgb(var(--border-color) / 0.4)' }} />

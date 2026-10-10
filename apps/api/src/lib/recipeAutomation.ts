@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../supabase';
+import { forEachActiveTenant } from './tenantSweep';
 import { tenantServiceClient } from './tenantAdmin';
 
 /**
@@ -33,19 +34,14 @@ export async function runRecipeCostSweepForTenant(tenantId: string): Promise<Cos
 
 /** Sweeps every active tenant. One tenant's failure never stops the rest. */
 export async function runRecipeCostSweepAllTenants(): Promise<void> {
-  const { data: rows } = await supabaseAdmin.from('tenants').select('id, slug').eq('status', 'active');
-  for (const t of (rows ?? []) as { id: string; slug: string }[]) {
-    try {
-      const changes = await runRecipeCostSweepForTenant(t.id);
+  await forEachActiveTenant('recipe-cost', async (tenantId, slug) => {
+      const changes = await runRecipeCostSweepForTenant(tenantId);
       // A change on the FIRST-EVER snapshot (previous_cost_cents null) just
       // means "recipe cost logging started" — only a genuine delta from a
       // prior logged value is worth a log line.
       const genuine = changes.filter((c) => c.previous_cost_cents !== null);
       if (genuine.length > 0) {
-        console.log(`[recipe-cost] ${t.slug}: ${genuine.length} recipe(s) changed cost`, genuine);
+        console.log(`[recipe-cost] ${slug}: ${genuine.length} recipe(s) changed cost`, genuine);
       }
-    } catch (err) {
-      console.error(`[recipe-cost] sweep error for ${t.slug}:`, err);
-    }
-  }
+  });
 }

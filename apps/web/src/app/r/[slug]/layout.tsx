@@ -3,6 +3,8 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { fetchPortalTheme } from '@/lib/theme';
 import { buildPortalMetadata } from '@/lib/portalMetadata';
+import { loadTenantCurrency } from '@/lib/currencyServer';
+import { CurrencySync } from '@/components/CurrencySync';
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -25,11 +27,13 @@ export default async function TenantLayout({
 }) {
   const { slug } = await params;
   const t = await createTenantServerClient(slug);
-  const initialTheme = t ? (await fetchPortalTheme(t.client)).initialTheme : undefined;
+  const [initialTheme, currency] = t
+    ? await Promise.all([fetchPortalTheme(t.client).then((x) => x.initialTheme), loadTenantCurrency(t.client).catch(() => 'USD')])
+    : [undefined, 'USD'];
 
   return (
     <ThemeProvider initialTheme={initialTheme} storageKey={`ar-theme:${slug}`} scoped persist={false}>
-      {children}
+      <CurrencySync code={currency}>{children}</CurrencySync>
     </ThemeProvider>
   );
 }
