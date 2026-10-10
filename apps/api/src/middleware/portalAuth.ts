@@ -17,6 +17,8 @@ export type TenantContext = {
   permissions: string[];
   /** Set when the caller is a custom-portal login (app_metadata.kind = 'portal'). */
   portalId: string | null;
+  /** The branches this request covers (null = every branch); `admin` is already narrowed to them. */
+  branchIds: string[] | null;
 };
 
 declare global {
@@ -34,6 +36,40 @@ declare global {
  * app.has_perm()'s transitional fallback and the legacy is_staff() RLS, so
  * existing role-only logins keep working until they are back-filled.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The branches a request may cover. null = no limit (every branch). The login's own
+ * assignment (portals / memberships.branch_ids) always wins over what the request asks for.
+ * Before migration 0098 the columns don't exist and every request covers every branch.
+ */
+export async function effectiveBranchIds(
+  admin: SupabaseClient,
+  userId: string,
+  permissions: string[],
+  role: string | null,
+  header: string | string[] | undefined,
+): Promise<{ ids: string[] | null; limited: boolean }> {
+  const asked = String(Array.isArray(header) ? header[0] : (header ?? ''))
+    .split(',')
+    .map((x) => x.trim())
+    .filter((x) => UUID.test(x));
+  let allowed: string[] | null = null;
+  if (!(permissions.includes('*') || role === 'owner')) {
+    const [p, m] = await Promise.all([
+      admin.from('portals').select('branch_ids').eq('portal_user_id', userId).limit(1).maybeSingle(),
+      admin.from('memberships').select('branch_ids').eq('user_id', userId).limit(1).maybeSingle(),
+    ]);
+    const ids = [p.data, m.data].map((r) => ((r as { branch_ids?: string[] } | null)?.branch_ids ?? [])).find((x) => x.length > 0);
+    allowed = ids ?? null;
+  }
+  if (allowed) {
+    const both = asked.filter((x) => allowed!.includes(x));
+    return { ids: both.length > 0 ? both : allowed, limited: true };
+  }
+  return { ids: asked.length > 0 ? asked : null, limited: false };
+}
+
 export function permits(perms: string[], role: string | null, need: string): boolean {
   if (perms.includes('*') || perms.includes(need)) return true;
   if (perms.length === 0 && (role === 'owner' || role === 'manager')) return true;
@@ -112,9 +148,19 @@ export function requirePortalPerm(need: string | string[]) {
         });
     }
 
+    // Multi-branch (tenant migrations 0098+): this API runs with the service key, which the
+    // database's branch walls don't apply to — so the branches are worked out here and the
+    // request runs on a client narrowed to them. A login limited to some branches never gets
+    // past them (whatever it asks for); the owner gets the branch it is viewing, or all.
+    const { ids: branchIds, limited: branchLimited } = await effectiveBranchIds(svc.admin, data.user.id, permissions, role, req.headers['x-branch-ids']);
+
     req.tenant = {
       slug,
-      admin: svc.admin,
+      // A login limited to some branches acts with its own token, so the database applies every
+      // rule to it (the service key would skip row security). The owner keeps the service client,
+      // narrowed for reports to the branch it is viewing.
+      admin: branchLimited ? svc.asUser(token, branchIds) : branchIds ? svc.scoped(branchIds) : svc.admin,
+      branchIds,
       projectUrl: svc.projectUrl,
       userId: data.user.id,
       email: data.user.email ?? null,

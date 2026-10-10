@@ -12,7 +12,7 @@ staffRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Vary', 'Origin');
   }
   res.header('Access-Control-Allow-Methods', 'POST, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Branch-Ids');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;

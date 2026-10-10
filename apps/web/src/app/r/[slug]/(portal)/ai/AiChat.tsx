@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { usePortalSupabase } from '@/components/PortalProvider';
+import { usePortal, usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
@@ -84,6 +84,8 @@ const SUGGESTIONS = [
 
 export function AiChat({ slug }: { slug: string }) {
   const supabase = usePortalSupabase();
+  // The branch being viewed (multi-branch) — the API narrows reports and answers to it.
+  const branchHeader: Record<string, string> = usePortal().branchId ? { 'X-Branch-Ids': usePortal().branchId as string } : {};
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -212,7 +214,7 @@ export function AiChat({ slug }: { slug: string }) {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` };
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}`, ...branchHeader };
   }
 
   async function send(text: string) {

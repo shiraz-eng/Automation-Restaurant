@@ -25,7 +25,7 @@ billingRouter.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Vary', 'Origin');
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Branch-Ids');
   if (req.method === 'OPTIONS') return void res.sendStatus(204);
   next();
 });

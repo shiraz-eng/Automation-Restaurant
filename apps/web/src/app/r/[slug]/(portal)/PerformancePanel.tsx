@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { usePortalSupabase } from '@/components/PortalProvider';
+import { usePortal, usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 import { saveAndStoreReportPdf } from '@/lib/generateReport';
 import { ProfitDrilldownModal } from '@/components/ProfitDrilldown';
@@ -293,6 +293,8 @@ export function PerformancePanel({
   aiSummary?: string | null;
 }) {
   const supabase = usePortalSupabase();
+  // The branch being viewed (multi-branch) — the API narrows reports and answers to it.
+  const branchHeader: Record<string, string> = usePortal().branchId ? { 'X-Branch-Ids': usePortal().branchId as string } : {};
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [customDraft, setCustomDraft] = useState<CustomRange>(customRange ?? { from: '', to: '' });
@@ -596,7 +598,7 @@ export function PerformancePanel({
       } = await supabase.auth.getSession();
       const res = await fetch(`${API}/api/ai/report-pdf`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}`, ...branchHeader },
         body: JSON.stringify({ slug, ...(customRange ? { from: customRange.from, to: customRange.to } : { period }) }),
       });
       const body = await res.json().catch(() => ({}));
@@ -687,7 +689,7 @@ export function PerformancePanel({
         ...(selectedSheets && selectedSheets.size > 0 ? { sheets: Array.from(selectedSheets).join(',') } : {}),
       });
       const res = await fetch(`${API}/api/ai/export/excel?${qs.toString()}`, {
-        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}`, ...branchHeader },
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));

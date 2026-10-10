@@ -16,7 +16,16 @@ import { getFreshConnection } from './supabaseOAuth';
  * Legacy tenants (provisioned into the platform org) still have a stored
  * service_key; those are used directly.
  */
-type TenantClient = { admin: SupabaseClient; projectUrl: string };
+type TenantClient = {
+  admin: SupabaseClient;
+  projectUrl: string;
+  /** The same admin access, narrowed to these branches (x-branch-ids — multi-branch, 0099):
+   *  for a request made on behalf of a login limited to some branches, or viewing one. */
+  scoped: (branchIds: string[]) => SupabaseClient;
+  /** A client acting AS the signed-in login (its JWT): every row-level rule, branch walls
+   *  included, applies — used for logins limited to some branches. */
+  asUser: (accessToken: string, branchIds: string[] | null) => SupabaseClient;
+};
 
 // Warm-instance cache: every API request used to re-read the control plane
 // (and, for connected tenants, refresh the owner's OAuth token and re-fetch
@@ -42,10 +51,10 @@ export async function tenantServiceClient(tenantId: string): Promise<TenantClien
   const cached = clientCache.get(tenantId);
   if (cached && Date.now() - cached.at < CLIENT_TTL_MS) return cached.client;
 
-  const proj = await controlPlaneRead<{ project_ref: string; project_url: string; service_key: string | null }>(() =>
+  const proj = await controlPlaneRead<{ project_ref: string; project_url: string; service_key: string | null; anon_key: string | null }>(() =>
     supabaseAdmin
       .from('tenant_projects')
-      .select('project_ref, project_url, service_key')
+      .select('project_ref, project_url, service_key, anon_key')
       .eq('tenant_id', tenantId)
       .maybeSingle(),
   );
@@ -63,11 +72,27 @@ export async function tenantServiceClient(tenantId: string): Promise<TenantClien
     serviceKey = keys.service_role;
     await supabaseAdmin.from('tenant_projects').update({ service_key: serviceKey }).eq('tenant_id', tenantId);
   }
-  const client = {
-    admin: createClient(proj.project_url, serviceKey, {
+  const key = serviceKey;
+  const client: TenantClient = {
+    admin: createClient(proj.project_url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
     }),
     projectUrl: proj.project_url,
+    scoped: (branchIds) =>
+      createClient(proj.project_url, key, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { 'x-branch-ids': branchIds.join(',') } },
+      }),
+    asUser: (accessToken, branchIds) =>
+      createClient(proj.project_url, proj.anon_key ?? key, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            ...(branchIds && branchIds.length ? { 'x-branch-ids': branchIds.join(',') } : {}),
+          },
+        },
+      }),
   };
   clientCache.set(tenantId, { client, at: Date.now() });
   return client;
