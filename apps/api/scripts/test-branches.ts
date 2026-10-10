@@ -29,7 +29,7 @@ const DHA_CASHIER = claims(DHA_USER, ['orders.view', 'orders.create', 'payments.
 const SQL = String.raw`
 do $$
 declare res text := ''; fails int := 0; n int; n2 int; b_main uuid; b_dha public.branches; b_clf public.branches;
-  o_main uuid; o_dha uuid; p_dha uuid; portal uuid; v text; tier text; feats text[]; v_uuid uuid; v_uuid2 uuid; v_item uuid; v_mi uuid; v_mv uuid; v_sup uuid; v_po uuid; v_pol uuid;
+  o_main uuid; o_dha uuid; p_dha uuid; portal uuid; v text; tier text; feats text[]; v_uuid uuid; v_uuid2 uuid; v_item uuid; v_mi uuid; v_mv uuid; v_sup uuid; v_po uuid; v_pol uuid; v_sum bigint; v_led bigint;
 begin
   b_main := app.default_branch_id();
   select count(*) into n from public.orders where branch_id is distinct from b_main;
@@ -244,6 +244,47 @@ begin
       else fails := fails + 1; res := res || format(E'FAIL B18 dha=%s main=%s\n', app.branch_qty(v_item, b_dha.id), app.branch_qty(v_item, b_main)); end if;
     exception when others then fails := fails + 1; res := res || 'FAIL B18 ' || sqlerrm || E'\n'; end;
     perform set_config('request.headers', '{}', true);
+
+    -- ── 0102: branch menu ──
+    if to_regclass('public.branch_menu_overrides') is not null then
+      perform set_config('request.jwt.claims', '${OWNER}', true);
+      perform public.set_branch_menu_override(b_dha.id, v_mi, null, 65000, null);    -- DHA charges Rs 650
+      perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+      perform set_config('request.headers', json_build_object('x-branch-ids', b_dha.id)::text, true);
+      select subtotal_cents into n from public.place_order('takeaway', null, 'QA guest', 0,
+        jsonb_build_array(jsonb_build_object('menu_item_id', v_mi, 'variant_id', v_mv, 'qty', 1)));
+      perform set_config('request.headers', json_build_object('x-branch-ids', b_main)::text, true);
+      select subtotal_cents into n2 from public.place_order('takeaway', null, 'QA guest', 0,
+        jsonb_build_array(jsonb_build_object('menu_item_id', v_mi, 'variant_id', v_mv, 'qty', 1)));
+      if n = 65000 and n2 = 50000 then res := res || E'PASS B19 one menu, branch prices: DHA charges Rs 650, MAIN Rs 500\n';
+      else fails := fails + 1; res := res || format(E'FAIL B19 dha=%s main=%s\n', n, n2); end if;
+
+      perform set_config('request.jwt.claims', '${OWNER}', true);
+      perform public.set_branch_menu_override(b_dha.id, v_mi, null, 65000, false);   -- DHA takes it off
+      perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+      perform set_config('request.headers', json_build_object('x-branch-ids', b_dha.id)::text, true);
+      begin
+        perform public.place_order('takeaway', null, 'QA guest', 0, jsonb_build_array(jsonb_build_object('menu_item_id', v_mi, 'variant_id', v_mv, 'qty', 1)));
+        fails := fails + 1; res := res || E'FAIL B20 DHA sold a dish it switched off\n';
+      exception when check_violation then res := res || E'PASS B20 a dish DHA switched off cannot be ordered at DHA\n'; end;
+      perform set_config('request.headers', '{}', true);
+      perform set_config('request.jwt.claims', '${DHA_CASHIER}', true);
+      begin
+        perform public.set_branch_menu_override(b_main, v_mi, null, 1, null);
+        fails := fails + 1; res := res || E'FAIL B21 a DHA login priced MAIN\x27s menu\n';
+      exception when insufficient_privilege then res := res || E'PASS B21 a DHA login cannot change MAIN\x27s menu prices\n'; end;
+    end if;
+
+    -- ── 0100: consolidated = sum of branches ──
+    perform set_config('request.jwt.claims', '${OWNER}', true);
+    perform set_config('request.headers', '{}', true);
+    if to_regprocedure('public.branch_summary(date, date)') is not null then
+      select coalesce(sum(net_sales_cents), 0) into v_sum from public.branch_summary(current_date - 3650, current_date + 1);
+      select coalesce(sum(signed_cents), 0) into v_led from public.financial_events where category = 'revenue' and branch_id is not null
+        and business_date between current_date - 3650 and current_date + 1;
+      if v_sum = v_led then res := res || format(E'PASS B22 branch rows add up exactly to the consolidated ledger sales (%s), nothing counted twice\n', v_led);
+      else fails := fails + 1; res := res || format(E'FAIL B22 branches=%s ledger=%s\n', v_sum, v_led); end if;
+    end if;
   end if;
 
   raise exception E'RESULTS (rolled back) — % failed\n%', fails, res;
