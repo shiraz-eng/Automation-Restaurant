@@ -382,6 +382,156 @@ If your website address changes, reprint the codes.
 4. Still broken → **contact support** with your restaurant name and a screenshot of the error.
 [[SUGGEST]] I get a permission error | How do I contact support? | Test a portal safely`,
   },
+
+  // ── Finance, taught step by step (numbers are the "example day" in ./knowledge.ts) ──
+  {
+    keys: ["Walk me through a day's money", 'Explain the finance model', 'How does the finance model work?', 'How does it track my money?'],
+    answer: `Here's one **example day**, told as a story. Each step is written to the **ledger** automatically:
+1. Table 4 pays **Rs 3,000 cash** → *Sales +3,000*, *Food cost +1,100* (from the recipes), *Payment +3,000*.
+2. A takeaway pays **Rs 1,500 by card** → *Sales +1,500*, *Food cost +400*.
+3. **Rs 500 refunded** for a wrong side dish → *Sales −500* (the food was still used, so food cost stays).
+4. **Rs 200** taken from the till for ice → a *cash pay-out*, with a reason.
+5. The **Rs 800 gas bill** is submitted, approved, then paid → *Expense +800* (counted once, on approval).
+6. A **Rs 5,000** tomato invoice matches the order and delivery, is approved, then paid → *Payable +5,000*, then *−5,000*.
+7. The till is counted and the **day is closed** (locked).
+
+**Result:** sales 4,000 − food cost 1,500 − expenses 800 = **operating profit Rs 1,700**. Nothing is owed to suppliers, and the till should hold 5,000 float + 3,000 − 200 = **Rs 7,800**.
+Where: **Finance → Finance overview**, and **Finance → Ledger** for every line.
+[[SUGGEST]] What is the ledger? | How is my profit calculated? | How does day close work?`,
+  },
+  {
+    keys: ['What is the ledger?', 'What is a ledger?', 'Explain the ledger'],
+    answer: `**The ledger is your restaurant's money diary** — one line for every money event, in order, that can never be rubbed out. Think of it as a bank statement for the whole restaurant.
+
+**Example:** in one day it might write:
+- *Order completed* · Sales · **+Rs 3,000**
+- *COGS recorded* · Food cost · **Rs 1,100**
+- *Refund issued* · Sales · **−Rs 500**
+- *Supplier invoice approved* · Payables · **+Rs 5,000**
+
+Nobody types these — they're written the moment the sale, refund, expense or bill happens. Each line shows the business day, who did it and a link to where it came from. That's why the Finance overview, profit report and day close always agree: they all read this one diary.
+
+**Where:** **Finance → Ledger**. Pick a period, click a category tile (Sales, Food cost, Expenses…) to see only those lines.
+**Tip:** lines are never edited or deleted — a mistake is fixed with a correction.
+[[SUGGEST]] How do I fix a wrong figure? | How is my profit calculated? | Walk me through a day's money`,
+  },
+  {
+    keys: ['How is my profit calculated?', 'How is profit calculated?', 'What is operating profit?'],
+    answer: `**Profit is what's left after paying for the food and the running costs.** Like a household budget: income, minus groceries, minus bills.
+
+**Example day:**
+1. **Sales** = 3,000 + 1,500 − 500 refund = **Rs 4,000**
+2. **Food cost** (ingredients on the plates, from recipes) = **Rs 1,500**
+3. **Gross profit** = 4,000 − 1,500 = **Rs 2,500**
+4. **Operating expenses** (approved costs like gas, rent, salaries) = **Rs 800**
+5. **Operating profit** = 2,500 − 800 = **Rs 1,700**
+
+**Where:** **Finance → Finance overview** — pick Today, This month, Last 30 days…; each figure is compared with the previous period (▲ better / ▼ worse) and links to the ledger lines behind it.
+**Tip:** an expense counts only once it's **approved**, and a supplier bill for stock isn't a cost until that food is sold.
+[[SUGGEST]] What is food cost (COGS)? | Why doesn't a supplier bill cut profit? | What is the ledger?`,
+  },
+  {
+    keys: ['What is food cost (COGS)?', 'What is food cost?', 'What is COGS?', 'What is food cost %?'],
+    answer: `**Food cost (COGS — "cost of goods sold") is what the ingredients on the plate cost.** It's worked out from each dish's **recipe** at the moment it's sold.
+
+**Example:** a Rs 3,000 table whose recipes add up to Rs 1,100, plus a Rs 1,500 takeaway costing Rs 400 → food cost **Rs 1,500**.
+**Food cost %** = food cost ÷ sales = 1,500 ÷ 4,000 = **37.5%**. If your target is 30%, that's too high — prices may need to rise or portions to shrink.
+
+**Where:** the **Finance overview** shows food cost % against your target (click *Target · change* to set it). **Food cost watch** lists dishes over target, or whose recipe cost went up in the last 30 days.
+**Tip:** a dish with no linked recipe has no food cost — link recipes on the **Menu** so this figure is real.
+[[SUGGEST]] How is my profit calculated? | Link dishes to ingredients | Why doesn't a supplier bill cut profit?`,
+  },
+  {
+    keys: ["Why doesn't a supplier bill cut profit?", 'Why does buying stock not reduce profit?'],
+    answer: `**Buying stock isn't a cost yet — using it is.** Like filling your fridge: the money has gone, but you haven't eaten anything yet.
+
+**Example:** you buy **Rs 5,000** of tomatoes. That adds Rs 5,000 to **stock value** and Rs 5,000 to what you **owe the supplier**. Your profit doesn't move. When dishes with those tomatoes are sold, their share of the tomatoes becomes **food cost** on those sales.
+
+So a big delivery day doesn't look like a loss, and a quiet day doesn't look like a fake profit.
+**Where:** **Purchasing** for the bill; **Finance overview → Owed to suppliers** and **Supplier payables aging** for what's unpaid.
+[[SUGGEST]] What is payables aging? | What is the 3-way match? | What is food cost (COGS)?`,
+  },
+  {
+    keys: ['How does expense approval work?', 'How do expenses work?', 'How do I record an expense?'],
+    answer: `**An expense goes through four steps, and it only counts as a cost once it's approved.** Like an office expense claim: you hand in the receipt, your manager signs it, then accounts pays it.
+
+**Example — the Rs 800 gas bill:**
+1. **Record** it on **Expenses** (category, amount, date, receipt photo) → *submitted*. Not a cost yet.
+2. **Approve** → now it's a Rs 800 operating cost on its expense date.
+3. **Pay** (cash / bank / card, with a reference) → *paid*. Still counted once, not twice.
+Or **reject** it with a reason.
+
+**Who:** recording, approving and paying are three separate permissions, so one person can't push money out alone.
+**Tip:** the **Finance overview** shows "expenses awaiting approval" under **Needs attention**.
+[[SUGGEST]] Who can approve and pay? | How is my profit calculated? | What is the ledger?`,
+  },
+  {
+    keys: ['What is the 3-way match?', 'What is 3-way matching?', 'How does invoice matching work?'],
+    answer: `**The 3-way match checks a supplier's bill before you pay it** by comparing three papers:
+1. **Purchase order** — what you ordered
+2. **Goods received** — what actually arrived
+3. **Invoice** — what they're charging
+
+**Example:** ordered 25 kg tomatoes at Rs 200, received 25 kg, invoiced 25 kg × Rs 200 = Rs 5,000 → **Matched** ✓.
+If they billed 30 kg, or Rs 220/kg, the invoice goes **On hold** with the reason ("quantity", "price", "missing delivery"…) until someone sorts it out.
+
+Then: matched → **approved** (now you owe it) → **paid**.
+**Where:** **Purchasing** → open the invoice → **Details**. You can also **✨ Read an invoice with AI** from a PDF or photo — a person always checks and applies it.
+**Who:** approving needs **Approve invoices**; paying needs **Record supplier payment** — different permissions.
+[[SUGGEST]] What is payables aging? | Who can approve and pay? | Why doesn't a supplier bill cut profit?`,
+  },
+  {
+    keys: ['What is payables aging?', 'What do I owe suppliers?'],
+    answer: `**Payables aging shows what you owe suppliers, sorted by how late it is.** Like a pile of unpaid bills sorted into "not due yet", "a bit late" and "very late".
+
+The columns: **Not yet due · 1–30 days · 31–60 · 61–90 · 90+ days overdue**, one row per supplier.
+**Example:** a Rs 20,000 invoice due 15 days ago sits in **1–30 days**; one due 120 days ago sits in **90+**. A paid invoice disappears.
+
+Only **approved** invoices are owed. One still on hold isn't payable yet.
+**Where:** **Finance → Finance overview → Supplier payables aging**; the **Owed to suppliers** tile shows the total and how much is overdue.
+[[SUGGEST]] What is the 3-way match? | How is my profit calculated? | Walk me through a day's money`,
+  },
+  {
+    keys: ['How does day close work?', 'How do I close the day?', 'What is a cash variance?'],
+    answer: `**Day close is your end-of-day check that the till and the records agree — then the day is locked.**
+
+**Example:** the till opened with a **Rs 5,000** float, took **Rs 3,000** cash and paid **Rs 200** for ice:
+expected cash = 5,000 + 3,000 − 200 = **Rs 7,800**.
+1. Open **Day close** — the preview shows sales, payments by method, expected cash and any problems.
+2. Record any **cash movements** you missed (pay-in, pay-out, bank drop) — each needs a reason.
+3. **Count the till** and enter it. If you counted Rs 7,700, the **Rs 100 short** (the variance) needs a written reason.
+4. **Close the day.** Nothing new can be dated to it (refunds still work). Reopening needs its own permission and a reason.
+
+**Tip:** the Finance overview lists recent days with sales that aren't closed yet.
+[[SUGGEST]] What is the ledger? | Who can approve and pay? | Walk me through a day's money`,
+  },
+  {
+    keys: ['How do I fix a wrong figure?', 'How do I correct the ledger?', 'Can I edit the ledger?'],
+    answer: `**You never edit the ledger — you add a correction.** Like a bank: it never deletes a wrong charge, it adds a refund line, so the history stays honest.
+
+**Example:** a Rs 3,000 cash sale was recorded twice. Post a correction to **Sales**, **Decrease (−)**, **Rs 3,000**, for that business day, with the reason "Cash sale recorded twice". Sales go back to the right figure and both lines stay visible.
+
+**Where:** **Finance → Ledger → + Post a correction** (category, increase/decrease, amount, business day, required reason). It's also written to the **Audit log**.
+**Who:** only someone with **Adjust ledger**.
+**Tip:** first fix the real record if you can (void the order, reject the expense) — the ledger corrects itself automatically. Use a correction only for what can't be fixed at the source.
+[[SUGGEST]] What is the ledger? | Who can approve and pay? | How is my profit calculated?`,
+  },
+  {
+    keys: ['Who can approve and pay?', 'What is separation of duties?', 'Which finance permissions are there?'],
+    answer: `**Different people record, approve and pay, so no one can send money out alone.** Like a cheque that needs two signatures.
+
+- Record / edit an expense → **Create / Update expense**
+- Approve or reject an expense → **Approve expense**
+- Pay an expense → **Pay expense**
+- Approve or reject a supplier invoice → **Approve invoices** (Manage payables alone can't)
+- Pay a supplier → **Record supplier payment**
+- Till pay-ins / pay-outs → **Manage cash**
+- Close / reopen a day → **Close day** / **Reopen day**
+- Correct the ledger → **Adjust ledger**
+
+The owner has all of them. Give each portal only what that job needs: **Portals → Edit access**. Every check is enforced by the database, and the AI never approves or pays anything.
+[[SUGGEST]] Create a counter login | How does expense approval work? | What is the 3-way match?`,
+  },
 ];
 
 const norm = (s: string) =>

@@ -56,6 +56,7 @@ function publicGroups(page?: string): PromptGroup[] {
       { label: 'What will it do for my restaurant?', text: 'What will Automation Restaurant actually do for my restaurant day to day?' },
       { label: 'How does food availability run itself?', text: 'How does automatic food availability work, and why does it matter?' },
       { label: 'Can my staff each get their own login?', text: 'Can each station or staff member get their own login with limited access?' },
+      { label: 'How does it track my money?', text: 'How does it track my money?' },
     ],
   };
   const setup: PromptGroup = {
@@ -118,6 +119,26 @@ const PAGE_PROMPTS: [RegExp, Prompt[]][] = [
     { label: 'Take a payment', text: 'How do I take a payment and print the receipt?' },
     { label: 'Refunds and discounts', text: 'How do refunds and discounts work at checkout?' },
   ]],
+  [/\/finance\/ledger/, [
+    { label: 'What is the ledger?', text: 'What is the ledger?' },
+    { label: 'Fix a wrong figure', text: 'How do I fix a wrong figure?' },
+  ]],
+  [/\/finance/, [
+    { label: 'How is my profit calculated?', text: 'How is my profit calculated?' },
+    { label: 'What is payables aging?', text: 'What is payables aging?' },
+  ]],
+  [/\/expenses/, [
+    { label: 'How expense approval works', text: 'How does expense approval work?' },
+    { label: 'Who can approve and pay?', text: 'Who can approve and pay?' },
+  ]],
+  [/\/close/, [
+    { label: 'How day close works', text: 'How does day close work?' },
+    { label: 'What is a cash variance?', text: 'What is a cash variance?' },
+  ]],
+  [/\/purchasing/, [
+    { label: 'What is the 3-way match?', text: 'What is the 3-way match?' },
+    { label: "Why a bill doesn't cut profit", text: "Why doesn't a supplier bill cut profit?" },
+  ]],
   [/\/settings/, [
     { label: 'Set up my branding', text: 'How do I set my logo, colours and receipt details?' },
   ]],
@@ -137,6 +158,15 @@ function portalGroups(page?: string): PromptGroup[] {
         { label: 'What should I set up first?', text: 'I just got my portal. What should I set up first, in order?' },
         { label: 'Get ready for my first order', text: 'Help me get everything ready for my first real order.' },
         ...(here ? [] : [{ label: 'Create logins for my stations', text: 'How do I create logins for my counter and kitchen?' }]),
+      ],
+    },
+    {
+      title: 'Understand your money',
+      icon: <BadgeDollarSign size={12} />,
+      prompts: [
+        { label: "Walk me through a day's money", text: "Walk me through a day's money" },
+        { label: 'What is the ledger?', text: 'What is the ledger?' },
+        { label: 'How is my profit calculated?', text: 'How is my profit calculated?' },
       ],
     },
     {
