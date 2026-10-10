@@ -123,7 +123,7 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ table?: string; name?: string; guest?: string }>;
+  searchParams: Promise<{ table?: string; name?: string; guest?: string; b?: string }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
@@ -159,6 +159,7 @@ export default async function OrderPage({
       slug={slug}
       restaurantName={config.restaurantName}
       table={table ?? null}
+      branchCode={typeof sp.b === 'string' && /^[A-Za-z0-9-]{2,12}$/.test(sp.b) ? sp.b.toUpperCase() : null}
       customerName={customerName ?? null}
       categories={menu.categories}
       items={menu.items}

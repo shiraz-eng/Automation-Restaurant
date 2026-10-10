@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
+import { loadBranchContext } from '@/lib/branchServer';
 import type { ReceiptConfig as CheckoutClientReceiptConfig } from '@/lib/receiptTemplate';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from './CheckoutClient';
 
@@ -13,7 +14,11 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   const { role, perms } = await gatePortalPage(t.client, slug, 'payments.view');
-  const canCreateOrder = can(perms, role, 'orders.create');
+  // Multi-branch: a new order belongs to one branch, so with All branches selected checkout
+  // still takes payments for open bills but asks for a branch before ringing up a new order.
+  const branchCtx = await loadBranchContext(t.client);
+  const needsBranch = branchCtx.multi && !branchCtx.selectedId;
+  const canCreateOrder = can(perms, role, 'orders.create') && !needsBranch;
   // The restaurant's tax setting — the same rate place_order() charges.
   const { data: taxRows } = await t.client.rpc('get_tax_settings');
   const taxRow = (Array.isArray(taxRows) ? taxRows[0] : taxRows) as { tax_enabled: boolean; tax_rate_bps: number } | null;
@@ -74,6 +79,12 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
     <div className="space-y-4">
       <h1 className="text-xl font-black">Checkout</h1>
       <p className="text-muted text-xs -mt-3">Open a bill, take payment, issue a refund.</p>
+      {needsBranch && (
+        <div className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs">
+          You are viewing <b>all branches</b>. Open bills from every branch are below; to ring up a new order, choose the branch
+          you are taking it for in the Branch selector in the menu.
+        </div>
+      )}
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
           {error.message}

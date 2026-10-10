@@ -3,6 +3,8 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
 import { fetchPortalTheme } from '@/lib/theme';
+import { BranchSelector } from '@/components/BranchSelector';
+import { loadBranchContext } from '@/lib/branchServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,11 +55,13 @@ export default async function PortalLayout({
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
+  // The portal's branches (all, or the ones Branches → logins assigned it) and the one in use.
+  const branchCtx = await loadBranchContext(t.client);
 
   return (
     <PortalProvider
       expectedUserId={user.id}
-      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
+      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey, branchId: branchCtx.selectedId }}
     >
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between px-5 h-14 border-b border-border bg-surface shrink-0">
@@ -73,7 +77,15 @@ export default async function PortalLayout({
             {portal.status === 'disabled' && (
               <span className="text-[10px] font-bold text-danger">DISABLED</span>
             )}
+            {!branchCtx.multi && branchCtx.selected && branchCtx.branches.length > 0 && (
+              <span className="text-xs text-muted">{branchCtx.selected.name}</span>
+            )}
           </div>
+          {branchCtx.multi && (
+            <div className="w-48">
+              <BranchSelector slug={slug} branches={branchCtx.branches} selected={branchCtx.selectedId} allowAll />
+            </div>
+          )}
           <div className="flex items-center gap-3 text-xs text-muted">
             <span className="hidden sm:inline">{user.email}</span>
             <SignOutButton redirectTo={`/r/${slug}/login`} />

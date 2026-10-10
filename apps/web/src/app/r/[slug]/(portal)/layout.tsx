@@ -1,6 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
+import { BranchSelector } from '@/components/BranchSelector';
+import { loadBranchContext } from '@/lib/branchServer';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ChangePasswordControl } from '@/components/ChangePasswordControl';
 import { NavLink } from '@/components/NavLink';
@@ -66,6 +68,7 @@ const NAV_GROUPS: [string, NavItem[]][] = [
     [
       ['finance', 'Finance overview', 'finance.view', false, 'accounting.finance'],
       ['finance/ledger', 'Ledger', 'finance.view', false, 'accounting.finance'],
+      ['finance/branches', 'Branch comparison', 'finance.view', false, 'branches.multi'],
       ['expenses', 'Expenses', 'finance.view', false, 'accounting.finance'],
       ['billing', 'Billing', 'settings.view', true],
     ],
@@ -91,6 +94,7 @@ const NAV_GROUPS: [string, NavItem[]][] = [
     'Settings',
     [
       ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
+      ['branches', 'Branches', 'branches.view', false, 'branches.multi'],
       ['settings/currency', 'Currency', 'settings.view', true],
       ['settings/tax', 'Tax', 'settings.view', true],
       ['settings/refunds', 'Refund approvals', 'settings.view', true],
@@ -149,6 +153,8 @@ export default async function PortalLayout({
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
+  // Multi-branch: the login's branches and the one being worked in (empty before migration 0098).
+  const branchCtx = await loadBranchContext(t.client);
 
   const visibleGroups = NAV_GROUPS.map(([group, items]) => [
     group,
@@ -158,7 +164,7 @@ export default async function PortalLayout({
   return (
     <PortalProvider
       expectedUserId={user.id}
-      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
+      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey, branchId: branchCtx.selectedId }}
     >
       <div className="min-h-screen flex bg-main">
         <aside className="hidden md:flex md:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
@@ -175,6 +181,11 @@ export default async function PortalLayout({
             <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
               {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
             </div>
+            {branchCtx.multi && (
+              <div className="mt-3">
+                <BranchSelector slug={slug} branches={branchCtx.branches} selected={branchCtx.selectedId} allowAll />
+              </div>
+            )}
           </div>
           <nav className="flex-1 flex flex-col gap-4 px-3 pb-5">
             {visibleGroups.map(([group, items]) => (

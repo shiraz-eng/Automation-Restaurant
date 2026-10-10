@@ -40,6 +40,13 @@ export async function POST(request: Request) {
     }
 
     const client = createClient(config.url, config.anonKey);
+    // The branch from the table's QR code (?b=CODE), resolved to an active branch.
+    let branchId = '';
+    if (typeof payload.branch === 'string' && /^[A-Za-z0-9-]{2,12}$/.test(payload.branch)) {
+      const { data: b } = await client.from('branches').select('id').eq('code', payload.branch.toUpperCase()).eq('status', 'active').maybeSingle();
+      if (!b) return NextResponse.json({ error: 'branch_not_found', message: 'This branch is not taking orders right now.' }, { status: 422 });
+      branchId = (b as { id: string }).id;
+    }
     const { data, error } = await client.rpc('place_order', {
       p_channel: channel || 'dine_in',
       p_table_label: table ?? null,
@@ -48,7 +55,7 @@ export async function POST(request: Request) {
       p_lines: lines,
       p_promo_code: promo_code ?? null,
       p_customer_note: customer_note ?? null,
-    });
+    }).setHeader('x-branch-ids', branchId);
 
     if (error) {
       return NextResponse.json({ error: 'order_failed', message: error.message }, { status: 400 });

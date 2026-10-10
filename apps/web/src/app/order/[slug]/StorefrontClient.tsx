@@ -43,6 +43,7 @@ export function StorefrontClient({
   slug,
   restaurantName,
   table,
+  branchCode = null,
   customerName,
   categories,
   items,
@@ -53,6 +54,8 @@ export function StorefrontClient({
   slug: string;
   restaurantName: string;
   table: string | null;
+  /** The branch this QR code / link belongs to (multi-branch); null = the restaurant's main branch. */
+  branchCode?: string | null;
   customerName?: string | null;
   categories: MenuCategory[];
   items: MenuItem[];
@@ -327,6 +330,7 @@ export function StorefrontClient({
         body: JSON.stringify({
           slug,
           table: tableLabel.trim() || undefined,
+          branch: branchCode ?? undefined,
           guest_name: guestName.trim() || undefined,
           channel: 'dine_in',
           promo_code:

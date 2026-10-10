@@ -8,6 +8,8 @@ type PortalValue = {
   slug: string;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  /** The branch being worked in (lib/branchScope.ts), sent with every request; null = all branches. */
+  branchId?: string | null;
 };
 
 type PortalContextValue = PortalValue & { supabase: SupabaseClient };
@@ -44,8 +46,9 @@ export function PortalProvider({
   children: React.ReactNode;
 }) {
   const supabase = useMemo(
-    () => createTenantBrowserClient(value.supabaseUrl, value.supabaseAnonKey),
-    [value.supabaseUrl, value.supabaseAnonKey],
+    () => createTenantBrowserClient(value.supabaseUrl, value.supabaseAnonKey, value.branchId),
+    // Switching branch reloads the page (BranchSelector), so this never builds a second client.
+    [value.supabaseUrl, value.supabaseAnonKey, value.branchId],
   );
   const ctx = useMemo(() => ({ ...value, supabase }), [value, supabase]);
 

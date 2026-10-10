@@ -264,6 +264,8 @@ publicRouter.get('/promo/:slug', async (req: Request, res: Response) => {
 const orderSchema = z.object({
   slug: z.string().min(1),
   table: z.string().trim().max(40).optional(),
+  // Branch code from the table's QR code (multi-branch). Omitted = the main branch.
+  branch: z.string().trim().regex(/^[A-Za-z0-9-]{2,12}$/).optional(),
   guest_name: z.string().trim().max(80).optional(),
   channel: z.enum(['dine_in', 'takeaway', 'delivery']).default('dine_in'),
   promo_code: z.string().trim().min(1).max(40).optional(),
@@ -298,10 +300,19 @@ publicRouter.post('/orders', express.json(), async (req: Request, res: Response)
       .status(422)
       .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
   }
-  const { slug, table, guest_name, channel, promo_code, customer_note, lines } = parsed.data;
+  const { slug, table, branch, guest_name, channel, promo_code, customer_note, lines } = parsed.data;
 
   const tenant = await tenantClientForSlug(slug);
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
+
+  // The branch the guest is ordering from: guests may read active branches by code; the
+  // database also refuses an order for an inactive branch.
+  let branchId: string | null = null;
+  if (branch) {
+    const { data: b } = await tenant.from('branches').select('id').eq('code', branch.toUpperCase()).eq('status', 'active').maybeSingle();
+    if (!b) return res.status(422).json({ error: 'branch_not_found', message: 'This branch is not taking orders right now.' });
+    branchId = (b as { id: string }).id;
+  }
 
   // place_order re-validates the code against the live promotion server-side and
   // computes the discount itself — the client can't dictate a price. Notes are
@@ -314,7 +325,7 @@ publicRouter.post('/orders', express.json(), async (req: Request, res: Response)
     p_lines: lines,
     p_promo_code: promo_code ?? null,
     p_customer_note: customer_note ?? null,
-  });
+  }).setHeader('x-branch-ids', branchId ?? '');
   if (error) {
     return res.status(400).json({ error: 'order_failed', message: error.message });
   }
