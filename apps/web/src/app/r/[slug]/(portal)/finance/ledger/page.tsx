@@ -8,7 +8,8 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { formatCents, formatDateTime } from '@/lib/format';
-import { resolveFinancePeriod, monthLabel } from '@/lib/financePeriod';
+import { resolveFinancePeriod, monthLabel, rangeLabel } from '@/lib/financePeriod';
+import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { FinancePeriodBar } from '@/components/FinancePeriodBar';
 import { LedgerAdjustmentForm } from './LedgerAdjustmentForm';
 
@@ -125,6 +126,13 @@ export default async function LedgerPage({
             happens. Entries are never edited or deleted; mistakes are corrected with a new, reasoned adjustment.
           </p>
         </div>
+        <SectionReportButtons
+          slug={slug}
+          restaurantName={t.config.restaurantName}
+          domain="finance"
+          label="Finance"
+          range={{ from: range.from, to: range.to, label: rangeLabel(range.from, range.to) }}
+        />
       </div>
 
       <FinancePeriodBar

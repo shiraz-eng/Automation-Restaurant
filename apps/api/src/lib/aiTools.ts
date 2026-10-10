@@ -4439,6 +4439,9 @@ type BuiltReportData = {
   aiInsights?: { positives: string[]; areasToReview: { area: string; evidence: string; recommendation: string }[] };
   // Every order placed in the period — only for the Orders report (domain 'orders').
   orders?: ReportOrderRow[];
+  // Finance report only: the period month by month, from the ledger, and what is owed by age.
+  monthly?: { month: string; from: string; to: string; net_sales_cents: number; cogs_cents: number; expenses_cents: number }[];
+  payablesAging?: { supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number; d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number }[];
   aiSummary: string | null;
 };
 
@@ -4539,6 +4542,48 @@ export async function buildReportData(
       refunded_cents: o.refunded_cents ?? 0,
       payment_method:
         [...new Set((o.payments ?? []).filter((p) => p.status !== 'voided').map((p) => p.method))].join(' + ') || null,
+    }));
+  }
+
+  // The Finance report adds the period month by month (from the ledger) and payables aging.
+  let monthly: BuiltReportData['monthly'];
+  let payablesAging: BuiltReportData['payablesAging'];
+  if (args.domain === 'finance') {
+    const addDay = (ymd: string, n: number) => {
+      const d = new Date(`${ymd}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    const months: { month: string; from: string; to: string }[] = [];
+    for (let start = `${days.from.slice(0, 7)}-01`; start <= days.to && months.length < 24; ) {
+      const next = new Date(`${start}T00:00:00Z`);
+      next.setUTCMonth(next.getUTCMonth() + 1);
+      const nextStart = next.toISOString().slice(0, 10);
+      const mFrom = start < days.from ? days.from : start;
+      const mEnd = addDay(nextStart, -1);
+      months.push({ month: start.slice(0, 7), from: mFrom, to: mEnd > days.to ? days.to : mEnd });
+      start = nextStart;
+    }
+    const [monthRows, agingRes] = await Promise.all([
+      Promise.all(
+        months.map(async (m) => {
+          const { data } = await admin.rpc('ledger_summary', { p_from: m.from, p_to: m.to });
+          const by = (c: string) => Number(((data ?? []) as { category: string; net_cents: number }[]).find((r) => r.category === c)?.net_cents ?? 0);
+          return { ...m, net_sales_cents: by('revenue'), cogs_cents: by('cogs'), expenses_cents: by('expense') };
+        }),
+      ),
+      admin.rpc('payables_aging'),
+    ]);
+    monthly = monthRows;
+    payablesAging = ((agingRes.data ?? []) as NonNullable<BuiltReportData['payablesAging']>).map((r) => ({
+      supplier_name: r.supplier_name,
+      invoices: Number(r.invoices),
+      current_cents: Number(r.current_cents),
+      d1_30_cents: Number(r.d1_30_cents),
+      d31_60_cents: Number(r.d31_60_cents),
+      d61_90_cents: Number(r.d61_90_cents),
+      d90_plus_cents: Number(r.d90_plus_cents),
+      total_cents: Number(r.total_cents),
     }));
   }
 
@@ -4665,6 +4710,8 @@ export async function buildReportData(
       inventoryItems,
       stockMovements,
       orders,
+      monthly,
+      payablesAging,
       aiInsights: {
         positives: (positivesRes as { highlights: string[] }).highlights,
         areasToReview: (areasRes as { areas: { area: string; evidence: string; recommendation: string }[] }).areas,

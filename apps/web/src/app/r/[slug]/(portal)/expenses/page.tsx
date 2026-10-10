@@ -110,7 +110,13 @@ export default async function ExpensesPage({
             Track revenue, operating costs, gross margins, and net profit with live graphs, breakdown reports, and period sorting.
           </p>
         </div>
-        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="expenses" label="Finance" />
+        <SectionReportButtons
+          slug={slug}
+          restaurantName={t.config.restaurantName}
+          domain="finance"
+          label="Finance"
+          range={{ from: fromStr, to: toStr, label: rangeLabel(fromStr, toStr) }}
+        />
       </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">{error.message}</div>

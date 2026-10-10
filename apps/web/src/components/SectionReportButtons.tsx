@@ -36,12 +36,16 @@ export function SectionReportButtons({
   restaurantName,
   domain,
   label,
+  range,
 }: {
   slug: string;
   restaurantName: string;
   domain: ReportDomain;
   /** e.g. "Suppliers" — used in button titles and the day-picker heading. */
   label: string;
+  /** The page's own selected period (Finance date bar). When given, the PDF and Excel use it
+   *  and this component's own period picker is hidden. */
+  range?: { from: string; to: string; label: string };
 }) {
   const supabase = usePortalSupabase();
   const [period, setPeriod] = useState<SectionPeriod>('this_month');
@@ -51,10 +55,16 @@ export function SectionReportButtons({
   const [busy, setBusy] = useState<'pdf' | 'excel' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const rangeArgs: Record<string, string> = customRange ? { from: customRange.from, to: customRange.to } : { period };
-  const periodLabel = customRange
-    ? `${customRange.from} to ${customRange.to}`
-    : (PERIODS.find((p) => p.key === period)?.label ?? period);
+  const rangeArgs: Record<string, string> = range
+    ? { from: range.from, to: range.to }
+    : customRange
+      ? { from: customRange.from, to: customRange.to }
+      : { period };
+  const periodLabel = range
+    ? range.label
+    : customRange
+      ? `${customRange.from} to ${customRange.to}`
+      : (PERIODS.find((p) => p.key === period)?.label ?? period);
 
   async function authHeader() {
     const {
@@ -118,6 +128,11 @@ export function SectionReportButtons({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
+        {range ? (
+          <span className="text-[10px] text-muted">
+            Report for <span className="font-semibold text-body">{range.label}</span>
+          </span>
+        ) : (
         <div className="flex gap-1 rounded-lg border border-border bg-main p-1">
           {PERIODS.map((p) => (
             <button
@@ -143,6 +158,7 @@ export function SectionReportButtons({
             Date / Custom
           </button>
         </div>
+        )}
         <button
           onClick={handlePdf}
           disabled={busy !== null}
@@ -161,7 +177,7 @@ export function SectionReportButtons({
         </button>
       </div>
 
-      {customOpen && (
+      {customOpen && !range && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-main p-2.5">
           <label className="text-[10px] text-muted flex flex-col gap-1">
             From

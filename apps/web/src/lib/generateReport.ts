@@ -154,6 +154,12 @@ export type ReportOrder = {
   payment_method: string | null;
 };
 
+export type ReportMonth = { month: string; from: string; to: string; net_sales_cents: number; cogs_cents: number; expenses_cents: number };
+export type ReportPayablesAging = {
+  supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number;
+  d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number;
+};
+
 export type ReportData = {
   restaurantName: string;
   logoUrl?: string | null;
@@ -181,6 +187,9 @@ export type ReportData = {
   stockMovements?: ReportStockMovement[];
   /** Every order in the period — the Orders report only. */
   orders?: ReportOrder[];
+  /** Finance report: the period month by month (ledger) and supplier payables by age. */
+  monthly?: ReportMonth[];
+  payablesAging?: ReportPayablesAging[];
   aiInsights?: ReportAiInsights;
   aiSummary: string | null;
   // Brand Kit's accent color ("R G B" channel string, same format
@@ -227,7 +236,7 @@ function parseChannels(channels: string | null | undefined): [number, number, nu
 // Executive Summary / Profit & Loss / AI Summary that only make sense on
 // the complete report.
 export type ReportSection =
-  | 'orders' | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
+  | 'orders' | 'monthly' | 'payables_aging' | 'sales_trend' | 'products' | 'expenses' | 'revenue_mix' | 'customer_experience' | 'staff_attendance'
   | 'purchasing' | 'supplier_payments' | 'deals' | 'promotions' | 'inventory'
   | 'management_activity' | 'attention_items' | 'ai_insights';
 export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
@@ -236,7 +245,12 @@ export const REPORT_DOMAIN_SECTIONS: Record<string, ReportSection[]> = {
   inventory: ['inventory'],
   orders: ['orders', 'products', 'deals', 'promotions'],
   expenses: ['sales_trend', 'expenses'],
-  finance: ['sales_trend', 'expenses', 'supplier_payments', 'purchasing'],
+  // The full dashboard report, plus the period month by month and payables aging.
+  finance: [
+    'monthly', 'sales_trend', 'products', 'expenses', 'revenue_mix', 'customer_experience', 'staff_attendance',
+    'purchasing', 'supplier_payments', 'payables_aging', 'deals', 'promotions', 'inventory',
+    'management_activity', 'attention_items', 'ai_insights',
+  ],
 };
 const DOMAIN_REPORT_TITLES: Record<string, string> = {
   suppliers: 'Supplier Payments Report',
@@ -369,6 +383,58 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       y + 4,
     );
     y += 10;
+  }
+
+  // ── Month by month (Finance report) ─────────────────────────────────
+  // Months before the restaurant's first activity in the period are left out.
+  const activeMonths = (data.monthly ?? []).slice((data.monthly ?? []).findIndex((m) => m.net_sales_cents || m.cogs_cents || m.expenses_cents) >>> 0);
+  if (activeMonths.length > 1 && showSection('monthly')) {
+    y = ensureSpace(doc, y, 30);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Month by Month', MARGIN, y);
+    y += 3;
+    const monthName = (ym: string) =>
+      new Date(`${ym}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    const rows = activeMonths.map((m) => {
+      const gross = m.net_sales_cents - m.cogs_cents;
+      const op = gross - m.expenses_cents;
+      return [
+        monthName(m.month),
+        formatCents(m.net_sales_cents),
+        formatCents(m.cogs_cents),
+        formatCents(gross),
+        formatCents(m.expenses_cents),
+        formatCents(op),
+        m.net_sales_cents > 0 ? `${Math.round((m.cogs_cents / m.net_sales_cents) * 1000) / 10}%` : '—',
+      ];
+    });
+    const t = activeMonths.reduce(
+      (a, m) => ({ s: a.s + m.net_sales_cents, c: a.c + m.cogs_cents, e: a.e + m.expenses_cents }),
+      { s: 0, c: 0, e: 0 },
+    );
+    autoTable(doc, {
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN },
+      head: [['Month', 'Net sales', 'Food cost', 'Gross profit', 'Expenses', 'Operating profit', 'Food cost %']],
+      body: rows,
+      foot: [[
+        'Total', formatCents(t.s), formatCents(t.c), formatCents(t.s - t.c), formatCents(t.e), formatCents(t.s - t.c - t.e),
+        t.s > 0 ? `${Math.round((t.c / t.s) * 1000) / 10}%` : '—',
+      ]],
+      styles: { fontSize: 8.5, cellPadding: 1.5 },
+      headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+      footStyles: { fillColor: [241, 245, 249], textColor: [17, 17, 17], fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    y = (doc as any).lastAutoTable.finalY + 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text('From the financial ledger: expenses are approved expenses dated in each month.', MARGIN, y);
+    y += 8;
   }
 
   // ── Sales trend (hand-drawn vector bars — not a screenshot) ─────────
@@ -712,6 +778,45 @@ export async function buildReportDoc(data: ReportData, opts?: { sections?: Repor
       }
     } else {
       y += 6;
+    }
+  }
+
+  // ── Payables aging (Finance report) ─────────────────────────────────
+  if (data.payablesAging && showSection('payables_aging')) {
+    y = ensureSpace(doc, y, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(...BODY);
+    doc.text('Supplier Payables Aging', MARGIN, y);
+    y += 3;
+    if (data.payablesAging.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...MUTED);
+      doc.text('Nothing is owed to suppliers.', MARGIN, y + 3);
+      y += 10;
+    } else {
+      const sum = (k: keyof ReportPayablesAging) => data.payablesAging!.reduce((n, r) => n + Number(r[k]), 0);
+      autoTable(doc, {
+        startY: y,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Supplier', 'Not yet due', '1–30 days', '31–60', '61–90', '90+', 'Total']],
+        body: data.payablesAging.map((r) => [
+          `${r.supplier_name} (${r.invoices})`,
+          formatCents(r.current_cents), formatCents(r.d1_30_cents), formatCents(r.d31_60_cents),
+          formatCents(r.d61_90_cents), formatCents(r.d90_plus_cents), formatCents(r.total_cents),
+        ]),
+        foot: [[
+          'Total', formatCents(sum('current_cents')), formatCents(sum('d1_30_cents')), formatCents(sum('d31_60_cents')),
+          formatCents(sum('d61_90_cents')), formatCents(sum('d90_plus_cents')), formatCents(sum('total_cents')),
+        ]],
+        styles: { fontSize: 8.5, cellPadding: 1.5 },
+        headStyles: { fillColor: PRIMARY, textColor: [255, 255, 255] },
+        footStyles: { fillColor: [241, 245, 249], textColor: [17, 17, 17], fontStyle: 'bold' },
+        columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 8;
     }
   }
 

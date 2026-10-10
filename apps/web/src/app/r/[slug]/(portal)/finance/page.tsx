@@ -102,6 +102,10 @@ export default async function FinanceOverviewPage({
         )
       : [];
 
+  // Leave out months before the first activity in the period (e.g. before the restaurant opened).
+  const firstActive = monthly.findIndex((m) => m.revenue || m.cogs || m.expenses);
+  if (firstActive > 0) monthly.splice(0, firstActive);
+
   const now = bucket((cur.data as SummaryRow[] | null) ?? []);
   const before = bucket((prev.data as SummaryRow[] | null) ?? []);
   const targetPct = (settings?.food_cost_target_bps ?? 3000) / 100;
@@ -144,7 +148,13 @@ export default async function FinanceOverviewPage({
             Profit, cash and what you owe — every figure comes from the financial ledger and links to the entries behind it.
           </p>
         </div>
-        <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="finance" label="Finance" />
+        <SectionReportButtons
+          slug={slug}
+          restaurantName={t.config.restaurantName}
+          domain="finance"
+          label="Finance"
+          range={{ from: range.from, to: range.to, label: rangeLabel(range.from, range.to) }}
+        />
       </div>
 
       <FinancePeriodBar
