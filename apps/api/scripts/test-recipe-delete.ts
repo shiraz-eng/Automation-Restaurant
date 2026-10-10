@@ -10,6 +10,8 @@ import { getFreshConnection } from '../src/lib/supabaseOAuth';
 import { env } from '../src/env';
 
 const REF = process.argv[2] ?? 'uhfwoftjecgjemvwqdbp';
+// PRE_SQL=<file>: run a migration first inside the same rolled-back transaction (rehearsal).
+const PRE = process.env.PRE_SQL ? require('node:fs').readFileSync(process.env.PRE_SQL, 'utf8') + String.fromCharCode(10) : '';
 
 const SQL = String.raw`
 do $$
@@ -89,7 +91,7 @@ async function main() {
   const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: SQL }),
+    body: JSON.stringify({ query: PRE + SQL }),
   });
   const text = await r.text();
   const m = text.match(/RESULTS \(rolled back\) — (\d+) failed\\n([\s\S]*?)"}/);

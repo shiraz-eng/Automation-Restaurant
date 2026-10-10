@@ -29,7 +29,7 @@ const DHA_CASHIER = claims(DHA_USER, ['orders.view', 'orders.create', 'payments.
 const SQL = String.raw`
 do $$
 declare res text := ''; fails int := 0; n int; n2 int; b_main uuid; b_dha public.branches; b_clf public.branches;
-  o_main uuid; o_dha uuid; p_dha uuid; portal uuid; v text; tier text; feats text[]; v_uuid uuid; v_uuid2 uuid;
+  o_main uuid; o_dha uuid; p_dha uuid; portal uuid; v text; tier text; feats text[]; v_uuid uuid; v_uuid2 uuid; v_item uuid; v_mi uuid; v_mv uuid; v_sup uuid; v_po uuid; v_pol uuid;
 begin
   b_main := app.default_branch_id();
   select count(*) into n from public.orders where branch_id is distinct from b_main;
@@ -178,6 +178,71 @@ begin
     insert into public.expenses (category, description, amount_cents, expense_date, status) values ('Marketing', 'QA brand campaign', 100, current_date, 'approved') returning branch_id into v_uuid2;
     if v_uuid = b_dha.id and v_uuid2 = b_main then res := res || E'PASS B12 an expense recorded in DHA is DHA\x27s; with All selected it goes to the main (head-office) branch\n';
     else fails := fails + 1; res := res || format(E'FAIL B12 dha=%s shared=%s\n', v_uuid, v_uuid2); end if;
+    perform set_config('request.headers', '{}', true);
+  end if;
+
+  -- ── 0101: stock per branch ──
+  if to_regclass('public.branch_stock') is not null then
+    perform set_config('request.jwt.claims', '${OWNER}', true);
+    perform set_config('request.headers', '{}', true);
+    -- B13
+    select count(*) into n from public.inventory_items i
+     where coalesce(i.stock_qty, 0) <> coalesce((select sum(stock_qty) from public.branch_stock bs where bs.inventory_item_id = i.id), 0);
+    if n = 0 then res := res || E'PASS B13 each ingredient\x27s branch stock adds up to its total\n';
+    else fails := fails + 1; res := res || format(E'FAIL B13 %s items out of step\n', n); end if;
+
+    -- An ingredient at MAIN, a dish that uses 20 g of it
+    insert into public.inventory_items (name, unit, stock_qty, cost_cents_per_base_unit, min_threshold)
+      values ('QA Branch Spice', 'g', 100, 10, 5) returning id into v_item;
+    insert into public.menu_items (name, price_cents) values ('QA Branch Tikka', 0) returning id into v_mi;
+    insert into public.menu_variants (menu_item_id, name, price_cents) values (v_mi, 'Regular', 50000) returning id into v_mv;
+    insert into public.recipe_components (menu_item_id, variant_id, inventory_item_id, qty_per_unit) values (v_mi, null, v_item, 20);
+
+    -- B14: transfer 30 g MAIN → DHA
+    perform public.transfer_stock(v_item, b_main, b_dha.id, 30, 'QA weekly top-up');
+    if app.branch_qty(v_item, b_main) = 70 and app.branch_qty(v_item, b_dha.id) = 30
+       and (select stock_qty from public.inventory_items where id = v_item) = 100
+       and not exists (select 1 from public.financial_events e join public.stock_ledger s on s.id = e.source_id
+                        where s.inventory_item_id = v_item and e.category in ('revenue', 'expense', 'cogs'))
+       and coalesce((select sum(e.signed_cents) from public.financial_events e join public.stock_ledger s on s.id = e.source_id
+                      where s.inventory_item_id = v_item and s.note like 'Transfer%'), 0) = 0 then
+      res := res || E'PASS B14 a transfer moves 30 g MAIN → DHA: total unchanged, no revenue or expense, inventory value nets to zero\n';
+    else fails := fails + 1; res := res || format(E'FAIL B14 main=%s dha=%s total=%s\n',
+      app.branch_qty(v_item, b_main), app.branch_qty(v_item, b_dha.id), (select stock_qty from public.inventory_items where id = v_item)); end if;
+
+    -- B16: availability per branch (DHA 30 g → 1 dish; MAIN 70 g → 3)
+    select floor(producible_qty) into n from public.product_availability where branch_id = b_dha.id and menu_item_id = v_mi limit 1;
+    select floor(producible_qty) into n2 from public.product_availability where branch_id = b_main and menu_item_id = v_mi limit 1;
+    if n = 1 and n2 = 3 then res := res || E'PASS B16 availability is per branch: DHA can make 1, MAIN 3\n';
+    else fails := fails + 1; res := res || format(E'FAIL B16 dha=%s main=%s\n', n, n2); end if;
+
+    -- B15 + B17: a guest at DHA
+    perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+    perform set_config('request.headers', json_build_object('x-branch-ids', b_dha.id)::text, true);
+    begin
+      perform public.place_order('takeaway', null, 'QA guest', 0, jsonb_build_array(jsonb_build_object('menu_item_id', v_mi, 'variant_id', v_mv, 'qty', 2)));
+      fails := fails + 1; res := res || E'FAIL B17 DHA sold 2 with stock for 1\n';
+    exception when check_violation then res := res || E'PASS B17 DHA cannot sell 2 when it can make 1, though MAIN has stock\n'; end;
+    perform public.place_order('takeaway', null, 'QA guest', 0, jsonb_build_array(jsonb_build_object('menu_item_id', v_mi, 'variant_id', v_mv, 'qty', 1)));
+    perform set_config('request.headers', '{}', true);
+    perform set_config('request.jwt.claims', '${OWNER}', true);
+    if app.branch_qty(v_item, b_dha.id) = 10 and app.branch_qty(v_item, b_main) = 70 then
+      res := res || E'PASS B15 a DHA sale deducts 20 g from DHA only (DHA 10, MAIN 70)\n';
+    else fails := fails + 1; res := res || format(E'FAIL B15 dha=%s main=%s\n', app.branch_qty(v_item, b_dha.id), app.branch_qty(v_item, b_main)); end if;
+
+    -- B18: a DHA purchase order received while working in MAIN stocks DHA
+    perform set_config('request.headers', json_build_object('x-branch-ids', b_main)::text, true);
+    insert into public.suppliers (name) values ('QA Spice Co') returning id into v_sup;
+    insert into public.purchase_orders (po_number, supplier_id, status, branch_id, approved_at)
+      values ((select coalesce(max(po_number), 0) + 990000 from public.purchase_orders), v_sup, 'sent', b_dha.id, now()) returning id into v_po;
+    insert into public.purchase_order_lines (purchase_order_id, inventory_item_id, description, qty, unit_cost_cents)
+      values (v_po, v_item, 'QA Spice', 50, 10) returning id into v_pol;
+    begin
+      perform public.receive_purchase_order_line(v_pol, 50);
+      if app.branch_qty(v_item, b_dha.id) = 60 and app.branch_qty(v_item, b_main) = 70 then
+        res := res || E'PASS B18 receiving DHA\x27s purchase order adds the 50 g to DHA, even from MAIN\n';
+      else fails := fails + 1; res := res || format(E'FAIL B18 dha=%s main=%s\n', app.branch_qty(v_item, b_dha.id), app.branch_qty(v_item, b_main)); end if;
+    exception when others then fails := fails + 1; res := res || 'FAIL B18 ' || sqlerrm || E'\n'; end;
     perform set_config('request.headers', '{}', true);
   end if;
 
