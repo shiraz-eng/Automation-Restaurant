@@ -210,6 +210,7 @@ export default async function FinanceOverviewPage({
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         {[
           ['finance/ledger', 'Ledger', 'Every money event, traceable'],
+          ['finance/branches', 'Branch comparison', 'Every branch side by side'],
           ['expenses', 'Expenses', 'Record, approve, pay'],
           ['purchasing', 'Payables & invoices', 'Match, approve, pay suppliers'],
           ['close', 'Cash & day close', 'Movements, counts, lock the day'],

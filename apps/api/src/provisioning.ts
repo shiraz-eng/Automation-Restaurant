@@ -339,7 +339,12 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v95 Only invoices.approve (or owner/manager) approves/rejects supplier invoices; payables.manage no longer does.
 //   v96 Low-stock reorder emails: pending_low_stock_reorders() ordered by a column that does not exist; fixed.
 //   v97 Restaurant currency: get_currency() (public), set_currency() (settings.update, audited), currency_code format check.
-const SCHEMA_VERSION = 97;
+//   v98 Branches: branches table (one default MAIN branch), branch_id on orders/tables/stock movements/POs/expenses/cash/closings/ledger, logins limited to branches (portals/memberships.branch_ids), branch_wall RLS, create/update/status/default branch functions, branches.view/manage.
+//   v99 Branch scope: the selected branch (x-branch-ids header) scopes reads and new rows, reporting functions per branch, day close per branch, guards against moving rows between branches.
+//   v100 branch_summary(): every branch side by side from the same ledger (orders, sales, COGS, expenses, low stock, payables, day close, cash difference).
+//   v101 Stock per branch: branch_stock (inventory_items.stock_qty = total), per-branch availability and low stock, PO receiving into its branch, transfer_stock(), branch_stock_levels().
+//   v102 Branch menu: branch_menu_overrides (own price / switched off per branch), set_branch_menu_override(), place_order charges the branch price.
+const SCHEMA_VERSION = 102;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

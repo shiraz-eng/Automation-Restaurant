@@ -96,7 +96,21 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
   const tenant = slug ? await tenantClientForSlug(slug) : null;
   if (!tenant) return res.status(404).json({ error: 'restaurant_not_found' });
 
-  const [{ data: categories }, { data: items }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }, liveDeals] = await Promise.all([
+  // Multi-branch: ?b=<code> from a table's QR code picks that branch's availability, prices and
+  // switched-off dishes. No code (or before migration 0098) = the main branch, as before.
+  const branchCode = typeof req.query.b === 'string' && /^[A-Za-z0-9-]{2,12}$/.test(req.query.b) ? req.query.b.toUpperCase() : null;
+  let branchId: string | null = null;
+  if (branchCode) {
+    const { data: b } = await tenant.from('branches').select('id').eq('code', branchCode).eq('status', 'active').maybeSingle();
+    branchId = (b as { id: string } | null)?.id ?? null;
+  }
+  const { data: overrideRows } = branchId
+    ? await tenant.from('branch_menu_overrides').select('menu_item_id, variant_id, price_cents, is_available').eq('branch_id', branchId)
+    : { data: [] };
+  type Override = { menu_item_id: string; variant_id: string | null; price_cents: number | null; is_available: boolean | null };
+  const overrides = new Map(((overrideRows ?? []) as Override[]).map((o) => [`${o.menu_item_id}:${o.variant_id ?? ''}`, o]));
+
+  const [{ data: categories }, { data: rawItems }, { data: deals }, { data: brandKitRows }, { data: availabilityRows }, liveDeals] = await Promise.all([
     tenant.from('menu_categories').select('id, name, sort_order').order('sort_order'),
     tenant
       .from('menu_items')
@@ -121,13 +135,26 @@ publicRouter.get('/menu/:slug', async (req: Request, res: Response) => {
     // route, and manual is_available/track_availability toggles above stay
     // the only thing that removes an item/variant from the payload
     // entirely; the engine only adds an "Unavailable" flag on top.
-    tenant.from('product_availability').select('menu_item_id, variant_id, status'),
+    tenant.from('product_availability').select('menu_item_id, variant_id, status').setHeader('x-branch-ids', branchId ?? ''),
     // Deals sellable right now on the customer menu (status, dates, days,
     // time window, channel) — the same rule place_order enforces
     // (tenant-migrations/0064). A tenant without it just skips the filter.
     tenant.rpc('live_deal_ids', { p_sales_channel: 'customer_portal' }),
   ]);
   const liveDealIds = liveDeals.error ? null : new Set((liveDeals.data as string[] | null) ?? []);
+  // The branch's own prices, and dishes or sizes it has switched off.
+  const items = ((rawItems ?? []) as Array<Record<string, unknown>>)
+    .filter((it) => overrides.get(`${it.id}:`)?.is_available !== false)
+    .map((it) => {
+      const whole = overrides.get(`${it.id}:`);
+      return {
+        ...it,
+        price_cents: whole?.price_cents ?? it.price_cents,
+        menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
+          .filter((v) => overrides.get(`${it.id}:${v.id}`)?.is_available !== false)
+          .map((v) => ({ ...v, price_cents: overrides.get(`${it.id}:${v.id}`)?.price_cents ?? whole?.price_cents ?? v.price_cents })),
+      };
+    });
   const brandKit = Array.isArray(brandKitRows) ? (brandKitRows[0] ?? null) : (brandKitRows ?? null);
 
   type AvailRow = { menu_item_id: string; variant_id: string | null; status: string };

@@ -11573,3 +11573,1417 @@ begin
 end $fn$;
 revoke all on function public.set_currency(text) from public;
 grant execute on function public.set_currency(text) to authenticated, service_role;
+
+-- ── 0098_branches_foundation.sql ──
+-- ============================================================================
+-- 0098 — Multi-branch, phase 1: the foundation.
+--
+-- The restaurant (this database) is the organization; its physical locations
+-- are rows in public.branches. Every location-bound record gets branch_id.
+--
+--   • One default branch ('MAIN') is created per restaurant. Every existing
+--     row belongs to it — the restaurant had exactly one location, so this is
+--     the true assignment, not an arbitrary one. A row inserted without a
+--     branch inherits it from its parent (payment ← order, invoice ← PO, …)
+--     or falls back to the default branch (head-office costs go to it too), so every existing screen and
+--     function keeps working unchanged for single-branch restaurants.
+--   • Access: the owner (and any '*' login) sees every branch. A portal or
+--     member login may be limited to a list of branches (empty = all).
+--     RESTRICTIVE row-level policies on every branch-bound table AND that
+--     limit onto the existing policies — they can only narrow access.
+--   • Branches are never deleted: inactive / archived instead (history stays).
+--   • More than one active branch needs the 'branches.multi' plan feature.
+-- ============================================================================
+
+-- ── 1. Branches ─────────────────────────────────────────────────────────────
+create table if not exists public.branches (
+  id             uuid primary key default gen_random_uuid(),
+  code           text not null unique check (code ~ '^[A-Z0-9][A-Z0-9-]{1,11}$'),
+  name           text not null check (length(trim(name)) between 1 and 80),
+  address        text,
+  city           text,
+  country        text,
+  timezone       text,          -- null = the restaurant's own (business_settings.timezone)
+  currency_code  text check (currency_code is null or currency_code ~ '^[A-Z]{3}$'),
+  opening_hours  jsonb not null default '{}'::jsonb,
+  phone          text,
+  settings       jsonb not null default '{}'::jsonb,
+  status         text not null default 'active' check (status in ('active', 'inactive', 'archived')),
+  is_default     boolean not null default false,
+  status_reason  text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  created_by     uuid
+);
+create unique index if not exists branches_one_default on public.branches ((true)) where is_default;
+
+insert into public.branches (code, name, is_default, status)
+select 'MAIN', 'Main branch', true, 'active'
+ where not exists (select 1 from public.branches where is_default);
+
+create or replace function app.default_branch_id() returns uuid
+language sql stable security definer set search_path = public as $fn$
+  select id from public.branches where is_default limit 1
+$fn$;
+
+-- ── 2. Who may see which branch ─────────────────────────────────────────────
+alter table public.portals     add column if not exists branch_ids uuid[] not null default '{}';
+alter table public.memberships add column if not exists branch_ids uuid[] not null default '{}';
+
+-- The branches this caller is limited to; NULL = no limit (every branch).
+create or replace function app.allowed_branch_ids() returns uuid[]
+language plpgsql stable security definer set search_path = public, app as $fn$
+declare v uuid[];
+begin
+  if app.jwt_role() is distinct from 'authenticated'      -- anon / service_role: other policies govern
+     or '*' = any(app.jwt_permissions())
+     or app.current_member_role() = 'owner' then
+    return null;
+  end if;
+  select coalesce(
+           (select p.branch_ids from public.portals p where p.portal_user_id = app.jwt_sub() and cardinality(p.branch_ids) > 0 limit 1),
+           (select m.branch_ids from public.memberships m where m.user_id = app.jwt_sub() and cardinality(m.branch_ids) > 0 limit 1))
+    into v;
+  return v;   -- null when nothing limits the login
+end $fn$;
+
+create or replace function app.branch_access(p_branch uuid) returns boolean
+language sql stable as $fn$
+  select p_branch is null or (select app.allowed_branch_ids()) is null or p_branch = any(cast((select app.allowed_branch_ids()) as uuid[]))
+$fn$;
+
+grant execute on function app.default_branch_id() to authenticated, anon, service_role;
+grant execute on function app.allowed_branch_ids() to authenticated, anon, service_role;
+grant execute on function app.branch_access(uuid) to authenticated, anon, service_role;
+
+alter table public.branches enable row level security;
+drop policy if exists branches_read on public.branches;
+create policy branches_read on public.branches for select using (
+  app.jwt_role() = 'anon' and status = 'active'           -- the guest menu shows the branch name
+  or (app.is_staff() and app.branch_access(id))
+);
+-- No insert/update/delete policies: branches change only through the functions below.
+
+-- ── 3. branch_id on every location-bound table ──────────────────────────────
+do $mig$
+declare
+  t text;
+  def uuid := app.default_branch_id();
+  -- ledger lines may be organization-wide (supplier payments, credit notes, manual corrections)
+  nullable text[] := array['financial_events'];
+begin
+  foreach t in array array[
+    'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+    'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+    'expenses', 'cash_counts', 'cash_movements', 'financial_events', 'shifts', 'attendance'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('alter table public.%I add column if not exists branch_id uuid references public.branches(id)', t);
+    if t = 'financial_events' then
+      execute 'alter table public.financial_events disable trigger ledger_no_update';
+    end if;
+    execute format('update public.%I set branch_id = $1 where branch_id is null', t) using def;
+    if t = 'financial_events' then
+      execute 'alter table public.financial_events enable trigger ledger_no_update';
+    end if;
+    if not (t = any(nullable)) then
+      execute format('alter table public.%I alter column branch_id set not null', t);
+    end if;
+    execute format('create index if not exists %I on public.%I (branch_id)', t || '_branch_idx', t);
+  end loop;
+end $mig$;
+
+-- Per-branch uniqueness where "one per restaurant" meant "one per location".
+alter table public.restaurant_tables drop constraint if exists restaurant_tables_label_key;
+create unique index if not exists restaurant_tables_branch_label on public.restaurant_tables (branch_id, label);
+alter table public.daily_closings drop constraint if exists daily_closings_business_date_key;
+create unique index if not exists daily_closings_branch_day on public.daily_closings (branch_id, business_date);
+
+-- ── 4. Fill branch_id on insert (parent first, then the default branch) ─────
+create or replace function app.fill_branch_id() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if new.branch_id is not null then return new; end if;
+  case tg_table_name
+    when 'payments' then
+      select o.branch_id into new.branch_id from public.orders o where o.id = new.order_id;
+    when 'orders' then
+      if new.session_id is not null then
+        select s.branch_id into new.branch_id from public.table_sessions s where s.id = new.session_id;
+      end if;
+    when 'supplier_invoices' then
+      if new.purchase_order_id is not null then
+        select po.branch_id into new.branch_id from public.purchase_orders po where po.id = new.purchase_order_id;
+      end if;
+    else null;
+  end case;
+  if new.branch_id is null then
+    new.branch_id := app.default_branch_id();
+  end if;
+  return new;
+end $fn$;
+
+do $mig$
+declare t text;
+begin
+  foreach t in array array[
+    'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+    'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+    'expenses', 'cash_counts', 'cash_movements', 'shifts', 'attendance'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('drop trigger if exists fill_branch_id on public.%I', t);
+    execute format('create trigger fill_branch_id before insert on public.%I for each row execute function app.fill_branch_id()', t);
+  end loop;
+end $mig$;
+
+-- Ledger entries take the branch of the record they came from (shared when it has none).
+create or replace function app.ledger_fill_branch() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if new.branch_id is not null then return new; end if;
+  if new.order_id is not null then
+    select branch_id into new.branch_id from public.orders where id = new.order_id;
+  end if;
+  if new.branch_id is null and new.source_id is not null then
+    case new.source_table
+      when 'payments'         then select branch_id into new.branch_id from public.payments where id = new.source_id;
+      when 'expenses'         then select branch_id into new.branch_id from public.expenses where id = new.source_id;
+      when 'supplier_invoices' then select branch_id into new.branch_id from public.supplier_invoices where id = new.source_id;
+      when 'purchase_orders'  then select branch_id into new.branch_id from public.purchase_orders where id = new.source_id;
+      when 'cash_counts'      then select branch_id into new.branch_id from public.cash_counts where id = new.source_id;
+      when 'cash_movements'   then select branch_id into new.branch_id from public.cash_movements where id = new.source_id;
+      when 'daily_closings'   then select branch_id into new.branch_id from public.daily_closings where id = new.source_id;
+      when 'stock_ledger'     then select branch_id into new.branch_id from public.stock_ledger where id = new.source_id;
+      else null;
+    end case;
+  end if;
+  return new;   -- supplier payments, credit notes and manual corrections stay shared unless given a branch
+end $fn$;
+drop trigger if exists ledger_fill_branch on public.financial_events;
+create trigger ledger_fill_branch before insert on public.financial_events
+  for each row execute function app.ledger_fill_branch();
+
+-- ── 5. Branch walls (RESTRICTIVE: ANDed with the existing policies) ─────────
+do $mig$
+declare t text;
+begin
+  foreach t in array array[
+    'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+    'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+    'expenses', 'cash_counts', 'cash_movements', 'financial_events', 'shifts', 'attendance'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('drop policy if exists branch_wall on public.%I', t);
+    execute format(
+      'create policy branch_wall on public.%I as restrictive for all using (app.branch_access(branch_id)) with check (app.branch_access(branch_id))', t);
+  end loop;
+end $mig$;
+-- Child rows follow their order.
+drop policy if exists branch_wall on public.order_lines;
+create policy branch_wall on public.order_lines as restrictive for all
+  using (app.branch_access((select o.branch_id from public.orders o where o.id = order_id)))
+  with check (app.branch_access((select o.branch_id from public.orders o where o.id = order_id)));
+drop policy if exists branch_wall on public.refunds;
+create policy branch_wall on public.refunds as restrictive for all
+  using (app.branch_access((select p.branch_id from public.payments p where p.id = payment_id)))
+  with check (app.branch_access((select p.branch_id from public.payments p where p.id = payment_id)));
+
+-- ── 6. Managing branches (audited) ──────────────────────────────────────────
+insert into public.permission_catalog (key, grp, label, type, risk_level) values
+  ('branches.view', 'Branches', 'View branches', 'read', 'normal'),
+  ('branches.manage', 'Branches', 'Create, edit and deactivate branches; assign logins to branches', 'write', 'high')
+on conflict (key) do update set grp = excluded.grp, label = excluded.label, type = excluded.type, risk_level = excluded.risk_level;
+
+create or replace function app.branch_limit_ok() returns boolean
+language sql stable security definer set search_path = public as $fn$
+  -- Plan never synced (plan_tier null) fails open, as entitlements do elsewhere.
+  select coalesce((select plan_tier is null or 'branches.multi' = any(coalesce(plan_features, '{}')) from public.business_settings where id = true), true)
+      or (select count(*) from public.branches where status = 'active') < 1
+$fn$;
+
+create or replace function public.create_branch(
+  p_code text, p_name text, p_address text default null, p_city text default null, p_country text default null,
+  p_timezone text default null, p_currency_code text default null, p_phone text default null,
+  p_opening_hours jsonb default '{}'::jsonb
+) returns public.branches
+language plpgsql security definer set search_path = public, app as $fn$
+declare v public.branches;
+begin
+  if not app.has_perm('branches.manage') then raise exception 'forbidden' using errcode = 'insufficient_privilege'; end if;
+  if not app.branch_limit_ok() then
+    raise exception 'branch_limit: your plan includes one branch — upgrade to add more' using errcode = 'check_violation';
+  end if;
+  if p_timezone is not null and not exists (select 1 from pg_timezone_names where name = p_timezone) then
+    raise exception 'bad_timezone' using errcode = 'check_violation';
+  end if;
+  insert into public.branches (code, name, address, city, country, timezone, currency_code, phone, opening_hours, created_by)
+  values (upper(trim(p_code)), trim(p_name), nullif(trim(p_address), ''), nullif(trim(p_city), ''), nullif(trim(p_country), ''),
+          nullif(trim(p_timezone), ''), nullif(upper(trim(p_currency_code)), ''), nullif(trim(p_phone), ''),
+          coalesce(p_opening_hours, '{}'::jsonb), app.jwt_sub())
+  returning * into v;
+  perform app.log_action('branch.created', 'branches', v.id::text, null, to_jsonb(v));
+  return v;
+end $fn$;
+
+create or replace function public.update_branch(
+  p_id uuid, p_name text, p_address text default null, p_city text default null, p_country text default null,
+  p_timezone text default null, p_currency_code text default null, p_phone text default null,
+  p_opening_hours jsonb default null, p_settings jsonb default null
+) returns public.branches
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_old public.branches; v public.branches;
+begin
+  if not app.has_perm('branches.manage') or not app.branch_access(p_id) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_timezone is not null and p_timezone <> '' and not exists (select 1 from pg_timezone_names where name = p_timezone) then
+    raise exception 'bad_timezone' using errcode = 'check_violation';
+  end if;
+  select * into v_old from public.branches where id = p_id for update;
+  if not found then raise exception 'branch_not_found' using errcode = 'no_data_found'; end if;
+  update public.branches set
+      name = trim(p_name), address = nullif(trim(p_address), ''), city = nullif(trim(p_city), ''),
+      country = nullif(trim(p_country), ''), timezone = nullif(trim(p_timezone), ''),
+      currency_code = nullif(upper(trim(p_currency_code)), ''), phone = nullif(trim(p_phone), ''),
+      opening_hours = coalesce(p_opening_hours, opening_hours), settings = coalesce(p_settings, settings),
+      updated_at = now()
+   where id = p_id returning * into v;
+  perform app.log_action('branch.updated', 'branches', p_id::text, to_jsonb(v_old), to_jsonb(v));
+  return v;
+end $fn$;
+
+create or replace function public.set_branch_status(p_id uuid, p_status text, p_reason text default null) returns public.branches
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_old public.branches; v public.branches;
+begin
+  if not app.has_perm('branches.manage') or not app.branch_access(p_id) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_status not in ('active', 'inactive', 'archived') then raise exception 'bad_status' using errcode = 'check_violation'; end if;
+  select * into v_old from public.branches where id = p_id for update;
+  if not found then raise exception 'branch_not_found' using errcode = 'no_data_found'; end if;
+  if p_status <> 'active' and v_old.is_default then
+    raise exception 'default_branch: make another branch the default first' using errcode = 'check_violation';
+  end if;
+  if p_status <> 'active' and coalesce(trim(p_reason), '') = '' then
+    raise exception 'reason_required' using errcode = 'check_violation';
+  end if;
+  if p_status = 'active' and v_old.status <> 'active' and not app.branch_limit_ok() then
+    raise exception 'branch_limit: your plan includes one branch — upgrade to add more' using errcode = 'check_violation';
+  end if;
+  update public.branches set status = p_status, status_reason = nullif(trim(p_reason), ''), updated_at = now()
+   where id = p_id returning * into v;
+  perform app.log_action('branch.status_changed', 'branches', p_id::text,
+    jsonb_build_object('status', v_old.status), jsonb_build_object('status', p_status, 'reason', p_reason));
+  return v;
+end $fn$;
+
+create or replace function public.set_default_branch(p_id uuid) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('branches.manage') and app.allowed_branch_ids() is null) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if not exists (select 1 from public.branches where id = p_id and status = 'active') then
+    raise exception 'branch_not_active' using errcode = 'check_violation';
+  end if;
+  update public.branches set is_default = false, updated_at = now() where is_default and id <> p_id;
+  update public.branches set is_default = true, updated_at = now() where id = p_id;
+  perform app.log_action('branch.default_changed', 'branches', p_id::text, null, null);
+end $fn$;
+
+-- Which branches a portal / member login may use (empty = all).
+create or replace function public.set_login_branches(p_kind text, p_id uuid, p_branch_ids uuid[]) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_ids uuid[] := coalesce(p_branch_ids, '{}');
+begin
+  if not app.has_perm('branches.manage') then raise exception 'forbidden' using errcode = 'insufficient_privilege'; end if;
+  -- A login limited to some branches may only hand out branches it has itself.
+  if app.allowed_branch_ids() is not null
+     and (cardinality(v_ids) = 0 or exists (select 1 from unnest(v_ids) b where not (b = any(app.allowed_branch_ids())))) then
+    raise exception 'forbidden: you can only assign your own branches' using errcode = 'insufficient_privilege';
+  end if;
+  if exists (select 1 from unnest(v_ids) b where not exists (select 1 from public.branches where id = b)) then
+    raise exception 'unknown_branch' using errcode = 'check_violation';
+  end if;
+  if p_kind = 'portal' then
+    update public.portals set branch_ids = v_ids where id = p_id;
+  elsif p_kind = 'member' then
+    update public.memberships set branch_ids = v_ids where id = p_id;
+  else
+    raise exception 'bad_kind' using errcode = 'check_violation';
+  end if;
+  if not found then raise exception 'not_found' using errcode = 'no_data_found'; end if;
+  perform app.log_action('branch.login_assigned', p_kind || 's', p_id::text, null, jsonb_build_object('branch_ids', v_ids));
+end $fn$;
+
+-- The branches the caller can use (for the branch selector).
+create or replace function public.my_branches() returns setof public.branches
+language sql stable security definer set search_path = public, app as $fn$
+  select * from public.branches b
+   where app.is_staff() and app.branch_access(b.id) and b.status <> 'archived'
+   order by b.is_default desc, b.name
+$fn$;
+
+revoke all on function public.create_branch(text, text, text, text, text, text, text, text, jsonb) from public;
+revoke all on function public.update_branch(uuid, text, text, text, text, text, text, text, jsonb, jsonb) from public;
+revoke all on function public.set_branch_status(uuid, text, text) from public;
+revoke all on function public.set_default_branch(uuid) from public;
+revoke all on function public.set_login_branches(text, uuid, uuid[]) from public;
+revoke all on function public.my_branches() from public;
+grant execute on function public.create_branch(text, text, text, text, text, text, text, text, jsonb) to authenticated, service_role;
+grant execute on function public.update_branch(uuid, text, text, text, text, text, text, text, jsonb, jsonb) to authenticated, service_role;
+grant execute on function public.set_branch_status(uuid, text, text) to authenticated, service_role;
+grant execute on function public.set_default_branch(uuid) to authenticated, service_role;
+grant execute on function public.set_login_branches(text, uuid, uuid[]) to authenticated, service_role;
+grant execute on function public.my_branches() to authenticated, service_role;
+
+-- Audit every branch row change too (same trigger the other tables use).
+do $$ begin
+  if exists (select 1 from pg_proc where proname = 'audit_row' and pronamespace = 'app'::regnamespace) then
+    drop trigger if exists audit on public.branches;
+    create trigger audit after insert or update or delete on public.branches for each row execute function app.audit_row();
+  end if;
+end $$;
+
+-- ── 0099_branch_scope.sql ──
+-- ============================================================================
+-- 0099 — Multi-branch, phase 2-3 (database side): the selected branch.
+--
+-- The app sends the branch(es) the user is looking at in the `x-branch-ids`
+-- request header (PostgREST exposes request headers to SQL). It is a VIEW
+-- choice, never a permission: every use is intersected with the branches the
+-- login may use (app.branch_access, 0098). No header = all permitted branches.
+--
+--   • Reads: the branch walls now also narrow to the selected branch(es), and
+--     the read-only reporting functions (which run as definer and so bypass
+--     RLS) read through branch-scoped views — every screen, report and RPC is
+--     scoped the same way, with no signature changes.
+--   • Writes: a new row without a branch takes its parent's, else the
+--     selected branch, else the default. A row may only be changed by a login
+--     allowed in its branch, whichever function makes the change.
+--   • Day close is per branch: its own cash, preview, close and reopen.
+-- ============================================================================
+
+-- ── 1. The selected branch(es) ──────────────────────────────────────────────
+create or replace function app.selected_branch_ids() returns uuid[]
+language plpgsql stable set search_path = public, app as $fn$
+declare
+  raw text := nullif(trim(coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-branch-ids', '')), '');
+  v uuid[];
+begin
+  if raw is null then return null; end if;
+  select array_agg(x::uuid) into v
+    from unnest(string_to_array(raw, ',')) x
+   where trim(x) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  return v;   -- null when nothing valid was sent
+end $fn$;
+
+-- In scope = the login may use the branch AND it is one of the selected ones.
+-- Organization-wide ledger lines (no branch: supplier payments, credit notes,
+-- manual corrections) show only when no single branch is selected.
+create or replace function app.in_scope(p_branch uuid) returns boolean
+language sql stable as $fn$
+  select app.branch_access(p_branch)
+     and ((select app.selected_branch_ids()) is null
+          or (p_branch is not null and p_branch = any(cast((select app.selected_branch_ids()) as uuid[]))))
+$fn$;
+
+-- The branch a new record belongs to when nothing more specific applies.
+create or replace function app.request_branch_id() returns uuid
+language plpgsql stable security definer set search_path = public, app as $fn$
+declare v uuid; v_allowed uuid[] := app.allowed_branch_ids();
+begin
+  select b.id into v from public.branches b
+   where b.id = any(coalesce(app.selected_branch_ids(), '{}')) and b.status = 'active'
+     and (v_allowed is null or b.id = any(v_allowed))
+   order by b.is_default desc, b.name limit 1;
+  if v is not null then return v; end if;
+  if v_allowed is null then return app.default_branch_id(); end if;
+  select b.id into v from public.branches b
+   where b.id = any(v_allowed) and b.status = 'active' order by b.is_default desc, b.name limit 1;
+  return v;
+end $fn$;
+
+grant execute on function app.selected_branch_ids() to authenticated, anon, service_role;
+grant execute on function app.in_scope(uuid) to authenticated, anon, service_role;
+grant execute on function app.request_branch_id() to authenticated, anon, service_role;
+
+-- ── 2. Branch walls narrow to the selection (writes still need access only) ─
+do $mig$
+declare t text;
+begin
+  foreach t in array array[
+    'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+    'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+    'expenses', 'cash_counts', 'cash_movements', 'financial_events', 'shifts', 'attendance'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('drop policy if exists branch_wall on public.%I', t);
+    execute format(
+      'create policy branch_wall on public.%I as restrictive for all using (app.in_scope(branch_id)) with check (app.branch_access(branch_id))', t);
+  end loop;
+end $mig$;
+drop policy if exists branch_wall on public.order_lines;
+create policy branch_wall on public.order_lines as restrictive for all
+  using (app.in_scope((select o.branch_id from public.orders o where o.id = order_id)))
+  with check (app.branch_access((select o.branch_id from public.orders o where o.id = order_id)));
+drop policy if exists branch_wall on public.refunds;
+create policy branch_wall on public.refunds as restrictive for all
+  using (app.in_scope((select p.branch_id from public.payments p where p.id = payment_id)))
+  with check (app.branch_access((select p.branch_id from public.payments p where p.id = payment_id)));
+
+-- ── 3. Branch on insert; branch access on every change ──────────────────────
+create or replace function app.fill_branch_id() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if new.branch_id is null then
+    case tg_table_name
+      when 'payments' then
+        select o.branch_id into new.branch_id from public.orders o where o.id = new.order_id;
+      when 'orders' then
+        if new.session_id is not null then
+          select s.branch_id into new.branch_id from public.table_sessions s where s.id = new.session_id;
+        end if;
+      when 'supplier_invoices' then
+        if new.purchase_order_id is not null then
+          select po.branch_id into new.branch_id from public.purchase_orders po where po.id = new.purchase_order_id;
+        end if;
+      else null;
+    end case;
+    if new.branch_id is null then
+      new.branch_id := coalesce(app.request_branch_id(), app.default_branch_id());
+    end if;
+  end if;
+  -- Definer functions bypass RLS: the branch rule is enforced here for them too.
+  if new.branch_id is not null and not app.branch_access(new.branch_id) then
+    raise exception 'forbidden: this login cannot work in that branch' using errcode = 'insufficient_privilege';
+  end if;
+  if tg_table_name = 'orders' and not exists (select 1 from public.branches where id = new.branch_id and status = 'active') then
+    raise exception 'branch_inactive: this branch is not taking orders' using errcode = 'check_violation';
+  end if;
+  return new;
+end $fn$;
+
+create or replace function app.guard_branch_change() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if not app.branch_access(old.branch_id) then
+    raise exception 'forbidden: this record belongs to another branch' using errcode = 'insufficient_privilege';
+  end if;
+  if tg_op = 'UPDATE' and new.branch_id is distinct from old.branch_id and not app.branch_access(new.branch_id) then
+    raise exception 'forbidden: this login cannot move records to that branch' using errcode = 'insufficient_privilege';
+  end if;
+  return coalesce(new, old);
+end $fn$;
+
+do $mig$
+declare t text;
+begin
+  foreach t in array array[
+    'orders', 'payments', 'table_sessions', 'restaurant_tables', 'reservations', 'stock_ledger',
+    'food_stock_log', 'low_stock_events', 'purchase_orders', 'supplier_invoices', 'daily_closings',
+    'expenses', 'cash_counts', 'cash_movements', 'shifts', 'attendance'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('drop trigger if exists fill_branch_id on public.%I', t);
+    execute format('create trigger fill_branch_id before insert on public.%I for each row execute function app.fill_branch_id()', t);
+    execute format('drop trigger if exists guard_branch_change on public.%I', t);
+    execute format('create trigger guard_branch_change before update or delete on public.%I for each row execute function app.guard_branch_change()', t);
+  end loop;
+end $mig$;
+-- Order lines follow their order.
+create or replace function app.guard_branch_order_line() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+declare v uuid;
+begin
+  select branch_id into v from public.orders where id = coalesce(new.order_id, old.order_id);
+  if not app.branch_access(v) then
+    raise exception 'forbidden: this order belongs to another branch' using errcode = 'insufficient_privilege';
+  end if;
+  return coalesce(new, old);
+end $fn$;
+drop trigger if exists guard_branch_change on public.order_lines;
+create trigger guard_branch_change before insert or update or delete on public.order_lines
+  for each row execute function app.guard_branch_order_line();
+
+-- ── 4. Branch-scoped views for the read-only reporting functions ────────────
+do $mig$
+declare t text;
+begin
+  foreach t in array array[
+    'orders', 'payments', 'expenses', 'financial_events', 'daily_closings', 'purchase_orders',
+    'supplier_invoices', 'stock_ledger', 'cash_movements', 'cash_counts', 'reservations',
+    'restaurant_tables', 'attendance', 'shifts', 'low_stock_events', 'food_stock_log', 'table_sessions'
+  ] loop
+    if to_regclass('public.' || t) is null then continue; end if;
+    execute format('create or replace view app.%I with (security_barrier) as select * from public.%I where app.in_scope(branch_id)', 's_' || t, t);
+  end loop;
+end $mig$;
+
+do $mig$
+declare
+  fn record;
+  def text;
+  pat constant text := 'public\.(orders|payments|expenses|financial_events|daily_closings|purchase_orders|supplier_invoices|stock_ledger|cash_movements|cash_counts|reservations|restaurant_tables|attendance|shifts|low_stock_events|food_stock_log|table_sessions)\M';
+begin
+  for fn in
+    select p.oid from pg_proc p
+     where p.pronamespace = 'public'::regnamespace and p.prokind = 'f'
+       and p.proname in (
+         'attendance_dashboard', 'attendance_history', 'attendance_month_summary', 'attendance_roster',
+         'customer_stats', 'deal_performance', 'deal_performance_daily', 'deal_profitability', 'deal_sales',
+         'item_profitability', 'order_profitability', 'orders_on_day', 'payables_aging', 'payment_mix',
+         'payment_reconciliation', 'period_profitability', 'period_tax', 'promotion_performance',
+         'revenue_by_category', 'sales_by_hour', 'sales_by_day', 'supplier_payable', 'supplier_statement',
+         'supplier_invoice_history', 'feedback_summary', 'food_cost_watch')
+  loop
+    def := pg_get_functiondef(fn.oid);
+    if def ~ pat then
+      execute regexp_replace(def, pat, 'app.s_\1', 'g');
+    end if;
+  end loop;
+end $mig$;
+
+-- ── 5. Orders: a table's open tab is looked up within its branch ────────────
+do $mig$
+declare
+  def text := pg_get_functiondef('public.place_order(text, text, text, integer, jsonb, integer, text, text)'::regprocedure);
+  old_q constant text := 'where table_label = p_table_label and status = ''open''';
+  new_q constant text := 'where table_label = p_table_label and status = ''open'' and branch_id = coalesce(app.request_branch_id(), app.default_branch_id())';
+begin
+  if position(old_q in def) > 0 then
+    execute replace(def, old_q, new_q);
+  elsif position(new_q in def) = 0 then
+    raise exception '0099: unexpected table-session lookup in place_order()';
+  end if;
+end $mig$;
+
+-- ── 6. Day close per branch ─────────────────────────────────────────────────
+create or replace function app.day_sales(p_date date, p_branch uuid) returns jsonb
+language sql stable set search_path = public, app as $fn$
+  with o as (
+    select * from public.orders
+     where status in ('served','paid') and app.business_day(coalesce(paid_at, created_at)) = p_date
+       and (p_branch is null or branch_id = p_branch)
+  )
+  select jsonb_build_object(
+    'gross_sales_cents', coalesce((select sum(subtotal_cents) from o), 0),
+    'discounts_cents',   coalesce((select sum(discount_cents) from o), 0),
+    'refunds_cents',     coalesce((select sum(refunded_cents) from o), 0),
+    'net_sales_cents',   coalesce((select sum(subtotal_cents - discount_cents - coalesce(refunded_cents,0)) from o), 0),
+    'order_count',       (select count(*) from o),
+    'cash_in_cents',     coalesce((select sum(p.amount_cents - p.refunded_cents)
+                                   from public.payments p join o on o.id = p.order_id
+                                   where p.status <> 'voided' and p.method = 'cash'), 0)
+  )
+$fn$;
+-- The one-argument forms keep working: they mean "the branch being worked in".
+create or replace function app.day_sales(p_date date) returns jsonb
+language sql stable set search_path = public, app as $fn$
+  select app.day_sales(p_date, coalesce(app.request_branch_id(), app.default_branch_id()))
+$fn$;
+
+create or replace function app.day_cash_movements(p_date date, p_branch uuid) returns integer
+language sql stable set search_path = public, app as $fn$
+  select coalesce(sum(signed_cents), 0)::int from public.cash_movements
+   where business_date = p_date and (p_branch is null or branch_id = p_branch)
+$fn$;
+create or replace function app.day_cash_movements(p_date date) returns integer
+language sql stable set search_path = public, app as $fn$
+  select app.day_cash_movements(p_date, coalesce(app.request_branch_id(), app.default_branch_id()))
+$fn$;
+
+create or replace function app.is_day_closed(p_date date, p_branch uuid) returns boolean
+language sql stable set search_path = public, app as $fn$
+  select p_date is not null and exists (
+    select 1 from public.daily_closings where business_date = p_date and status = 'closed' and branch_id = p_branch)
+$fn$;
+create or replace function app.is_day_closed(p_date date) returns boolean
+language sql stable set search_path = public, app as $fn$
+  select app.is_day_closed(p_date, coalesce(app.request_branch_id(), app.default_branch_id()))
+$fn$;
+
+-- The closed-day lock applies to the row's own branch.
+create or replace function app.guard_closed_day() returns trigger
+language plpgsql set search_path = public, app as $fn$
+declare v_day date; v_b uuid := coalesce(new.branch_id, old.branch_id);
+begin
+  case tg_table_name
+  when 'expenses' then
+    if tg_op = 'INSERT' and app.is_day_closed(new.expense_date, v_b) then v_day := new.expense_date;
+    elsif tg_op = 'DELETE' and app.is_day_closed(old.expense_date, v_b) then v_day := old.expense_date;
+    elsif tg_op = 'UPDATE'
+      and (new.category, new.description, new.amount_cents, new.expense_date, new.supplier_id, new.vendor)
+          is distinct from (old.category, old.description, old.amount_cents, old.expense_date, old.supplier_id, old.vendor) then
+      if app.is_day_closed(old.expense_date, v_b) then v_day := old.expense_date;
+      elsif app.is_day_closed(new.expense_date, v_b) then v_day := new.expense_date; end if;
+    end if;
+  when 'cash_counts' then
+    if app.is_day_closed(new.business_date, v_b) then v_day := new.business_date; end if;
+  when 'cash_movements' then
+    if app.is_day_closed(new.business_date, v_b) then v_day := new.business_date; end if;
+  when 'payments' then
+    if tg_op = 'INSERT' then
+      if app.is_day_closed(app.business_day(new.created_at), v_b) then v_day := app.business_day(new.created_at); end if;
+    elsif tg_op = 'DELETE' then
+      if app.is_day_closed(app.business_day(old.created_at), v_b) then v_day := app.business_day(old.created_at); end if;
+    elsif (new.amount_cents is distinct from old.amount_cents
+           or (new.status = 'voided' and old.status is distinct from 'voided'))
+          and app.is_day_closed(app.business_day(old.created_at), v_b) then
+      v_day := app.business_day(old.created_at);
+    end if;
+  when 'orders' then
+    if tg_op = 'DELETE' then
+      if old.status in ('served', 'paid') and app.is_day_closed(app.business_day(coalesce(old.paid_at, old.created_at)), v_b) then
+        v_day := app.business_day(coalesce(old.paid_at, old.created_at));
+      end if;
+    elsif old.status in ('served', 'paid')
+          and (new.status = 'void' or new.subtotal_cents is distinct from old.subtotal_cents
+               or new.discount_cents is distinct from old.discount_cents or new.total_cents is distinct from old.total_cents)
+          and app.is_day_closed(app.business_day(coalesce(old.paid_at, old.created_at)), v_b) then
+      v_day := app.business_day(coalesce(old.paid_at, old.created_at));
+    end if;
+  end case;
+  if v_day is not null then
+    raise exception 'day_closed: % is closed for this branch', v_day using errcode = 'insufficient_privilege',
+      hint = 'Reopen the day with a reason, or record the correction on an open day (a refund is always allowed).';
+  end if;
+  return coalesce(new, old);
+end $fn$;
+
+-- The closed-day guard on expenses now runs after the branch is filled in.
+create or replace function public.day_close_preview(p_business_date date, p_opening_cents integer default 0) returns jsonb
+language plpgsql stable security definer set search_path = public, app as $fn$
+declare
+  v_b uuid := coalesce(app.request_branch_id(), app.default_branch_id());
+  v_s jsonb; v_mov int; v_tax bigint; v_mix jsonb; v_exp jsonb; v_supp jsonb; v_count jsonb;
+  v_open_orders int; v_unpaid jsonb; v_awaiting int; v_holds int; v_closing public.daily_closings; v_branch public.branches;
+begin
+  if not (app.has_perm('finance.close_day') or app.has_perm('finance.view') or app.has_perm('finance.reconcile') or app.has_perm('cash.manage')) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if not app.branch_access(v_b) then raise exception 'forbidden' using errcode = 'insufficient_privilege'; end if;
+  select * into v_branch from public.branches where id = v_b;
+  v_s := app.day_sales(p_business_date, v_b);
+  v_mov := app.day_cash_movements(p_business_date, v_b);
+
+  select coalesce(sum(tax_cents), 0) into v_tax from public.orders
+   where branch_id = v_b and status in ('served', 'paid') and app.business_day(coalesce(paid_at, created_at)) = p_business_date;
+
+  with o as (
+    select id from public.orders
+     where branch_id = v_b and status in ('served', 'paid') and app.business_day(coalesce(paid_at, created_at)) = p_business_date
+  )
+  select coalesce(jsonb_object_agg(method, cents), '{}'::jsonb) into v_mix
+    from (select p.method, sum(p.amount_cents - p.refunded_cents)::bigint as cents
+            from public.payments p join o on o.id = p.order_id
+           where p.status <> 'voided' group by p.method) x;
+
+  select jsonb_build_object('count', count(*), 'cents', coalesce(sum(amount_cents), 0)) into v_exp
+    from public.expenses where branch_id = v_b and expense_date = p_business_date and status in ('approved', 'paid');
+  -- Supplier payments are made by the organization, not a till: shown for information.
+  select jsonb_build_object('count', count(*), 'cents', coalesce(sum(amount_cents), 0)) into v_supp
+    from public.supplier_payments where app.business_day(paid_at) = p_business_date;
+  select to_jsonb(c) - 'counted_by' into v_count from public.cash_counts c
+   where c.branch_id = v_b and c.business_date = p_business_date order by c.created_at desc limit 1;
+
+  select count(*) into v_open_orders from public.orders
+   where branch_id = v_b and status in ('pending', 'in_kitchen', 'ready') and app.business_day(created_at) = p_business_date;
+  select jsonb_build_object('count', count(*), 'cents', coalesce(sum(due), 0)) into v_unpaid
+    from (select o.total_cents - coalesce((select sum(p.amount_cents - p.refunded_cents) from public.payments p
+                                            where p.order_id = o.id and p.status <> 'voided'), 0) as due
+            from public.orders o
+           where o.branch_id = v_b and o.status = 'served' and app.business_day(coalesce(o.paid_at, o.created_at)) = p_business_date) u
+   where due > 0;
+  select count(*) into v_awaiting from public.expenses where branch_id = v_b and expense_date = p_business_date and status in ('draft', 'submitted');
+  select count(*) into v_holds from public.supplier_payment_holds where status = 'open';
+  select * into v_closing from public.daily_closings where branch_id = v_b and business_date = p_business_date;
+
+  return jsonb_build_object(
+    'business_date', p_business_date,
+    'branch', jsonb_build_object('id', v_branch.id, 'code', v_branch.code, 'name', v_branch.name),
+    'status', coalesce(v_closing.status, 'open'),
+    'is_future', p_business_date > app.business_day(now()),
+    'sales', v_s || jsonb_build_object('tax_cents', v_tax),
+    'payments_by_method', v_mix,
+    'cash', jsonb_build_object(
+      'opening_cents', coalesce(p_opening_cents, 0),
+      'cash_sales_cents', coalesce((v_s->>'cash_in_cents')::int, 0),
+      'movements_cents', v_mov,
+      'expected_cents', coalesce(p_opening_cents, 0) + coalesce((v_s->>'cash_in_cents')::int, 0) + v_mov,
+      'last_count', v_count),
+    'expenses', v_exp,
+    'supplier_payments', v_supp,
+    'exceptions', jsonb_build_object(
+      'open_orders', v_open_orders,
+      'unpaid_served_orders', v_unpaid,
+      'expenses_awaiting_approval', v_awaiting,
+      'invoice_holds_open', v_holds)
+  );
+end $fn$;
+
+create or replace function public.close_business_day(
+  p_business_date date, p_opening_cash integer default 0, p_closing_cash integer default null, p_note text default null
+) returns public.daily_closings
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid := coalesce(app.request_branch_id(), app.default_branch_id());
+  v_p jsonb; v_s jsonb; v_mov int; v_expected int; v_diff int; v_row public.daily_closings;
+begin
+  if not app.has_perm('finance.close_day') or not app.branch_access(v_b) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_business_date > app.business_day(now()) then
+    raise exception 'future_day: % has not happened yet', p_business_date using errcode = 'check_violation';
+  end if;
+  if app.is_day_closed(p_business_date, v_b) then
+    raise exception 'already_closed: reopen % first', p_business_date using errcode = 'check_violation';
+  end if;
+  if coalesce(p_opening_cash, 0) < 0 or coalesce(p_closing_cash, 0) < 0 then
+    raise exception 'bad_amount' using errcode = 'check_violation';
+  end if;
+
+  v_p := public.day_close_preview(p_business_date, coalesce(p_opening_cash, 0));
+  v_s := app.day_sales(p_business_date, v_b);
+  v_mov := app.day_cash_movements(p_business_date, v_b);
+  v_expected := coalesce(p_opening_cash, 0) + (v_s->>'cash_in_cents')::int + v_mov;
+  v_diff := case when p_closing_cash is null then null else p_closing_cash - v_expected end;
+  if v_diff is not null and v_diff <> 0 and coalesce(trim(p_note), '') = '' then
+    raise exception 'variance_reason_required: counted cash differs from expected by %', v_diff using errcode = 'check_violation';
+  end if;
+
+  insert into public.daily_closings (
+    branch_id, business_date, status, opening_cash_cents, closing_cash_cents, expected_cash_cents,
+    difference_cents, gross_sales_cents, discounts_cents, refunds_cents, net_sales_cents,
+    order_count, cash_movements_cents, summary, note, closed_by, closed_at
+  ) values (
+    v_b, p_business_date, 'closed', coalesce(p_opening_cash, 0), p_closing_cash, v_expected, v_diff,
+    (v_s->>'gross_sales_cents')::int, (v_s->>'discounts_cents')::int, (v_s->>'refunds_cents')::int,
+    (v_s->>'net_sales_cents')::int, (v_s->>'order_count')::int, v_mov, v_p,
+    nullif(trim(p_note), ''), app.jwt_sub(), now()
+  )
+  on conflict (branch_id, business_date) do update set
+    status = 'closed', opening_cash_cents = excluded.opening_cash_cents,
+    closing_cash_cents = excluded.closing_cash_cents, expected_cash_cents = excluded.expected_cash_cents,
+    difference_cents = excluded.difference_cents, gross_sales_cents = excluded.gross_sales_cents,
+    discounts_cents = excluded.discounts_cents, refunds_cents = excluded.refunds_cents,
+    net_sales_cents = excluded.net_sales_cents, order_count = excluded.order_count,
+    cash_movements_cents = excluded.cash_movements_cents, summary = excluded.summary,
+    note = coalesce(excluded.note, public.daily_closings.note),
+    closed_by = excluded.closed_by, closed_at = now()
+  returning * into v_row;
+
+  perform app.log_action('day.closed', 'daily_closings', p_business_date::text, null, to_jsonb(v_row) - 'summary');
+  return v_row;
+end $fn$;
+
+create or replace function public.reopen_business_day(p_business_date date, p_reason text) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid := coalesce(app.request_branch_id(), app.default_branch_id());
+begin
+  if not app.has_perm('finance.reopen_day') or not app.branch_access(v_b) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(trim(p_reason), '') = '' then raise exception 'reason_required' using errcode = 'check_violation'; end if;
+  update public.daily_closings
+     set status = 'open', reopened_by = app.jwt_sub(), reopened_at = now(), note = trim(p_reason)
+   where branch_id = v_b and business_date = p_business_date and status = 'closed';
+  if not found then raise exception 'not_closed' using errcode = 'no_data_found'; end if;
+  perform app.log_action('day.reopened', 'daily_closings', p_business_date::text, null,
+                         jsonb_build_object('reason', trim(p_reason), 'branch_id', v_b));
+end $fn$;
+
+create or replace function public.record_cash_count(p_business_date date, p_opening_cents integer, p_counted_cents integer, p_note text default null)
+returns public.cash_counts
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid := coalesce(app.request_branch_id(), app.default_branch_id()); v_expected int; v_row public.cash_counts;
+begin
+  if not app.has_perm('finance.reconcile') or not app.branch_access(v_b) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(p_counted_cents, -1) < 0 or coalesce(p_opening_cents, 0) < 0 then
+    raise exception 'bad_amount' using errcode = 'check_violation';
+  end if;
+  v_expected := coalesce(p_opening_cents, 0)
+              + coalesce((app.day_sales(p_business_date, v_b)->>'cash_in_cents')::int, 0)
+              + app.day_cash_movements(p_business_date, v_b);
+  insert into public.cash_counts
+    (branch_id, business_date, opening_cents, counted_cents, expected_cents, difference_cents, note, counted_by, counted_by_email)
+  values
+    (v_b, p_business_date, coalesce(p_opening_cents, 0), p_counted_cents, v_expected, p_counted_cents - v_expected,
+     nullif(trim(p_note), ''), app.jwt_sub(), nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'email')
+  returning * into v_row;
+  perform app.log_action('cash.counted', 'cash_counts', v_row.id::text, null,
+                         jsonb_build_object('counted', p_counted_cents, 'expected', v_expected, 'branch_id', v_b));
+  return v_row;
+end $fn$;
+
+create or replace function public.record_cash_movement(
+  p_business_date date, p_kind text, p_amount_cents integer, p_reason text, p_reference text default null
+) returns public.cash_movements
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid := coalesce(app.request_branch_id(), app.default_branch_id()); v_row public.cash_movements;
+begin
+  if not (app.has_perm('cash.manage') or app.has_perm('finance.reconcile')) or not app.branch_access(v_b) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if coalesce(trim(p_reason), '') = '' then raise exception 'reason_required' using errcode = 'check_violation'; end if;
+  if p_business_date > app.business_day(now()) then raise exception 'future_day' using errcode = 'check_violation'; end if;
+  insert into public.cash_movements (branch_id, business_date, kind, amount_cents, reason, reference, created_by)
+  values (v_b, coalesce(p_business_date, app.business_day(now())), p_kind, p_amount_cents, trim(p_reason), nullif(trim(p_reference), ''), app.jwt_sub())
+  returning * into v_row;
+  perform app.log_action('cash.movement', 'cash_movements', v_row.id::text, null,
+    jsonb_build_object('kind', p_kind, 'amount_cents', v_row.signed_cents, 'reason', trim(p_reason), 'business_date', v_row.business_date, 'branch_id', v_b));
+  return v_row;
+end $fn$;
+
+-- ── 0100_branch_reporting.sql ──
+-- ============================================================================
+-- 0100 — Multi-branch: one row per branch for the group dashboard and the
+-- Branch comparison page.
+--
+-- Same authoritative sources as the Finance module: sales, food cost and
+-- expenses come from the ledger (financial_events), so the branch rows add up
+-- exactly to the consolidated Finance overview — every ledger line belongs to
+-- one branch, nothing is counted twice. Organization-wide ledger lines (no
+-- branch: supplier payments, credit notes, manual corrections) are reported
+-- separately by the caller, never spread across branches.
+-- Rows only for branches the login may use (and, with a selection, only those).
+-- ============================================================================
+
+create or replace function public.branch_summary(p_from date, p_to date)
+returns table (
+  branch_id uuid, code text, name text, status text, is_default boolean,
+  orders_count int, net_sales_cents bigint, cogs_cents bigint, expenses_cents bigint,
+  payments_cents bigint, open_low_stock int, payables_outstanding_cents bigint,
+  last_closed_day date, unclosed_days int, cash_difference_cents bigint
+)
+language plpgsql stable security definer set search_path = public, app as $fn$
+begin
+  if not (app.has_perm('finance.view') or app.has_perm('finance.view_profit') or app.has_perm('branches.view') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  return query
+  select b.id, b.code, b.name, b.status, b.is_default,
+         (select count(*)::int from public.orders o
+           where o.branch_id = b.id and o.status in ('served', 'paid')
+             and app.business_day(coalesce(o.paid_at, o.created_at)) between p_from and p_to),
+         coalesce((select sum(e.signed_cents) from public.financial_events e where e.branch_id = b.id and e.category = 'revenue' and e.business_date between p_from and p_to), 0)::bigint,
+         coalesce((select sum(e.signed_cents) from public.financial_events e where e.branch_id = b.id and e.category = 'cogs' and e.business_date between p_from and p_to), 0)::bigint,
+         coalesce((select sum(e.signed_cents) from public.financial_events e where e.branch_id = b.id and e.category = 'expense' and e.business_date between p_from and p_to), 0)::bigint,
+         coalesce((select sum(e.signed_cents) from public.financial_events e where e.branch_id = b.id and e.category = 'payment' and e.business_date between p_from and p_to), 0)::bigint,
+         (select count(*)::int from public.low_stock_events l where l.branch_id = b.id and l.status = 'open'),
+         coalesce((select sum(app.invoice_outstanding_cents(si.id)) from public.supplier_invoices si
+                    where si.branch_id = b.id and si.status in ('approved', 'partially_paid')), 0)::bigint,
+         (select max(c.business_date) from public.daily_closings c where c.branch_id = b.id and c.status = 'closed'),
+         (select count(distinct e.business_date)::int from public.financial_events e
+           where e.branch_id = b.id and e.category = 'revenue'
+             and e.business_date between greatest(p_from, app.business_day(now()) - 14) and least(p_to, app.business_day(now()) - 1)
+             and not exists (select 1 from public.daily_closings c where c.branch_id = b.id and c.business_date = e.business_date and c.status = 'closed')),
+         coalesce((select sum(c.difference_cents) from public.daily_closings c
+                    where c.branch_id = b.id and c.status = 'closed' and c.business_date between p_from and p_to), 0)::bigint
+    from public.branches b
+   where b.status <> 'archived' and app.in_scope(b.id)
+   order by b.is_default desc, b.name;
+end $fn$;
+revoke all on function public.branch_summary(date, date) from public;
+grant execute on function public.branch_summary(date, date) to authenticated, service_role;
+
+-- ── 0101_branch_stock.sql ──
+-- ============================================================================
+-- 0101 — Multi-branch, phase 4: stock per branch.
+--
+-- Ingredients (inventory_items) stay shared definitions; how much of each a
+-- branch holds lives in public.branch_stock. inventory_items.stock_qty is kept
+-- as the TOTAL across branches (for organization-wide screens and reports).
+--
+-- Rather than rewriting the 20 stock and availability functions, they now read
+-- and write through app.inv — the same columns as inventory_items, but with
+-- stock_qty = the stock of "the branch being worked in" (app.stock_branch_id:
+-- an explicit context, else the selected/request branch, else the default).
+-- So a DHA sale deducts DHA's stock, its "enough stock?" checks look at DHA,
+-- and a dish is available at DHA only if DHA can make it. Availability and
+-- low-stock alerts are recalculated per branch; receiving a purchase order
+-- always stocks THAT order's branch; a transfer moves stock between branches
+-- without touching revenue or expenses.
+--
+-- Single-branch restaurants: one branch holds all stock — nothing changes.
+-- ============================================================================
+
+-- ── 1. Branch stock ─────────────────────────────────────────────────────────
+create table if not exists public.branch_stock (
+  branch_id         uuid not null references public.branches(id),
+  inventory_item_id uuid not null references public.inventory_items(id) on delete cascade,
+  stock_qty         numeric(14,3) not null default 0,
+  updated_at        timestamptz not null default now(),
+  primary key (branch_id, inventory_item_id)
+);
+insert into public.branch_stock (branch_id, inventory_item_id, stock_qty)
+select app.default_branch_id(), i.id, coalesce(i.stock_qty, 0) from public.inventory_items i
+on conflict do nothing;
+
+alter table public.branch_stock enable row level security;
+drop policy if exists staff_read on public.branch_stock;
+create policy staff_read on public.branch_stock for select
+  using ((app.has_perm('stock.view') or app.is_staff()) and app.in_scope(branch_id));
+-- Written only by the stock functions and triggers below.
+
+-- ── 2. Which branch's stock a statement works on ───────────────────────────
+create or replace function app.stock_branch_id() returns uuid
+language sql stable security definer set search_path = public, app as $fn$
+  select coalesce(nullif(current_setting('app.stock_branch', true), '')::uuid,
+                  app.request_branch_id(), app.default_branch_id())
+$fn$;
+grant execute on function app.stock_branch_id() to authenticated, anon, service_role;
+
+create or replace function app.branch_qty(p_item uuid, p_branch uuid) returns numeric
+language sql stable security definer set search_path = public, app as $fn$
+  select coalesce((select stock_qty from public.branch_stock where inventory_item_id = p_item and branch_id = p_branch), 0)
+$fn$;
+
+-- ── 3. The branch view of ingredients (same columns, same order) ────────────
+do $mig$
+declare cols text; upd text; lhs text; rhs text;
+begin
+  select string_agg(case when attname = 'stock_qty'
+                           then 'coalesce((select bs.stock_qty from public.branch_stock bs where bs.inventory_item_id = i.id and bs.branch_id = app.stock_branch_id()), 0)::numeric(14,3) as stock_qty'
+                           else 'i.' || quote_ident(attname) end, ', ' order by attnum),
+         string_agg(case when attname not in ('id', 'stock_qty') then quote_ident(attname) || ' = new.' || quote_ident(attname) end, ', ' order by attnum),
+         string_agg(case when attname not in ('id', 'stock_qty') then 'i.' || quote_ident(attname) end, ', ' order by attnum),
+         string_agg(case when attname not in ('id', 'stock_qty') then 'new.' || quote_ident(attname) end, ', ' order by attnum)
+    into cols, upd, lhs, rhs
+    from pg_attribute where attrelid = 'public.inventory_items'::regclass and attnum > 0 and not attisdropped;
+  execute 'create or replace view app.inv as select ' || cols || ' from public.inventory_items i';
+
+  execute format($f$
+    create or replace function app.inv_write() returns trigger
+    language plpgsql security definer set search_path = public, app as $body$
+    declare v_b uuid := app.stock_branch_id();
+    begin
+      if tg_op = 'DELETE' then
+        delete from public.inventory_items where id = old.id;
+        return old;
+      end if;
+      if tg_op = 'INSERT' then
+        insert into public.inventory_items select new.*;
+        return new;
+      end if;
+      if new.stock_qty is distinct from old.stock_qty then
+        insert into public.branch_stock (branch_id, inventory_item_id, stock_qty, updated_at)
+        values (v_b, old.id, coalesce(new.stock_qty, 0), now())
+        on conflict (branch_id, inventory_item_id) do update set stock_qty = excluded.stock_qty, updated_at = now();
+        perform app.sync_stock_total(old.id);
+      end if;
+      -- Other columns only when they changed (no empty audit entries for a stock movement).
+      update public.inventory_items i set %s where i.id = old.id and (%s) is distinct from (%s);
+      return new;
+    end $body$;$f$, upd, lhs, rhs);
+end $mig$;
+
+drop trigger if exists inv_write on app.inv;
+create trigger inv_write instead of insert or update or delete on app.inv for each row execute function app.inv_write();
+
+-- inventory_items.stock_qty = the total across branches.
+create or replace function app.sync_stock_total(p_item uuid) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  perform set_config('app.stock_total_sync', 'on', true);
+  update public.inventory_items
+     set stock_qty = coalesce((select sum(stock_qty) from public.branch_stock where inventory_item_id = p_item), 0)
+   where id = p_item;
+  perform set_config('app.stock_total_sync', 'off', true);
+end $fn$;
+
+-- A direct write to inventory_items (the Inventory page, imports): new stock goes to the
+-- branch being worked in; a change to stock_qty is applied to that branch as a difference.
+create or replace function app.inventory_items_stock_write() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid := app.stock_branch_id();
+begin
+  if coalesce(current_setting('app.stock_total_sync', true), '') = 'on' then return new; end if;
+  if tg_op = 'INSERT' then
+    insert into public.branch_stock (branch_id, inventory_item_id, stock_qty)
+    values (v_b, new.id, coalesce(new.stock_qty, 0))
+    on conflict (branch_id, inventory_item_id) do update set stock_qty = excluded.stock_qty, updated_at = now();
+    return new;
+  end if;
+  if new.stock_qty is distinct from old.stock_qty then
+    insert into public.branch_stock (branch_id, inventory_item_id, stock_qty)
+    values (v_b, new.id, coalesce(new.stock_qty, 0) - coalesce(old.stock_qty, 0))
+    on conflict (branch_id, inventory_item_id) do update
+      set stock_qty = public.branch_stock.stock_qty + (coalesce(new.stock_qty, 0) - coalesce(old.stock_qty, 0)), updated_at = now();
+    new.stock_qty := coalesce((select sum(stock_qty) from public.branch_stock where inventory_item_id = new.id), 0);
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists stock_write_after_insert on public.inventory_items;
+create trigger stock_write_after_insert after insert on public.inventory_items
+  for each row execute function app.inventory_items_stock_write();
+drop trigger if exists stock_write_before_update on public.inventory_items;
+create trigger stock_write_before_update before update of stock_qty on public.inventory_items
+  for each row execute function app.inventory_items_stock_write();
+
+-- ── 4. Availability per branch ──────────────────────────────────────────────
+alter table public.product_availability add column if not exists branch_id uuid references public.branches(id);
+update public.product_availability set branch_id = app.default_branch_id() where branch_id is null;
+alter table public.product_availability alter column branch_id set not null;
+drop index if exists public.product_availability_key_idx;
+create unique index if not exists product_availability_branch_key
+  on public.product_availability (branch_id, menu_item_id, variant_id) nulls not distinct;
+-- Readers (the guest menu, the kitchen, staff) see the availability of the branch in use.
+drop policy if exists branch_wall on public.product_availability;
+create policy branch_wall on public.product_availability as restrictive for select
+  using (branch_id = app.stock_branch_id());
+
+create or replace view app.pa as
+  select * from public.product_availability where branch_id = app.stock_branch_id();
+
+create or replace function app.apply_product_availability_result(
+  p_menu_item_id uuid, p_variant_id uuid, p_tracked boolean, p_status text, p_producible numeric,
+  p_bottleneck uuid, p_reason text, p_trigger_type text, p_trigger_reference text, p_actor text
+) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_prev record; v_b uuid := app.stock_branch_id();
+begin
+  if not p_tracked then
+    delete from public.product_availability
+     where branch_id = v_b and menu_item_id = p_menu_item_id and variant_id is not distinct from p_variant_id;
+    return;
+  end if;
+  select status, producible_qty into v_prev from public.product_availability
+   where branch_id = v_b and menu_item_id = p_menu_item_id and variant_id is not distinct from p_variant_id;
+  insert into public.product_availability
+    (branch_id, menu_item_id, variant_id, status, producible_qty, bottleneck_inventory_item_id, reason, updated_at)
+  values (v_b, p_menu_item_id, p_variant_id, p_status, p_producible, p_bottleneck, p_reason, now())
+  on conflict (branch_id, menu_item_id, variant_id) do update set
+    status = excluded.status, producible_qty = excluded.producible_qty,
+    bottleneck_inventory_item_id = excluded.bottleneck_inventory_item_id, reason = excluded.reason, updated_at = now();
+  if v_prev is null or v_prev.status is distinct from p_status or v_prev.producible_qty is distinct from p_producible then
+    insert into public.availability_audit_log
+      (menu_item_id, variant_id, previous_status, new_status, previous_producible_qty, new_producible_qty,
+       bottleneck_inventory_item_id, reason, trigger_type, trigger_reference, actor)
+    values (p_menu_item_id, p_variant_id, v_prev.status, p_status, v_prev.producible_qty, p_producible,
+            p_bottleneck, p_reason, p_trigger_type, p_trigger_reference, p_actor);
+    perform app.log_action('availability.changed', 'menu_items', p_menu_item_id::text, null,
+      jsonb_build_object('variant_id', p_variant_id, 'status', p_status, 'producible_qty', p_producible, 'reason', p_reason, 'branch_id', v_b));
+  end if;
+end $fn$;
+
+-- The stock and availability functions read and write the branch view.
+do $mig$
+declare fn record; def text; new_def text;
+begin
+  for fn in
+    select p.oid, p.proname from pg_proc p
+     where p.pronamespace in ('public'::regnamespace, 'app'::regnamespace) and p.prokind = 'f'
+       and p.proname in ('adjust_stock', 'place_order', 'receive_purchase_order', 'receive_purchase_order_line',
+                         'record_dish_waste', 'record_ingredient_waste', 'submit_stock_count', 'compute_product_capacity',
+                         'recalc_priority_allocation', 'get_product_availability_detail', 'deal_availability',
+                         'guard_order_line_availability', 'recalc_product_availability', 'recalc_products_for_ingredient',
+                         'on_modifier_option_availability_change', 'on_modifier_recipe_components_change')
+  loop
+    def := pg_get_functiondef(fn.oid);
+    new_def := regexp_replace(def, 'public\.inventory_items\M', 'app.inv', 'g');
+    new_def := regexp_replace(new_def, 'public\.product_availability\M', 'app.pa', 'g');
+    if new_def <> def then execute new_def; end if;
+  end loop;
+end $mig$;
+
+-- ── 5. Recalculate a branch when its stock changes; low stock per branch ────
+drop trigger if exists recalc_availability_on_stock_change on public.inventory_items;
+drop trigger if exists sync_low_stock_event on public.inventory_items;
+drop index if exists public.low_stock_events_one_open_idx;
+create unique index if not exists low_stock_events_one_open_per_branch
+  on public.low_stock_events (inventory_item_id, branch_id) where status = 'open';
+
+create or replace function app.on_branch_stock_change() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_prev text := current_setting('app.stock_branch', true); v_type text; v_min numeric; v_open uuid;
+begin
+  if tg_op = 'UPDATE' and new.stock_qty is not distinct from old.stock_qty then return new; end if;
+  perform set_config('app.stock_branch', new.branch_id::text, true);
+  -- Low stock, per branch, against the ingredient's reorder level.
+  select min_threshold into v_min from public.inventory_items where id = new.inventory_item_id;
+  select id into v_open from public.low_stock_events
+   where inventory_item_id = new.inventory_item_id and branch_id = new.branch_id and status = 'open';
+  if v_min is not null and new.stock_qty <= v_min then
+    if v_open is null then
+      insert into public.low_stock_events (inventory_item_id, branch_id, stock_at_open, threshold_at_open)
+      values (new.inventory_item_id, new.branch_id, new.stock_qty, v_min);
+    end if;
+  elsif v_open is not null then
+    update public.low_stock_events set status = 'resolved', resolved_at = now() where id = v_open;
+  end if;
+  -- Availability of the dishes that use it, in this branch.
+  v_type := case when tg_op = 'INSERT' or new.stock_qty > old.stock_qty then 'inventory_restock' else 'inventory_consumption' end;
+  if app.priority_allocation_on() then
+    perform app.recalc_priority_allocation(v_type, new.inventory_item_id::text, array[new.inventory_item_id]);
+  else
+    perform app.recalc_products_for_ingredient(new.inventory_item_id, v_type, null);
+  end if;
+  perform set_config('app.stock_branch', coalesce(v_prev, ''), true);
+  return new;
+end $fn$;
+drop trigger if exists on_branch_stock_change on public.branch_stock;
+create trigger on_branch_stock_change after insert or update of stock_qty on public.branch_stock
+  for each row execute function app.on_branch_stock_change();
+
+-- A changed reorder level re-checks every branch.
+create or replace function app.on_threshold_change() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if new.min_threshold is distinct from old.min_threshold then
+    update public.branch_stock set updated_at = now(), stock_qty = stock_qty where inventory_item_id = new.id;
+    -- (a no-op stock update does not fire the stock trigger, so check explicitly)
+    insert into public.low_stock_events (inventory_item_id, branch_id, stock_at_open, threshold_at_open)
+    select bs.inventory_item_id, bs.branch_id, bs.stock_qty, new.min_threshold from public.branch_stock bs
+     where bs.inventory_item_id = new.id and new.min_threshold is not null and bs.stock_qty <= new.min_threshold
+       and not exists (select 1 from public.low_stock_events l where l.inventory_item_id = bs.inventory_item_id and l.branch_id = bs.branch_id and l.status = 'open');
+    update public.low_stock_events l set status = 'resolved', resolved_at = now()
+      from public.branch_stock bs
+     where l.inventory_item_id = new.id and l.status = 'open' and bs.inventory_item_id = l.inventory_item_id and bs.branch_id = l.branch_id
+       and (new.min_threshold is null or bs.stock_qty > new.min_threshold);
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists on_threshold_change on public.inventory_items;
+create trigger on_threshold_change after update of min_threshold on public.inventory_items
+  for each row execute function app.on_threshold_change();
+
+-- Reorder emails list each branch's low stock (the cron runs without a branch).
+do $mig$
+declare def text := pg_get_functiondef('public.pending_low_stock_reorders()'::regprocedure); before text;
+begin
+  before := def;
+  def := replace(def, 'select lse.id, ii.id, ii.name, ii.unit,
+           ii.stock_qty, ii.min_threshold, ii.target_stock_qty,',
+    'select lse.id, ii.id,
+           ii.name || case when (select count(*) from public.branches where status = ''active'') > 1
+                           then '' — '' || (select b.name from public.branches b where b.id = lse.branch_id) else '''' end,
+           ii.unit,
+           app.branch_qty(ii.id, lse.branch_id), ii.min_threshold, ii.target_stock_qty,');
+  def := replace(def, '- ii.stock_qty),', '- app.branch_qty(ii.id, lse.branch_id)),');
+  if def = before or position('ii.stock_qty' in def) > 0 then
+    raise exception '0101: unexpected shape of pending_low_stock_reorders()';
+  end if;
+  execute def;
+end $mig$;
+
+-- Stock rows and alerts belong to the branch whose stock moved.
+create or replace function app.fill_stock_branch() returns trigger
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if new.branch_id is null then new.branch_id := app.stock_branch_id(); end if;
+  return new;
+end $fn$;
+drop trigger if exists aa_fill_stock_branch on public.stock_ledger;
+create trigger aa_fill_stock_branch before insert on public.stock_ledger for each row execute function app.fill_stock_branch();
+
+-- ── 6. Receiving stocks the purchase order's own branch ─────────────────────
+do $mig$
+begin
+  if to_regprocedure('app._receive_purchase_order_impl(uuid)') is null then
+    alter function public.receive_purchase_order(uuid) set schema app;
+    alter function app.receive_purchase_order(uuid) rename to _receive_purchase_order_impl;
+  end if;
+  if to_regprocedure('app._receive_purchase_order_line_impl(uuid, numeric, numeric, text)') is null then
+    alter function public.receive_purchase_order_line(uuid, numeric, numeric, text) set schema app;
+    alter function app.receive_purchase_order_line(uuid, numeric, numeric, text) rename to _receive_purchase_order_line_impl;
+  end if;
+end $mig$;
+
+create or replace function public.receive_purchase_order(p_po_id uuid) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid; v_prev text := current_setting('app.stock_branch', true);
+begin
+  select branch_id into v_b from public.purchase_orders where id = p_po_id;
+  if v_b is not null and not app.branch_access(v_b) then
+    raise exception 'forbidden: this purchase order belongs to another branch' using errcode = 'insufficient_privilege';
+  end if;
+  perform set_config('app.stock_branch', coalesce(v_b::text, ''), true);
+  perform app._receive_purchase_order_impl(p_po_id);
+  perform set_config('app.stock_branch', coalesce(v_prev, ''), true);
+end $fn$;
+
+create or replace function public.receive_purchase_order_line(
+  p_line_id uuid, p_qty numeric, p_rejected_qty numeric default 0, p_reject_reason text default null
+) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_b uuid; v_prev text := current_setting('app.stock_branch', true);
+begin
+  select po.branch_id into v_b from public.purchase_order_lines l join public.purchase_orders po on po.id = l.purchase_order_id where l.id = p_line_id;
+  if v_b is not null and not app.branch_access(v_b) then
+    raise exception 'forbidden: this purchase order belongs to another branch' using errcode = 'insufficient_privilege';
+  end if;
+  perform set_config('app.stock_branch', coalesce(v_b::text, ''), true);
+  perform app._receive_purchase_order_line_impl(p_line_id, p_qty, p_rejected_qty, p_reject_reason);
+  perform set_config('app.stock_branch', coalesce(v_prev, ''), true);
+end $fn$;
+revoke all on function public.receive_purchase_order(uuid) from public;
+revoke all on function public.receive_purchase_order_line(uuid, numeric, numeric, text) from public;
+grant execute on function public.receive_purchase_order(uuid) to authenticated, service_role;
+grant execute on function public.receive_purchase_order_line(uuid, numeric, numeric, text) to authenticated, service_role;
+
+-- ── 7. Transfers between branches (never revenue or expense) ────────────────
+create or replace function public.transfer_stock(
+  p_inventory_item_id uuid, p_from_branch uuid, p_to_branch uuid, p_qty numeric, p_note text default null
+) returns uuid
+language plpgsql security definer set search_path = public, app as $fn$
+declare v_transfer uuid := gen_random_uuid(); v_have numeric; v_cost numeric; v_name text; v_prev text := current_setting('app.stock_branch', true);
+begin
+  if not (app.has_perm('stock.update') or app.has_perm('inventory.manage') or app.can_write()) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if not app.branch_access(p_from_branch) then
+    raise exception 'forbidden: you cannot send stock from that branch' using errcode = 'insufficient_privilege';
+  end if;
+  if p_from_branch = p_to_branch then raise exception 'same_branch' using errcode = 'check_violation'; end if;
+  if coalesce(p_qty, 0) <= 0 then raise exception 'bad_qty' using errcode = 'check_violation'; end if;
+  if not exists (select 1 from public.branches where id = p_to_branch and status = 'active') then
+    raise exception 'branch_not_active' using errcode = 'check_violation';
+  end if;
+  select name, cost_cents_per_base_unit into v_name, v_cost from public.inventory_items where id = p_inventory_item_id;
+  if not found then raise exception 'item_not_found' using errcode = 'no_data_found'; end if;
+  v_have := app.branch_qty(p_inventory_item_id, p_from_branch);
+  if v_have < p_qty then
+    raise exception 'not_enough_stock: % has % of %', (select name from public.branches where id = p_from_branch), v_have, v_name
+      using errcode = 'check_violation';
+  end if;
+
+  perform set_config('app.stock_branch', p_from_branch::text, true);
+  update app.inv set stock_qty = stock_qty - p_qty where id = p_inventory_item_id;
+  insert into public.stock_ledger (inventory_item_id, branch_id, delta_qty, reason, note, unit_cost_cents_base)
+  values (p_inventory_item_id, p_from_branch, -p_qty, 'adjustment',
+          'Transfer to ' || (select name from public.branches where id = p_to_branch) || coalesce(' — ' || nullif(trim(p_note), ''), '') || ' [' || v_transfer || ']', v_cost);
+
+  perform set_config('app.stock_branch', p_to_branch::text, true);
+  update app.inv set stock_qty = stock_qty + p_qty where id = p_inventory_item_id;
+  insert into public.stock_ledger (inventory_item_id, branch_id, delta_qty, reason, note, unit_cost_cents_base)
+  values (p_inventory_item_id, p_to_branch, p_qty, 'adjustment',
+          'Transfer from ' || (select name from public.branches where id = p_from_branch) || coalesce(' — ' || nullif(trim(p_note), ''), '') || ' [' || v_transfer || ']', v_cost);
+
+  perform set_config('app.stock_branch', coalesce(v_prev, ''), true);
+  perform app.log_action('stock.transferred', 'inventory_items', p_inventory_item_id::text, null,
+    jsonb_build_object('from', p_from_branch, 'to', p_to_branch, 'qty', p_qty, 'transfer', v_transfer, 'note', p_note));
+  return v_transfer;
+end $fn$;
+revoke all on function public.transfer_stock(uuid, uuid, uuid, numeric, text) from public;
+grant execute on function public.transfer_stock(uuid, uuid, uuid, numeric, text) to authenticated, service_role;
+
+-- Stock in the branch being viewed, for the Inventory screen.
+create or replace function public.branch_stock_levels() returns table (inventory_item_id uuid, branch_id uuid, stock_qty numeric)
+language sql stable security definer set search_path = public, app as $fn$
+  select bs.inventory_item_id, bs.branch_id, bs.stock_qty from public.branch_stock bs
+   where (app.has_perm('stock.view') or app.is_staff()) and app.in_scope(bs.branch_id)
+$fn$;
+revoke all on function public.branch_stock_levels() from public;
+grant execute on function public.branch_stock_levels() to authenticated, service_role;
+
+-- Recompute every branch's availability once, from its own stock.
+do $mig$
+declare b record; prev text := current_setting('app.stock_branch', true);
+begin
+  for b in select id from public.branches where status = 'active' loop
+    perform set_config('app.stock_branch', b.id::text, true);
+    begin
+      perform public.recalculate_all_product_availability();
+    exception when others then
+      raise notice '0101: availability will refresh on the next stock change (%)', sqlerrm;
+    end;
+  end loop;
+  perform set_config('app.stock_branch', coalesce(prev, ''), true);
+end $mig$;
+
+-- ── 0102_branch_menu.sql ──
+-- ============================================================================
+-- 0102 — Multi-branch, phase 5: one menu, branch prices and availability.
+--
+-- Menu items, sizes, recipes and deals stay shared (no duplicated records).
+-- A branch may override a dish — or one size of it — with its own price,
+-- and may take it off its menu. place_order() charges the branch price and
+-- refuses a dish the branch has switched off; the guest menu and checkout
+-- show the same. Overrides are audited and need menu.update / branches.manage.
+-- ============================================================================
+
+create table if not exists public.branch_menu_overrides (
+  id           uuid primary key default gen_random_uuid(),
+  branch_id    uuid not null references public.branches(id) on delete cascade,
+  menu_item_id uuid not null references public.menu_items(id) on delete cascade,
+  variant_id   uuid references public.menu_variants(id) on delete cascade,
+  price_cents  int check (price_cents is null or price_cents >= 0),
+  is_available boolean,
+  updated_at   timestamptz not null default now(),
+  updated_by   uuid
+);
+create unique index if not exists branch_menu_overrides_key
+  on public.branch_menu_overrides (branch_id, menu_item_id, variant_id) nulls not distinct;
+
+alter table public.branch_menu_overrides enable row level security;
+drop policy if exists read_all on public.branch_menu_overrides;
+-- Prices and availability are public on the menu anyway; staff see their branches'.
+create policy read_all on public.branch_menu_overrides for select
+  using (app.jwt_role() = 'anon' or app.branch_access(branch_id));
+
+do $$ begin
+  if exists (select 1 from pg_proc where proname = 'audit_row' and pronamespace = 'app'::regnamespace) then
+    drop trigger if exists audit on public.branch_menu_overrides;
+    create trigger audit after insert or update or delete on public.branch_menu_overrides for each row execute function app.audit_row();
+  end if;
+end $$;
+
+-- Set (or clear, with both null) a branch's override for a dish or one of its sizes.
+create or replace function public.set_branch_menu_override(
+  p_branch_id uuid, p_menu_item_id uuid, p_variant_id uuid, p_price_cents int, p_is_available boolean
+) returns void
+language plpgsql security definer set search_path = public, app as $fn$
+begin
+  if not ((app.has_perm('menu.update') or app.has_perm('branches.manage') or app.can_write()) and app.branch_access(p_branch_id)) then
+    raise exception 'forbidden' using errcode = 'insufficient_privilege';
+  end if;
+  if p_variant_id is not null and not exists (select 1 from public.menu_variants where id = p_variant_id and menu_item_id = p_menu_item_id) then
+    raise exception 'variant_not_of_item' using errcode = 'check_violation';
+  end if;
+  if p_price_cents is null and p_is_available is null then
+    delete from public.branch_menu_overrides
+     where branch_id = p_branch_id and menu_item_id = p_menu_item_id and variant_id is not distinct from p_variant_id;
+    return;
+  end if;
+  insert into public.branch_menu_overrides (branch_id, menu_item_id, variant_id, price_cents, is_available, updated_by)
+  values (p_branch_id, p_menu_item_id, p_variant_id, p_price_cents, p_is_available, app.jwt_sub())
+  on conflict (branch_id, menu_item_id, variant_id) do update
+    set price_cents = excluded.price_cents, is_available = excluded.is_available, updated_at = now(), updated_by = excluded.updated_by;
+end $fn$;
+revoke all on function public.set_branch_menu_override(uuid, uuid, uuid, int, boolean) from public;
+grant execute on function public.set_branch_menu_override(uuid, uuid, uuid, int, boolean) to authenticated, service_role;
+
+-- place_order: the branch's price and availability for a dish line.
+do $mig$
+declare
+  def text := pg_get_functiondef('public.place_order(text,text,text,integer,jsonb,integer,text,text)'::regprocedure);
+  anchor constant text := '       order by v.sort_order, v.created_at limit 1;
+    end if;
+
+    if not coalesce(v_avail, false) then
+      raise exception ''item_unavailable: %'', coalesce(v_item_name, v_item_id::text)';
+  addition constant text := '       order by v.sort_order, v.created_at limit 1;
+    end if;
+
+    -- Branch price / availability (0102): the order''s branch may price a dish (or a size) itself
+    -- or have switched it off. A size override wins over one for the whole dish.
+    select coalesce(o.price_cents, v_price), coalesce(v_avail, false) and coalesce(o.is_available, true)
+      into v_price, v_avail
+      from (select 1) x
+      left join lateral (
+        select bo.price_cents, bo.is_available from public.branch_menu_overrides bo
+         where bo.branch_id = app.stock_branch_id() and bo.menu_item_id = v_item_id
+           and (bo.variant_id = v_variant_id or bo.variant_id is null)
+         order by bo.variant_id nulls last limit 1) o on true;
+
+    if not coalesce(v_avail, false) then
+      raise exception ''item_unavailable: %'', coalesce(v_item_name, v_item_id::text)';
+begin
+  if position('branch_menu_overrides' in def) > 0 then return; end if;
+  if position(anchor in def) = 0 then raise exception '0102: unexpected shape of place_order()'; end if;
+  execute replace(def, anchor, addition);
+end $mig$;

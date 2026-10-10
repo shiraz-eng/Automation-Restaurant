@@ -32,6 +32,13 @@ declare res text := ''; fails int := 0; n int; n2 int; b_main uuid; b_dha public
   o_main uuid; o_dha uuid; p_dha uuid; portal uuid; v text; tier text; feats text[]; v_uuid uuid; v_uuid2 uuid; v_item uuid; v_mi uuid; v_mv uuid; v_sup uuid; v_po uuid; v_pol uuid; v_sum bigint; v_led bigint;
 begin
   b_main := app.default_branch_id();
+  -- A restaurant whose plan has one branch: give it the multi-branch feature for this
+  -- rolled-back run, so every check below runs on it too (B6 still tests the limit).
+  if not coalesce((select 'branches.multi' = any(coalesce(plan_features, '{}')) from public.business_settings where id = true), false) then
+    perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+    update public.business_settings set plan_features = array_append(coalesce(plan_features, '{}'), 'branches.multi') where id = true;
+    res := res || E'note: plan given branches.multi for this rolled-back run\n';
+  end if;
   select count(*) into n from public.orders where branch_id is distinct from b_main;
   if b_main is not null and n = 0 then res := res || E'PASS B1 every existing order belongs to the default branch\n';
   else fails := fails + 1; res := res || format(E'FAIL B1 default=%s orders elsewhere=%s\n', b_main, n); end if;
