@@ -38,8 +38,13 @@ async function main() {
   const { data: conns } = await supabaseAdmin.from('supabase_connections').select('tenant_id');
   const oauthTenantIds = new Set((conns ?? []).map((c: { tenant_id: string }) => c.tenant_id));
 
+  // --only <project_ref>: try a migration on one restaurant before rolling it out.
+  const onlyIdx = process.argv.indexOf('--only');
+  const only = onlyIdx > 0 ? process.argv[onlyIdx + 1] : null;
+
   let failed = 0;
   for (const p of projects as { tenant_id: string; project_ref: string; schema_version: number }[]) {
+    if (only && p.project_ref !== only) continue;
     const isOauth = oauthTenantIds.has(p.tenant_id);
     process.stdout.write(`→ ${p.project_ref} (v${p.schema_version} → v${version})${isOauth ? ' [oauth]' : ''} ... `);
     try {

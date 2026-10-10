@@ -12,6 +12,8 @@ import { getFreshConnection } from '../src/lib/supabaseOAuth';
 import { env } from '../src/env';
 
 const REF = process.argv[2] ?? 'uhfwoftjecgjemvwqdbp';
+// PRE_SQL=<file>: run a migration first inside the same rolled-back transaction (rehearsal).
+const PRE = process.env.PRE_SQL ? require('node:fs').readFileSync(process.env.PRE_SQL, 'utf8') + String.fromCharCode(10) : '';
 
 const claims = (sub: string, perms: string[], role = 'staff') =>
   JSON.stringify({ role: 'authenticated', sub, app_metadata: { kind: 'portal', role, permissions: perms } });
@@ -27,7 +29,8 @@ do $$
 declare res text := ''; fails int := 0; n int; b bigint; base bigint; now_exp bigint; v_status text; v_by uuid;
   ex uuid; ex2 uuid; dr uuid; src bigint; led bigint; t text;
 begin
-  select count(*) into n from public.expenses where status <> 'paid';
+  -- Only the expenses that existed when 0087 ran (2026-10-08); newer ones legitimately await approval.
+  select count(*) into n from public.expenses where status not in ('paid', 'void') and created_at < '2026-10-08';
   if n = 0 then res := res || E'PASS C0 every existing expense was kept as paid (profit unchanged)\n';
   else fails := fails + 1; res := res || format(E'FAIL C0 %s existing expenses are not paid\n', n); end if;
 
@@ -162,7 +165,7 @@ async function main() {
   const r = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: SQL }),
+    body: JSON.stringify({ query: PRE + SQL }),
   });
   const text = await r.text();
   const m = text.match(/RESULTS \(rolled back\) — (\d+) failed\\n([\s\S]*?)"}/);
