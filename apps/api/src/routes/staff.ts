@@ -93,7 +93,7 @@ staffRouter.post(
         .json({ error: 'invalid_request', details: parsed.error.flatten().fieldErrors });
     }
     const { membership_id, role, extra_permissions } = parsed.data;
-    const { admin, permissions } = req.tenant!;
+    const { admin, service, permissions } = req.tenant!;
     const extra = extra_permissions ?? [];
 
     const [{ data: member, error: mErr }, { data: roleRow, error: rlErr }] = await Promise.all([
@@ -131,10 +131,11 @@ staffRouter.post(
     }
 
     const perms = (effective as string[] | null) ?? [];
+    // Auth accounts need the service key (a branch-limited caller's own token can't change them).
     if (member.user_id) {
-      const { data: u } = await admin.auth.admin.getUserById(member.user_id);
+      const { data: u } = await service.auth.admin.getUserById(member.user_id);
       const existing = (u?.user?.app_metadata ?? {}) as Record<string, unknown>;
-      await admin.auth.admin.updateUserById(member.user_id, {
+      await service.auth.admin.updateUserById(member.user_id, {
         app_metadata: { ...existing, role, permissions: perms },
       });
     }
@@ -194,7 +195,7 @@ staffRouter.delete(
   express.json(),
   requirePortalPerm('staff.delete'),
   async (req: Request, res: Response) => {
-    const { admin, permissions, role, userId } = req.tenant!;
+    const { admin, service, permissions, role, userId } = req.tenant!;
     const { data: member } = await admin
       .from('memberships')
       .select('id, user_id, role, status')
@@ -223,7 +224,7 @@ staffRouter.delete(
     if (error) return res.status(400).json({ error: 'remove_failed', message: error.message });
     await admin.from('portal_staff').delete().eq('membership_id', member.id);
     if (member.user_id) {
-      await admin.auth.admin.deleteUser(member.user_id).catch(() => {});
+      await service.auth.admin.deleteUser(member.user_id).catch(() => {});
     }
     res.json({ ok: true });
   },

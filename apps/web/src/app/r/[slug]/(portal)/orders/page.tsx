@@ -4,6 +4,7 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { LiveRefresh } from '@/components/LiveRefresh';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { OrdersClient } from './OrdersClient';
+import { loadBranchContext } from '@/lib/branchServer';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +32,16 @@ export default async function OrdersPage({ params }: { params: Promise<{ slug: s
     t.client.rpc('get_brand_kit'),
   ]);
 
-  const orders = ordersRes.data;
+  // Multi-branch, All branches: label each order with its branch, so the owner sees every
+  // branch's orders together and can tell them apart (a separate read: pre-0098 has no column).
+  const branchCtx = await loadBranchContext(t.client);
+  let orders = ordersRes.data as Record<string, unknown>[] | null;
+  if (branchCtx.multi && !branchCtx.selectedId && orders?.length) {
+    const names = new Map(branchCtx.branches.map((b) => [b.id, b.code]));
+    const { data: rows } = await t.client.from('orders').select('id, branch_id').in('id', orders.map((o) => o.id as string));
+    const branchOf = new Map(((rows ?? []) as { id: string; branch_id: string }[]).map((r) => [r.id, names.get(r.branch_id) ?? null]));
+    orders = orders.map((o) => ({ ...o, branch_name: branchOf.get(o.id as string) ?? null }));
+  }
   const error = ordersRes.error;
   const settings = settingsRes.data;
   const brandRow = Array.isArray(brandRes.data) ? brandRes.data[0] : brandRes.data;

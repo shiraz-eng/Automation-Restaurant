@@ -14,17 +14,22 @@ export const portalsRouter = express.Router();
  *   - it is the Super Admin portal (never editable),
  *   - it is the caller's OWN portal (a portal can't change itself),
  *   - it holds any permission the caller doesn't (no managing up).
- * Every write here goes through the service-role client, which bypasses
- * RLS and the guard_portal_write trigger, so these checks are the gate.
+ *   - (multi-branch) the caller is limited to some branches and the portal
+ *     covers any other branch, or every branch.
+ * Every write here goes through the service-role client (req.tenant.service),
+ * which bypasses RLS and the guard_portal_write trigger, so these checks are the gate.
  */
 async function requireManageablePortal(req: Request, res: Response, next: NextFunction) {
-  const { admin, permissions, role, portalId } = req.tenant!;
+  const { service: admin, permissions, role, portalId, allowedBranchIds } = req.tenant!;
   const { data: target } = await admin
     .from('portals')
-    .select('id, type, permissions')
+    .select(allowedBranchIds ? 'id, type, permissions, branch_ids' : 'id, type, permissions')
     .eq('id', req.params.id)
-    .maybeSingle();
+    .maybeSingle<{ id: string; type: string; permissions: string[] | null; branch_ids?: string[] | null }>();
   if (!target) return res.status(404).json({ error: 'not_found' });
+  if (allowedBranchIds && !withinBranches(target.branch_ids ?? [], allowedBranchIds)) {
+    return res.status(403).json({ error: 'forbidden', message: 'That portal works in branches you do not manage.' });
+  }
   if (target.type === 'super_admin') {
     return res.status(409).json({ error: 'immutable', message: 'The Super Admin portal cannot be changed.' });
   }
@@ -37,6 +42,36 @@ async function requireManageablePortal(req: Request, res: Response, next: NextFu
       .json({ error: 'forbidden', message: 'That portal has access you do not hold, so you cannot manage it.' });
   }
   next();
+}
+
+/** A branch list (empty = every branch) is inside `allowed` only when it names some branches, all allowed. */
+export function withinBranches(ids: string[], allowed: string[]): boolean {
+  return ids.length > 0 && ids.every((id) => allowed.includes(id));
+}
+
+/**
+ * The branches a portal being created or edited may work in (multi-branch, 0098).
+ * Returns the list to store ([] = every branch), undefined = leave as it is, or an error.
+ * A login limited to some branches can only hand out those (new portals get them by
+ * default); everyone else may choose any of the restaurant's branches.
+ */
+export async function resolvePortalBranches(
+  req: Request,
+  requested: string[] | undefined,
+  creating: boolean,
+): Promise<{ ids?: string[]; error?: string }> {
+  const { service, allowedBranchIds } = req.tenant!;
+  if (requested === undefined) return { ids: creating && allowedBranchIds ? allowedBranchIds : undefined };
+  const ids = [...new Set(requested)];
+  if (allowedBranchIds && !withinBranches(ids, allowedBranchIds)) {
+    return { error: 'You can only give a portal the branches you work in yourself.' };
+  }
+  if (ids.length > 0) {
+    const { data, error } = await service.from('branches').select('id').in('id', ids);
+    if (error) return { error: 'Branches are not set up for this restaurant yet.' };
+    if ((data ?? []).length !== ids.length) return { error: 'One of those branches does not exist.' };
+  }
+  return { ids };
 }
 
 function overreach(callerPerms: string[], role: string | null, requested: string[]): string[] {
@@ -99,6 +134,8 @@ const createSchema = z.object({
   permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).default([]),
   email: z.string().trim().toLowerCase().email().max(200).optional(),
   password: z.string().min(8).max(200).optional(),
+  /** Branches this portal works in (multi-branch); empty or left out = every branch. */
+  branch_ids: z.array(z.string().uuid()).max(100).optional(),
 });
 
 /** POST /api/portals — create a portal + its login. */
@@ -116,7 +153,7 @@ portalsRouter.post(
     });
   }
   const { slug, name, type, permissions } = parsed.data;
-  const { admin, permissions: callerPerms, role } = req.tenant!;
+  const { service: admin, permissions: callerPerms, role } = req.tenant!;
   if (type === 'super_admin') {
     return res.status(409).json({ error: 'immutable', message: 'Only one Super Admin portal exists.' });
   }
@@ -124,6 +161,8 @@ portalsRouter.post(
   if (tooMuch.length) {
     return res.status(403).json({ error: 'forbidden', message: `You can't grant: ${tooMuch.join(', ')}` });
   }
+  const branches = await resolvePortalBranches(req, parsed.data.branch_ids, true);
+  if (branches.error) return res.status(403).json({ error: 'forbidden', message: branches.error });
 
   // Unique route_key.
   let key = routeKey(name);
@@ -136,7 +175,8 @@ portalsRouter.post(
   // 1. row (need its id for the Auth user's app_metadata)
   const { data: portal, error: pErr } = await admin
     .from('portals')
-    .insert({ name, type, route_key: key, permissions, force_pw_change: true })
+    // branch_ids only when set, so restaurants before migration 0098 (no column) still work.
+    .insert({ name, type, route_key: key, permissions, force_pw_change: true, ...(branches.ids?.length ? { branch_ids: branches.ids } : {}) })
     .select('id, name, type, route_key, status, permissions')
     .single();
   if (pErr || !portal) return res.status(400).json({ error: 'create_failed', message: pErr?.message });
@@ -173,6 +213,7 @@ const patchSchema = z.object({
   permissions: z.array(z.string().max(48)).max(MAX_PORTAL_PERMISSIONS).optional(),
   status: z.enum(['active', 'disabled']).optional(),
   email: z.string().trim().toLowerCase().email().max(200).optional(),
+  branch_ids: z.array(z.string().uuid()).max(100).optional(),
 });
 
 /** PATCH /api/portals/:id — rename / retype / re-permission / enable-disable. */
@@ -190,9 +231,12 @@ portalsRouter.patch(
       details: parsed.error.flatten().fieldErrors,
     });
   }
-  const { slug: _slug, ...changes } = parsed.data;
+  const { slug: _slug, branch_ids: requestedBranches, ...rest } = parsed.data;
   void _slug;
-  const { admin, permissions, role } = req.tenant!;
+  const { service: admin, permissions, role } = req.tenant!;
+  const branches = await resolvePortalBranches(req, requestedBranches, false);
+  if (branches.error) return res.status(403).json({ error: 'forbidden', message: branches.error });
+  const changes = { ...rest, ...(branches.ids !== undefined ? { branch_ids: branches.ids } : {}) };
 
   // portals.disable alone covers enable/disable; any other change needs
   // portals.update.
@@ -273,7 +317,7 @@ portalsRouter.post(
   if (newPw && (newPw.length < 8 || newPw.length > 200)) {
     return res.status(422).json({ error: 'weak_password' });
   }
-  const { admin } = req.tenant!;
+  const { service: admin } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')
@@ -301,7 +345,7 @@ portalsRouter.delete(
   requirePortalPerm('portals.update'),
   requireManageablePortal,
   async (req: Request, res: Response) => {
-  const { admin } = req.tenant!;
+  const { service: admin } = req.tenant!;
 
   const { data: portal } = await admin
     .from('portals')

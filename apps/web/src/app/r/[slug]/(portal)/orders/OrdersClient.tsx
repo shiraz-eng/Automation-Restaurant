@@ -64,6 +64,8 @@ export type Order = {
   created_at: string;
   order_lines: Line[];
   payments?: Payment[];
+  /** Multi-branch, All branches view: the branch the order belongs to. */
+  branch_name?: string | null;
 };
 
 export function OrdersClient({
@@ -364,6 +366,9 @@ export function OrdersClient({
               >
                 <td className="p-3 font-mono font-bold">{o.order_number}</td>
                 <td className="p-3 text-muted">
+                  {o.branch_name && (
+                    <span className="mr-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{o.branch_name}</span>
+                  )}
                   {o.table_label ?? o.channel.replace('_', ' ')}
                   {o.customer_name ? ` · ${o.customer_name}` : ''}
                 </td>

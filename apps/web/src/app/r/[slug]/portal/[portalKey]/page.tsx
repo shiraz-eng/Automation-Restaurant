@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import QRCode from 'qrcode';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { loadTenantCurrency } from '@/lib/currencyServer';
+import { loadBranchContext } from '@/lib/branchServer';
 import { Card } from '@/components/ui';
 import { StatCard } from '@/components/StatCard';
 import { formatCents } from '@/lib/format';
@@ -573,6 +574,14 @@ export default async function PortalHome({
   const myMembershipId = (myMembershipRes.data as { id: string } | null)?.id ?? null;
   // The restaurant's Brand Kit logo for the Create Portal preview.
   const portalPreviewLogo = includePortals ? (await fetchPortalTheme(t.client)).logoUrl : null;
+  // Multi-branch: the branches each portal works in, and this portal's own (it can only hand
+  // out those — the API enforces it too). A separate read so pre-0098 restaurants still work.
+  const portalBranchCtx = includePortals ? await loadBranchContext(t.client) : null;
+  const { data: portalBranchRows } = portalBranchCtx?.multi
+    ? await t.client.from('portals').select('id, branch_ids')
+    : { data: [] };
+  const portalBranchesOf = new Map(((portalBranchRows ?? []) as { id: string; branch_ids: string[] | null }[]).map((p) => [p.id, p.branch_ids ?? []]));
+  const ownBranches = portalBranchesOf.get(portal.id) ?? [];
   // The restaurant's tax setting — the same rate place_order() charges.
   let cashierTaxRateBps = 0;
   if (includeCashier) {
@@ -1105,7 +1114,9 @@ export default async function PortalHome({
                 slug={slug}
                 restaurantName={t.config.restaurantName}
                 logoUrl={portalPreviewLogo}
-                portals={(managedPortalsRes.data ?? []) as ManagedPortal[]}
+                portals={((managedPortalsRes.data ?? []) as ManagedPortal[]).map((p) => ({ ...p, branch_ids: portalBranchesOf.get(p.id) ?? [] }))}
+                branches={portalBranchCtx?.multi ? portalBranchCtx.branches.map((b) => ({ id: b.id, code: b.code, name: b.name })) : []}
+                callerBranchIds={ownBranches.length ? ownBranches : null}
                 perms={((catalogRes.data ?? []) as PermRow[])}
                 caps={{
                   create: has('portals.create'),

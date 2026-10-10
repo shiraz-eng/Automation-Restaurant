@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { CURRENCIES } from '@automation-restaurant/shared';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
@@ -52,6 +53,7 @@ export function BranchesManager({
   canManage,
   multiEntitled,
   currentBranchId,
+  canCreateLogins = false,
 }: {
   slug: string;
   branches: ManagedBranch[];
@@ -59,6 +61,8 @@ export function BranchesManager({
   canManage: boolean;
   multiEntitled: boolean;
   currentBranchId: string | null;
+  /** Owner: show "Create a login for this branch" (opens Portals with the branch picked). */
+  canCreateLogins?: boolean;
 }) {
   const supabase = usePortalSupabase();
   const router = useRouter();
@@ -251,7 +255,23 @@ export function BranchesManager({
               {b.phone ? ` · ${b.phone}` : ''}
             </p>
             {b.status !== 'active' && b.status_reason && <p className="text-xs text-warn">Reason: {b.status_reason}</p>}
+            {logins.length > 0 && (
+              <p className="text-xs text-muted">
+                {(() => {
+                  const own = logins.filter((l) => (l.branch_ids ?? []).includes(b.id));
+                  return own.length ? `Own logins: ${own.map((l) => l.name).join(', ')}` : 'No login of its own yet';
+                })()}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5 pt-1">
+              {canCreateLogins && b.status === 'active' && (
+                <Link
+                  href={`/r/${slug}/portals?branch=${b.id}`}
+                  className="rounded px-3 py-1.5 text-xs font-semibold border border-primary/50 text-primary hover:bg-primary/10"
+                >
+                  Create a login for this branch
+                </Link>
+              )}
               {b.status === 'active' && currentBranchId !== b.id && (
                 <Button variant="ghost" onClick={() => workIn(b.id)}>
                   Work in this branch

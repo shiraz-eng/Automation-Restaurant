@@ -63,6 +63,7 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
           canManage={canManage}
           multiEntitled={ent.isEntitled('branches.multi')}
           currentBranchId={ctx.selectedId}
+          canCreateLogins={role === 'owner' && can(perms, role, 'portals.create')}
         />
       )}
       {!branchesRes.error && canPrice && (

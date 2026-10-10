@@ -19,6 +19,14 @@ export type TenantContext = {
   portalId: string | null;
   /** The branches this request covers (null = every branch); `admin` is already narrowed to them. */
   branchIds: string[] | null;
+  /** The branches this login may use at all (null = every branch). Set only for branch-limited logins. */
+  allowedBranchIds: string[] | null;
+  /**
+   * The restaurant's unscoped service client. ONLY for what the caller's own token cannot do
+   * (Auth accounts) or for a write the route has already validated (portals.ts, staff.ts);
+   * every read and ordinary write goes through `admin`, so branch walls apply.
+   */
+  service: SupabaseClient;
 };
 
 declare global {
@@ -49,7 +57,7 @@ export async function effectiveBranchIds(
   permissions: string[],
   role: string | null,
   header: string | string[] | undefined,
-): Promise<{ ids: string[] | null; limited: boolean }> {
+): Promise<{ ids: string[] | null; limited: boolean; allowed: string[] | null }> {
   const asked = String(Array.isArray(header) ? header[0] : (header ?? ''))
     .split(',')
     .map((x) => x.trim())
@@ -65,9 +73,9 @@ export async function effectiveBranchIds(
   }
   if (allowed) {
     const both = asked.filter((x) => allowed!.includes(x));
-    return { ids: both.length > 0 ? both : allowed, limited: true };
+    return { ids: both.length > 0 ? both : allowed, limited: true, allowed };
   }
-  return { ids: asked.length > 0 ? asked : null, limited: false };
+  return { ids: asked.length > 0 ? asked : null, limited: false, allowed: null };
 }
 
 export function permits(perms: string[], role: string | null, need: string): boolean {
@@ -152,7 +160,7 @@ export function requirePortalPerm(need: string | string[]) {
     // database's branch walls don't apply to — so the branches are worked out here and the
     // request runs on a client narrowed to them. A login limited to some branches never gets
     // past them (whatever it asks for); the owner gets the branch it is viewing, or all.
-    const { ids: branchIds, limited: branchLimited } = await effectiveBranchIds(svc.admin, data.user.id, permissions, role, req.headers['x-branch-ids']);
+    const { ids: branchIds, limited: branchLimited, allowed: allowedBranchIds } = await effectiveBranchIds(svc.admin, data.user.id, permissions, role, req.headers['x-branch-ids']);
 
     req.tenant = {
       slug,
@@ -161,6 +169,8 @@ export function requirePortalPerm(need: string | string[]) {
       // narrowed for reports to the branch it is viewing.
       admin: branchLimited ? svc.asUser(token, branchIds) : branchIds ? svc.scoped(branchIds) : svc.admin,
       branchIds,
+      allowedBranchIds,
+      service: svc.admin,
       projectUrl: svc.projectUrl,
       userId: data.user.id,
       email: data.user.email ?? null,
