@@ -64,10 +64,21 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
     arr.push(r);
     availByItem.set(r.menu_item_id, arr);
   }
-  const menuItemsWithAvailability = (menuItems ?? []).map((it: Record<string, unknown>) => ({
+  // The branch's own prices / switched-off dishes (0102) — the same ones place_order charges.
+  const { data: overrideRows } = branchCtx.selectedId
+    ? await t.client.from('branch_menu_overrides').select('menu_item_id, variant_id, price_cents, is_available').eq('branch_id', branchCtx.selectedId)
+    : { data: [] };
+  const ov = new Map(((overrideRows ?? []) as { menu_item_id: string; variant_id: string | null; price_cents: number | null; is_available: boolean | null }[])
+    .map((o) => [`${o.menu_item_id}:${o.variant_id ?? ''}`, o]));
+  const menuItemsWithAvailability = (menuItems ?? [])
+    .filter((it: Record<string, unknown>) => ov.get(`${it.id}:`)?.is_available !== false)
+    .map((it: Record<string, unknown>) => ({
     ...it,
-    menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? []).map((v) => ({
+    menu_variants: ((it.menu_variants as Array<Record<string, unknown>>) ?? [])
+      .filter((v) => ov.get(`${it.id}:${v.id}`)?.is_available !== false)
+      .map((v) => ({
       ...v,
+      price_cents: ov.get(`${it.id}:${v.id}`)?.price_cents ?? ov.get(`${it.id}:`)?.price_cents ?? v.price_cents,
       // A variant without its own recipe row runs on the item's base row.
       computed_available:
         ((availByItem.get(it.id as string) ?? []).find((r) => r.variant_id === v.id) ??

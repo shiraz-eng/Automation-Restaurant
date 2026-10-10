@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { loadBranchContext } from '@/lib/branchServer';
+import { TransferStock } from './TransferStock';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
@@ -29,6 +31,13 @@ export default async function InventoryPage({
   }
 
   const canManageAutomation = can(perms, role, 'finance.manage_purchases');
+  // Multi-branch: one branch selected → its own stock; All branches → totals (read-only).
+  const branchCtx = await loadBranchContext(t.client);
+  const allBranchesView = branchCtx.multi && !branchCtx.selectedId;
+  const { data: branchLevels } = branchCtx.multi && branchCtx.selectedId ? await t.client.rpc('branch_stock_levels') : { data: null };
+  const levelOf = new Map(((branchLevels ?? []) as { inventory_item_id: string; branch_id: string; stock_qty: number }[])
+    .filter((l) => l.branch_id === branchCtx.selectedId)
+    .map((l) => [l.inventory_item_id, Number(l.stock_qty)]));
 
   const [{ data: items, error }, { data: ledgerRaw }, { data: suppliersRaw }, { data: supplierItemsRaw }, { data: settingsRow }] =
     await Promise.all([
@@ -89,17 +98,34 @@ export default async function InventoryPage({
           {error.message}
         </div>
       ) : (
+        <>
+        {branchCtx.multi && (
+          <p className="text-xs text-muted">
+            {branchCtx.selected
+              ? `Stock at ${branchCtx.selected.name}. Sales, waste, counts and deliveries here change this branch only.`
+              : 'Total stock across all branches. Choose a branch in the menu to restock, count, record waste or send stock.'}
+          </p>
+        )}
         <InventoryManager
-          items={items ?? []}
+          items={(items ?? []).map((i) => (branchCtx.multi && branchCtx.selectedId ? { ...i, stock_qty: levelOf.get(i.id) ?? 0 } : i))}
           canViewCost={can(perms, role, 'inventory.view_cost')}
           canManageAutomation={canManageAutomation}
           canAddItem={can(perms, role, 'stock.update')}
-          canRestock={can(perms, role, 'stock.adjust') || can(perms, role, 'inventory.manage')}
-          canWaste={can(perms, role, 'inventory.manage_waste') || can(perms, role, 'stock.adjust')}
-          canCount={can(perms, role, 'stock.count') || can(perms, role, 'stock.adjust')}
+          canRestock={!allBranchesView && (can(perms, role, 'stock.adjust') || can(perms, role, 'inventory.manage'))}
+          canWaste={!allBranchesView && (can(perms, role, 'inventory.manage_waste') || can(perms, role, 'stock.adjust'))}
+          canCount={!allBranchesView && (can(perms, role, 'stock.count') || can(perms, role, 'stock.adjust'))}
           suppliers={suppliers}
           preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
           lowStockEmailEnabled={(settingsRow as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}
+        />
+        </>
+      )}
+
+      {branchCtx.multi && branchCtx.selected && (can(perms, role, 'stock.update') || can(perms, role, 'inventory.manage')) && (
+        <TransferStock
+          fromBranch={{ id: branchCtx.selected.id, name: branchCtx.selected.name }}
+          branches={branchCtx.branches}
+          items={(items ?? []).map((i) => ({ id: i.id, name: i.name, unit: i.unit, stock_qty: levelOf.get(i.id) ?? 0 }))}
         />
       )}
 

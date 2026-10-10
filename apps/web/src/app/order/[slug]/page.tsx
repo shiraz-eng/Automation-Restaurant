@@ -17,10 +17,10 @@ const MENU_ITEM_SELECT =
 const DEAL_SELECT =
   'id, name, description, image_url, price_cents, sort_order, deal_components(qty, menu_item_id, variant_id, menu_items(name, price_cents, menu_variants(price_cents, sort_order)), menu_variants(name, price_cents)), deal_option_groups(id, name, min_select, max_select, sort_order, deal_option_items(id, menu_item_id, variant_id, qty, price_adjustment_cents, is_default, sort_order, menu_items(name, is_available), menu_variants(name, is_available, track_availability, available_qty)))';
 
-async function getMenu(slug: string, config?: { url: string; anonKey: string } | null) {
+async function getMenu(slug: string, config?: { url: string; anonKey: string } | null, branchCode?: string | null) {
   if (API && !API.includes('localhost:4000')) {
     try {
-      const res = await fetch(`${API}/api/public/menu/${encodeURIComponent(slug)}`, {
+      const res = await fetch(`${API}/api/public/menu/${encodeURIComponent(slug)}${branchCode ? `?b=${encodeURIComponent(branchCode)}` : ''}`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(4000),
       });
@@ -130,7 +130,8 @@ export default async function OrderPage({
   const table = sp.table ?? null;
   const customerName = sp.name ?? sp.guest ?? null;
   const config = await getTenantConfig(slug);
-  const menu = await getMenu(slug, config);
+  const branchCode = typeof sp.b === 'string' && /^[A-Za-z0-9-]{2,12}$/.test(sp.b) ? sp.b.toUpperCase() : null;
+  const menu = await getMenu(slug, config, branchCode);
   // The restaurant's tax setting, shown in the cart — the same rate
   // place_order() will charge (it reads the setting itself).
   let taxRateBps = 0;

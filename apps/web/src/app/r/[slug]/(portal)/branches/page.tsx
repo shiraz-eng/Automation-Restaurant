@@ -5,6 +5,7 @@ import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { loadBranchContext } from '@/lib/branchServer';
 import { BranchesManager, type ManagedBranch, type BranchLogin } from './BranchesManager';
+import { BranchMenuPrices, type MenuRow, type OverrideRow } from './BranchMenuPrices';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Branches' };
@@ -16,8 +17,9 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
   const { role, perms } = await gatePortalPage(t.client, slug, 'branches.view');
   const ent = await getTenantEntitlement(t.client, t.config.tier);
   const canManage = can(perms, role, 'branches.manage');
+  const canPrice = canManage || can(perms, role, 'menu.update');
 
-  const [branchesRes, portalsRes, ctx] = await Promise.all([
+  const [branchesRes, portalsRes, ctx, menuRes, overridesRes] = await Promise.all([
     t.client
       .from('branches')
       .select('id, code, name, address, city, country, timezone, currency_code, phone, opening_hours, status, status_reason, is_default, created_at')
@@ -25,6 +27,8 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
       .order('name'),
     canManage ? t.client.from('portals').select('id, name, status, branch_ids').order('name') : Promise.resolve({ data: [] }),
     loadBranchContext(t.client),
+    canPrice ? t.client.from('menu_items').select('id, name, menu_variants(id, name, price_cents)').order('name') : Promise.resolve({ data: [] }),
+    canPrice ? t.client.from('branch_menu_overrides').select('branch_id, menu_item_id, variant_id, price_cents, is_available') : Promise.resolve({ data: [] }),
   ]);
 
   return (
@@ -49,6 +53,13 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
           canManage={canManage}
           multiEntitled={ent.isEntitled('branches.multi')}
           currentBranchId={ctx.selectedId}
+        />
+      )}
+      {!branchesRes.error && canPrice && (
+        <BranchMenuPrices
+          branches={(branchesRes.data ?? []) as ManagedBranch[]}
+          items={(menuRes.data ?? []) as MenuRow[]}
+          overrides={(overridesRes.data ?? []) as OverrideRow[]}
         />
       )}
     </div>
