@@ -10,6 +10,7 @@ import { formatDateTime } from '@/lib/format';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
+import { fromStock } from '@/lib/inventoryStock';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Inventory' };
@@ -34,19 +35,23 @@ export default async function InventoryPage({
   // Multi-branch: one branch selected → its own stock; All branches → totals (read-only).
   const branchCtx = await loadBranchContext(t.client);
   const allBranchesView = branchCtx.multi && !branchCtx.selectedId;
-  const { data: branchLevels } = branchCtx.multi && branchCtx.selectedId ? await t.client.rpc('branch_stock_levels') : { data: null };
+  const { data: limitedRaw } = await t.client.rpc('my_branch_limited');
+  const branchLimited = limitedRaw === true;
+  // One branch in view (selected, or the only one a branch login has): that branch's own stock.
+  const stockBranchId = branchCtx.selectedId && (branchCtx.multi || branchLimited) ? branchCtx.selectedId : null;
+  const { data: branchLevels } = stockBranchId ? await t.client.rpc('branch_stock_levels') : { data: null };
   const levelOf = new Map(((branchLevels ?? []) as { inventory_item_id: string; branch_id: string; stock_qty: number }[])
-    .filter((l) => l.branch_id === branchCtx.selectedId)
+    .filter((l) => l.branch_id === stockBranchId)
     .map((l) => [l.inventory_item_id, Number(l.stock_qty)]));
 
   const [{ data: items, error }, { data: ledgerRaw }, { data: suppliersRaw }, { data: supplierItemsRaw }, { data: settingsRow }] =
     await Promise.all([
-      t.client
-        .from('inventory_items')
-        .select(
-          'id, name, unit, stock_qty, min_threshold, target_stock_qty, auto_reorder_email, supplier_name, cost_cents_per_base_unit',
-        )
-        .order('name'),
+      fromStock((tb) =>
+        t.client
+          .from(tb)
+          .select('id, name, unit, stock_qty, min_threshold, target_stock_qty, auto_reorder_email, supplier_name, cost_cents_per_base_unit')
+          .order('name'),
+      ),
       can(perms, role, 'stock.history')
         ? t.client
             .from('stock_ledger')
@@ -99,7 +104,7 @@ export default async function InventoryPage({
         </div>
       ) : (
         <>
-        {branchCtx.multi && (
+        {(branchCtx.multi || branchLimited) && (
           <p className="text-xs text-muted">
             {branchCtx.selected
               ? `Stock at ${branchCtx.selected.name}. Sales, waste, counts and deliveries here change this branch only.`
@@ -107,10 +112,11 @@ export default async function InventoryPage({
           </p>
         )}
         <InventoryManager
-          items={(items ?? []).map((i) => (branchCtx.multi && branchCtx.selectedId ? { ...i, stock_qty: levelOf.get(i.id) ?? 0 } : i))}
+          items={(items ?? []).map((i) => (stockBranchId ? { ...i, stock_qty: levelOf.get(i.id) ?? 0 } : i))}
           canViewCost={can(perms, role, 'inventory.view_cost')}
           canManageAutomation={canManageAutomation}
-          canAddItem={can(perms, role, 'stock.update')}
+          // The ingredient list is shared by every branch: a branch login stocks it, the owner adds to it.
+          canAddItem={can(perms, role, 'stock.update') && !branchLimited}
           canRestock={!allBranchesView && (can(perms, role, 'stock.adjust') || can(perms, role, 'inventory.manage'))}
           canWaste={!allBranchesView && (can(perms, role, 'inventory.manage_waste') || can(perms, role, 'stock.adjust'))}
           canCount={!allBranchesView && (can(perms, role, 'stock.count') || can(perms, role, 'stock.adjust'))}

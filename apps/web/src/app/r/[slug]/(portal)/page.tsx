@@ -14,6 +14,7 @@ import { getPlanByTier } from '@/lib/plans';
 import { can } from '@/lib/permissions';
 import { staffStartPath } from '@/lib/portals';
 import { getTenantEntitlement } from '@/lib/entitlements';
+import { fromStock } from '@/lib/inventoryStock';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -58,10 +59,7 @@ export default async function DashboardPage({
       .order('created_at', { ascending: false })
       .limit(8),
     supabase.from('menu_items').select('id, is_available'),
-    supabase
-      .from('inventory_items')
-      .select('id, name, unit, stock_qty, min_threshold')
-      .order('name'),
+    fromStock((tb) => supabase.from(tb).select('id, name, unit, stock_qty, min_threshold').order('name')),
     supabase.rpc('sales_by_day', { p_from: monthStart, p_to: monthEnd }),
     supabase.rpc('get_brand_kit'),
     supabase.from('purchase_orders').select('id', { count: 'exact', head: true }).in('status', ['draft', 'sent', 'partial']),

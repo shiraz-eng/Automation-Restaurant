@@ -25,6 +25,8 @@ const OWNER = claims('00000000-0000-0000-0000-0000000000a1', ['*'], 'owner');
 const WAITER = claims('00000000-0000-0000-0000-00000000aa17', ['orders.view'], 'waiter');
 const DHA_USER = '00000000-0000-0000-0000-00000000d4a1';
 const DHA_CASHIER = claims(DHA_USER, ['orders.view', 'orders.create', 'payments.view', 'finance.view', 'branches.manage']);
+// The same DHA-limited login, buying for its branch.
+const DHA_BUYER = claims(DHA_USER, ['supplier.view', 'supplier.create', 'supplier.update', 'supplier.manage', 'payables.view', 'finance.view']);
 
 const SQL = String.raw`
 do $$
@@ -353,9 +355,81 @@ begin
     select count(*) into n from public.roles r
      where r.key = 'branch_manager' and 'orders.create' = any(r.permissions) and 'stock.count' = any(r.permissions)
        and not ('menu.update' = any(r.permissions)) and not ('deals.update' = any(r.permissions))
-       and not exists (select 1 from unnest(r.permissions) p where p like 'staff.%' or p like 'portals.%' or p like 'settings.%');
+       and not exists (select 1 from unnest(r.permissions) p
+                        where p in ('staff.create', 'staff.update', 'staff.delete', 'settings.update') or p like 'portals.%');
     if n = 1 then res := res || E'PASS B27 the Branch manager role runs a branch but cannot change the shared menu, deals, staff or settings\n';
     else fails := fails + 1; res := res || E'FAIL B27 branch_manager role preset\n'; end if;
+  end if;
+
+  -- ── 0105: each branch runs its own operations ──
+  if to_regprocedure('app.supplier_write_ok(uuid)') is not null then
+    perform set_config('request.headers', '{}', true);
+    perform set_config('request.jwt.claims', '${OWNER}', true); set local role authenticated;
+    insert into public.suppliers (name) values ('Shared supplier — QA') returning id into v_uuid;
+    insert into public.suppliers (name, branch_id) values ('Clifton supplier — QA', b_clf.id) returning id into v_uuid2;
+    reset role;
+    insert into public.supplier_items (supplier_id, inventory_item_id) select v_uuid2, id from public.inventory_items limit 1;
+
+    perform set_config('request.jwt.claims', '${DHA_BUYER}', true); set local role authenticated;
+    insert into public.suppliers (name) values ('DHA supplier — QA') returning id into v_sup;
+    select branch_id::text into v from public.suppliers where id = v_sup;
+    reset role;
+    if v = b_dha.id::text then res := res || E'PASS B29 a supplier a DHA login adds belongs to DHA\n';
+    else fails := fails + 1; res := res || 'FAIL B29 branch=' || coalesce(v, 'shared') || E'\n'; end if;
+
+    set local role authenticated;
+    select count(*) filter (where id = v_uuid), count(*) filter (where id = v_uuid2) into n, n2 from public.suppliers where id in (v_uuid, v_uuid2);
+    reset role;
+    if n = 1 and n2 = 0 then res := res || E'PASS B30 DHA sees shared suppliers but never Clifton\x27s own\n';
+    else fails := fails + 1; res := res || format(E'FAIL B30 shared=%s clifton=%s\n', n, n2); end if;
+
+    set local role authenticated;
+    select count(*) into n from public.supplier_items where supplier_id = v_uuid2;
+    update public.suppliers set name = 'Hacked — QA' where id = v_uuid;
+    reset role;
+    select count(*) into n2 from public.suppliers where id = v_uuid and name = 'Hacked — QA';
+    if n = 0 and n2 = 0 then res := res || E'PASS B31 DHA cannot see Clifton\x27s price list, nor change a shared supplier\n';
+    else fails := fails + 1; res := res || format(E'FAIL B31 clifton items seen=%s shared changed=%s\n', n, n2); end if;
+
+    set local role authenticated;
+    begin
+      update public.suppliers set branch_id = null where id = v_sup;
+      reset role; fails := fails + 1; res := res || E'FAIL B32 a DHA login made its supplier shared\n';
+    exception when insufficient_privilege then reset role;
+      res := res || E'PASS B32 a branch login cannot move a supplier out of its branch\n';
+    end;
+
+    set local role authenticated;
+    select count(*) into n from public.supplier_payments;
+    reset role;
+    select count(*) into n2 from public.supplier_payments p join public.suppliers s on s.id = p.supplier_id where s.branch_id = b_dha.id;
+    if n = n2 then res := res || format(E'PASS B33 DHA sees only payments to its own suppliers (%s), not head office\x27s\n', n);
+    else fails := fails + 1; res := res || format(E'FAIL B33 dha sees %s, its own %s\n', n, n2); end if;
+
+    select count(*) into n from public.roles r
+     where r.key = 'branch_manager'
+       and r.permissions @> array['supplier.create','stock.count','finance.view','reports.generate','purchases.create','finance.close_day']
+       and not (r.permissions && array['portals.view','branches.manage','menu.update','staff.create','settings.update','inventory.manage']);
+    if n = 1 then res := res || E'PASS B34 Branch manager: suppliers, stock, purchasing, finance, day close and reports for its branch; not portals, branches, staff, settings or the shared menu\n';
+    else fails := fails + 1; res := res || E'FAIL B34 branch_manager permissions\n'; end if;
+  end if;
+
+  -- ── 0106: stock as the branch in view sees it ──
+  if to_regclass('public.inventory_stock') is not null and v_item is not null then
+    perform set_config('request.headers', '{}', true);
+    perform set_config('request.jwt.claims', '${DHA_CASHIER}', true); set local role authenticated;
+    select stock_qty into v_sum from public.inventory_stock where id = v_item;
+    reset role;
+    perform set_config('request.jwt.claims', '${OWNER}', true); set local role authenticated;
+    select stock_qty into v_led from public.inventory_stock where id = v_item;
+    perform set_config('request.headers', json_build_object('x-branch-ids', b_main)::text, true);
+    select stock_qty into n from public.inventory_stock where id = v_item;
+    reset role;
+    perform set_config('request.headers', '{}', true);
+    if v_sum = app.branch_qty(v_item, b_dha.id) and v_led = (select stock_qty from public.inventory_items where id = v_item)
+       and n = app.branch_qty(v_item, b_main) and v_sum <> v_led then
+      res := res || format(E'PASS B35 stock in view: DHA login %s (its own), owner on All %s (total), owner on Main %s\n', v_sum, v_led, n);
+    else fails := fails + 1; res := res || format(E'FAIL B35 dha=%s all=%s main=%s\n', v_sum, v_led, n); end if;
   end if;
 
   raise exception E'RESULTS (rolled back) — % failed\n%', fails, res;

@@ -27,6 +27,9 @@ await check('F2 reading expenses adds it too', `${base}/expenses?select=*`, { me
 await check('F3 shared tables (menu) are left alone', `${base}/menu_items?select=*`, undefined, false);
 await check('F4 writes are left alone (the database fills the branch)', `${base}/orders`, { method: 'POST', body: '{}' }, false);
 await check('F5 RPC reports are left alone (the header scopes them)', `${base}/rpc/branch_summary`, { method: 'POST' }, false);
+await f(`${base}/suppliers?select=*`, undefined);
+if (new URL(seen!.url).searchParams.get('or') === `(branch_id.is.null,branch_id.in.(${DHA}))`) console.log('PASS F7 suppliers: the shared ones plus the branch\'s own');
+else { fails++; console.log('FAIL F7', seen!.url); }
 await f(`${base}/orders?branch_id=eq.${DHA}`, undefined);
 const kept = new URL(seen!.url).searchParams.getAll('branch_id');
 if (kept.length === 1) console.log('PASS F6 an explicit branch filter is kept, not doubled');

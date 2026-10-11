@@ -62,6 +62,7 @@ import { fetchPortalTheme } from '@/lib/theme';
 import { RefundApprovalSettings } from '../../(portal)/settings/refunds/RefundApprovalSettings';
 import { CurrencySettings } from '../../(portal)/settings/currency/CurrencySettings';
 import { TaxSettings } from '../../(portal)/settings/tax/TaxSettings';
+import { fromStock } from '@/lib/inventoryStock';
 import {
   PortalsManager,
   type Portal as ManagedPortal,
@@ -471,7 +472,7 @@ export default async function PortalHome({
           .order('name')
       : Promise.resolve({ data: null }),
     includeMenu
-      ? t.client.from('inventory_items').select('id, name, unit, stock_qty, min_threshold').order('name')
+      ? fromStock((tb) => t.client.from(tb).select('id, name, unit, stock_qty, min_threshold').order('name'))
       : Promise.resolve({ data: null }),
     includeMenu
       ? t.client

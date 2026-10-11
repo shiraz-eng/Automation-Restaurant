@@ -19,6 +19,10 @@ export type Supplier = {
   credit_period_days: number;
   preferred_payment_method: string | null;
   is_active: boolean;
+  /** Multi-branch (0105): "Shared" or the branch it belongs to; null with one branch. */
+  branch_label?: string | null;
+  /** A shared supplier seen from a branch login: only the owner changes it. */
+  locked?: boolean;
 };
 
 const EMPTY = {
@@ -215,7 +219,12 @@ export function SuppliersManager({
               suppliers.map((s) => (
                 <tr key={s.id} className="border-b border-border/60 last:border-0 align-top">
                   <td className="p-3">
-                    <div className="font-semibold">{s.name}</div>
+                    <div className="font-semibold">
+                      {s.name}
+                      {s.branch_label && (
+                        <span className="ml-1.5 rounded bg-main px-1.5 py-0.5 text-[10px] font-bold text-muted">{s.branch_label}</span>
+                      )}
+                    </div>
                     {s.address && <div className="text-muted">{s.address}</div>}
                   </td>
                   <td className="p-3">
@@ -231,17 +240,18 @@ export function SuppliersManager({
                   </td>
                   {(canManage || canEdit) && (
                     <td className="p-3 text-right whitespace-nowrap">
-                      {canEdit && (
+                      {s.locked && <span className="text-[11px] text-muted">Shared · managed by the owner</span>}
+                      {canEdit && !s.locked && (
                         <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
                           Edit
                         </Button>
                       )}
-                      {canEdit && (
+                      {canEdit && !s.locked && (
                         <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
                           {s.is_active ? 'Deactivate' : 'Reactivate'}
                         </Button>
                       )}
-                      {canManage && (
+                      {canManage && !s.locked && (
                       <Button
                         variant="danger"
                         className="ml-1.5"

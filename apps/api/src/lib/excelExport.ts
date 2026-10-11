@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import { excelMoneyFormat } from './currencyContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolvePeriod, computeAttentionItems, forwardRange, AI_TOOLS } from './aiTools';
+import { fromStock } from './inventoryStock';
 
 /**
  * Restaurant Performance & Owner Activity Intelligence — Excel export
@@ -172,7 +173,7 @@ export async function buildExcelWorkbook(
       .gte('paid_at', fromIso)
       .lt('paid_at', toIso)
       .order('paid_at', { ascending: false }),
-    admin.from('inventory_items').select('name, unit, stock_qty, min_threshold, cost_cents_per_base_unit').order('name'),
+    fromStock((t) => admin.from(t).select('name, unit, stock_qty, min_threshold, cost_cents_per_base_unit').order('name')),
     admin
       .from('expenses')
       .select('expense_date, category, description, amount_cents')

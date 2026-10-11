@@ -346,7 +346,9 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v102 Branch menu: branch_menu_overrides (own price / switched off per branch), set_branch_menu_override(), place_order charges the branch price.
 //   v103 Deals follow the branch menu: a deal line cannot carry a dish (or size) its order's branch switched off.
 //   v104 Branch panel logins: only head office manages branches, Branch manager role, a stale branch selection never blanks a branch login, my_branch_limited().
-const SCHEMA_VERSION = 104;
+//   v105 Branch operations: suppliers per branch or shared (price lists, messages, payments and credit notes follow), Branch manager role = the whole panel except owner-only and shared-menu keys.
+//   v106 inventory_stock view: ingredient stock as the branch in view sees it (a branch login never sees another branch's stock).
+const SCHEMA_VERSION = 106;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

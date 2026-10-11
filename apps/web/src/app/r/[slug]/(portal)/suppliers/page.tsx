@@ -6,6 +6,7 @@ import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { SuppliersManager, type Supplier } from './SuppliersManager';
+import { loadBranchContext } from '@/lib/branchServer';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Suppliers' };
@@ -33,6 +34,22 @@ export default async function SuppliersPage({
     )
     .order('name');
 
+  // Multi-branch (0105): label shared vs a branch's own suppliers; a branch login can't change
+  // a shared one. A separate read, so restaurants before 0105 (no column) list as before.
+  const branchCtx = await loadBranchContext(t.client);
+  const { data: limitedRaw } = await t.client.rpc('my_branch_limited');
+  const branchLimited = limitedRaw === true;
+  let suppliers = (data ?? []) as Supplier[];
+  if (branchCtx.multi || branchLimited) {
+    const { data: rows } = await t.client.from('suppliers').select('id, branch_id');
+    const branchOf = new Map(((rows ?? []) as { id: string; branch_id: string | null }[]).map((r) => [r.id, r.branch_id]));
+    const label = new Map(branchCtx.branches.map((b) => [b.id, b.code]));
+    suppliers = suppliers.map((s) => {
+      const b = branchOf.get(s.id) ?? null;
+      return { ...s, branch_label: b ? (label.get(b) ?? 'Branch') : 'Shared', locked: branchLimited && !b };
+    });
+  }
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -40,7 +57,8 @@ export default async function SuppliersPage({
           <h1 className="text-xl font-black">Suppliers</h1>
           <p className="text-muted text-xs mt-1">
             Vendors you raise purchase orders against. Receiving a PO adds its quantities to
-            inventory.
+            inventory. With several branches, the owner&apos;s suppliers are shared by all; a supplier a
+            branch adds is that branch&apos;s own.
           </p>
         </div>
         <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="suppliers" label="Suppliers" />
@@ -51,7 +69,7 @@ export default async function SuppliersPage({
         </div>
       ) : (
         <SuppliersManager
-          suppliers={(data ?? []) as Supplier[]}
+          suppliers={suppliers}
           canManage={can(perms, role, 'supplier.manage')}
           canCreate={can(perms, role, 'supplier.manage') || can(perms, role, 'supplier.create')}
           canEdit={can(perms, role, 'supplier.manage') || can(perms, role, 'supplier.update')}

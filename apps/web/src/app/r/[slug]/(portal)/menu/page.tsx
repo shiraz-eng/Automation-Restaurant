@@ -3,6 +3,7 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { MenuManager } from './MenuManager';
 import type { DealRow, ProductAvailabilityRow, RecipeRow } from './menuTypes';
+import { fromStock } from '@/lib/inventoryStock';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,7 @@ export default async function MenuPage({ params }: { params: Promise<{ slug: str
         'id, name, description, price_cents, is_available, category_id, image_url, station, menu_variants(id, name, price_cents, sku, sort_order, is_available, track_availability, available_qty), modifier_groups(id, name, kind, min_select, max_select, sort_order, modifier_options(id, name, price_cents, is_available, sort_order)), recipe_components(id, inventory_item_id, qty_per_unit, variant_id, inventory_items(name, unit))',
       )
       .order('name'),
-    t.client.from('inventory_items').select('id, name, unit, stock_qty, min_threshold').order('name'),
+    fromStock((tb) => t.client.from(tb).select('id, name, unit, stock_qty, min_threshold').order('name')),
     t.client
       .from('deals')
       .select(

@@ -38,6 +38,11 @@ export function branchFilteringFetch(branchIds: string[], base: typeof fetch = f
         url.searchParams.append('branch_id', `in.(${ids.join(',')})`);
         return base(input instanceof Request ? new Request(url, input) : url.toString(), init);
       }
+      // Suppliers (0105): the shared ones plus the selected branches' own.
+      if (m && m[1] === 'suppliers' && !url.searchParams.has('branch_id') && !url.searchParams.has('or')) {
+        url.searchParams.append('or', `(branch_id.is.null,branch_id.in.(${ids.join(',')}))`);
+        return base(input instanceof Request ? new Request(url, input) : url.toString(), init);
+      }
     }
     return base(input, init);
   };

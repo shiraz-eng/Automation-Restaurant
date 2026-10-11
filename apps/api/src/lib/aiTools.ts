@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { money } from './currencyContext';
 import { permits } from '../middleware/portalAuth';
 import { runLowStockSweepWithAdmin } from './lowStockAutomation';
+import { fromStock } from './inventoryStock';
 
 // The caller's real role/permissions, threaded into a tool's run() only
 // where a tool internally blends data of different sensitivity (see
@@ -589,7 +590,7 @@ export const AI_TOOLS: AiTool[] = [
         admin.from('orders').select('created_at').in('status', KITCHEN_ACTIVE),
         admin.from('orders').select('id').in('status', UNPAID),
         admin.from('table_sessions').select('id').eq('status', 'open'),
-        admin.from('inventory_items').select('stock_qty, min_threshold'),
+        fromStock((t) => admin.from(t).select('stock_qty, min_threshold')),
       ]);
       const rev = (paid.data ?? []).reduce((s, r) => s + (r.total_cents ?? 0), 0);
       const oldest = (kitchen.data ?? []).reduce(
@@ -842,10 +843,7 @@ export const AI_TOOLS: AiTool[] = [
     needs: 'stock.view',
     input_schema: { type: 'object', properties: {} },
     async run(admin) {
-      const { data } = await admin
-        .from('inventory_items')
-        .select('name, unit, stock_qty, min_threshold, supplier_name')
-        .order('name');
+      const { data } = await fromStock((t) => admin.from(t).select('name, unit, stock_qty, min_threshold, supplier_name').order('name'));
       const low = (data ?? [])
         .filter((i) => Number(i.stock_qty) <= Number(i.min_threshold))
         .map((i) => ({
@@ -864,10 +862,7 @@ export const AI_TOOLS: AiTool[] = [
     needs: 'inventory.view_cost',
     input_schema: { type: 'object', properties: {} },
     async run(admin) {
-      const { data } = await admin
-        .from('inventory_items')
-        .select('name, unit, stock_qty, min_threshold, cost_cents_per_base_unit')
-        .order('name');
+      const { data } = await fromStock((t) => admin.from(t).select('name, unit, stock_qty, min_threshold, cost_cents_per_base_unit').order('name'));
       const rows = (data ?? []) as {
         name: string;
         unit: string;
@@ -1209,12 +1204,7 @@ export const AI_TOOLS: AiTool[] = [
       required: ['ingredient_name'],
     },
     async run(admin, args) {
-      const { data: ing } = await admin
-        .from('inventory_items')
-        .select('id, name, stock_qty, unit')
-        .ilike('name', `%${String(args.ingredient_name ?? '').trim()}%`)
-        .limit(1)
-        .maybeSingle();
+      const { data: ing } = await fromStock<{ id: string; name: string; stock_qty: number; unit: string }>((t) => admin.from(t).select('id, name, stock_qty, unit').ilike('name', `%${String(args.ingredient_name ?? '').trim()}%`).limit(1).maybeSingle());
       if (!ing) return { error: 'no_matching_ingredient' };
       const { data: rows } = await admin
         .from('recipe_components')
@@ -2248,7 +2238,7 @@ export const AI_TOOLS: AiTool[] = [
       const { from, to, label } = resolvePeriod(args);
       const [ledgerRes, invRes] = await Promise.all([
         admin.from('stock_ledger').select('delta_qty, reason, unit_cost_cents_base').gte('created_at', from.toISOString()).lt('created_at', to.toISOString()),
-        admin.from('inventory_items').select('stock_qty, cost_cents_per_base_unit'),
+        fromStock((t) => admin.from(t).select('stock_qty, cost_cents_per_base_unit')),
       ]);
       if (ledgerRes.error) return { error: ledgerRes.error.message };
       const rows = (ledgerRes.data ?? []) as { delta_qty: number; reason: string; unit_cost_cents_base: number | null }[];
@@ -2952,7 +2942,7 @@ function normalizeItemName(s: string): string {
 async function findInventoryItem(admin: SupabaseClient, rawName: string): Promise<InventoryItemRow | null> {
   const needle = normalizeItemName(rawName);
   if (!needle) return null;
-  const { data } = await admin.from('inventory_items').select('id, name, unit, stock_qty').order('name');
+  const { data } = await fromStock((t) => admin.from(t).select('id, name, unit, stock_qty').order('name'));
   const items = (data ?? []) as InventoryItemRow[];
   return (
     items.find((i) => normalizeItemName(i.name) === needle) ??
@@ -3718,11 +3708,17 @@ export const AI_ACTIONS: AiAction[] = [
         const targetStock = Number.isFinite(Number(it.target_stock_qty)) ? Number(it.target_stock_qty) : null;
         const supplierName = typeof it.supplier_name === 'string' && it.supplier_name.trim() ? it.supplier_name.trim() : null;
 
+        // stock_qty on the row is the total across branches (0101); the quantity the person
+        // means is the branch in use (inventory_stock, 0106), so the change is applied as a
+        // difference to that branch — never "set the restaurant total to what one branch has".
         const { data: existing } = await admin
           .from('inventory_items')
           .select('id, name, stock_qty')
           .ilike('name', name)
           .maybeSingle();
+        const { data: inView } = existing
+          ? await fromStock<{ stock_qty: number }>((t) => admin.from(t).select('stock_qty').eq('id', existing.id).maybeSingle())
+          : { data: null };
 
         if (existing) {
           const patch: Record<string, unknown> = {};
@@ -3731,8 +3727,8 @@ export const AI_ACTIONS: AiAction[] = [
           if (targetStock != null) patch.target_stock_qty = targetStock;
           if (supplierName != null) patch.supplier_name = supplierName;
           if (it.stock_qty != null) {
-            patch.stock_qty = stockQty;
-            const delta = stockQty - (existing.stock_qty ?? 0);
+            const delta = stockQty - Number(inView?.stock_qty ?? existing.stock_qty ?? 0);
+            patch.stock_qty = Number(existing.stock_qty ?? 0) + delta;
             if (delta !== 0) {
               await admin.from('stock_ledger').insert({
                 item_id: existing.id,
@@ -4510,7 +4506,7 @@ export async function buildReportData(
     runToolByName(admin, 'get_inventory_reconciliation', forwardRange({ from, to })),
     runToolByName(admin, 'get_positive_highlights', forwardRange({ from, to })),
     runToolByName(admin, 'get_areas_to_review', forwardRange({ from, to })),
-    admin.from('inventory_items').select('name, unit, stock_qty, min_threshold, target_stock_qty, cost_cents_per_base_unit').order('name'),
+    fromStock((t) => admin.from(t).select('name, unit, stock_qty, min_threshold, target_stock_qty, cost_cents_per_base_unit').order('name')),
     admin
       .from('stock_ledger')
       .select('delta_qty, reason, note, created_at, inventory_items(name)')
