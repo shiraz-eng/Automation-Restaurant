@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { loadTenantCurrency } from '@/lib/currencyServer';
 import { gatePortalPage, can } from '@/lib/permissions';
@@ -33,6 +33,9 @@ export default async function BranchComparisonPage({
   if (!t) notFound();
   await loadTenantCurrency(t.client);
   const { role, perms } = await gatePortalPage(t.client, slug, 'finance.view');
+  // The side-by-side view is the owner's; a branch login sees its own branch in Finance.
+  const { data: limited } = await t.client.rpc('my_branch_limited');
+  if (limited === true) redirect(`/r/${slug}/finance`);
   const canCogs = can(perms, role, 'finance.view_cogs') || can(perms, role, 'finance.view_profit');
 
   const { data: settings } = await t.client.from('business_settings').select('timezone').maybeSingle();

@@ -29,6 +29,8 @@ export type BranchLogin = { id: string; name: string; status: string; branch_ids
 
 const TIMEZONES = ['Asia/Karachi', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Qatar', 'Asia/Kolkata', 'Asia/Dhaka', 'Europe/London', 'America/New_York', 'UTC'];
 const EMPTY = { code: '', name: '', address: '', city: '', country: '', timezone: '', currency_code: '', phone: '', hours: '' };
+const EMPTY_LOGIN = { name: '', role: 'branch_manager', email: '', password: '' };
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const ERRORS: Record<string, string> = {
   forbidden: 'You are not allowed to do that.',
@@ -75,6 +77,53 @@ export function BranchesManager({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loginEdits, setLoginEdits] = useState<Record<string, string[]>>({});
+  const [loginFor, setLoginFor] = useState<string | null>(null);
+  const [loginForm, setLoginForm] = useState(EMPTY_LOGIN);
+
+  async function apiCall(path: string, body: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+      body: JSON.stringify({ slug, ...body }),
+    });
+    return { ok: res.ok, body: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+  }
+
+  /** The owner creates a sign-in for one branch's panel (POST /api/branch-logins). */
+  async function createBranchLogin(b: ManagedBranch) {
+    if (loginForm.name.trim().length < 2) return setError('Give the login a name.');
+    if (loginForm.password && loginForm.password.length < 8) return setError('The password needs 8 characters or more — or leave it empty.');
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const { ok, body } = await apiCall('/api/branch-logins', {
+      branch_id: b.id,
+      full_name: loginForm.name.trim(),
+      role: loginForm.role,
+      ...(loginForm.email.trim() ? { email: loginForm.email.trim() } : {}),
+      ...(loginForm.password ? { password: loginForm.password } : {}),
+    });
+    setBusy(false);
+    if (!ok) return setError(String(body.message ?? body.error ?? 'Could not create the login.'));
+    const login = body.login as { email: string; password?: string };
+    setNotice(
+      `${loginForm.name.trim()} can now sign in to the ${b.name} panel.\n  Sign in at: ${body.url}\n  Email:      ${login.email}\n  Password:   ${login.password ?? '(the one you typed)'}\n(Shown once — copy it now.) This login sees only ${b.name}.`,
+    );
+    setLoginFor(null);
+    router.refresh();
+  }
+
+  async function resetLoginPassword(l: BranchLogin) {
+    if (!window.confirm(`Give ${l.name} a new password? Their current one stops working.`)) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const { ok, body } = await apiCall(`/api/branch-logins/${l.id}/password`, {});
+    setBusy(false);
+    if (!ok) return setError(String(body.message ?? body.error ?? 'Could not reset the password.'));
+    setNotice(`New password for ${l.name}: ${body.password}\n(Shown once — copy it now.)`);
+  }
 
   const activeCount = branches.filter((b) => b.status === 'active').length;
   const canAdd = canManage && (multiEntitled || activeCount < 1);
@@ -209,7 +258,7 @@ export function BranchesManager({
   return (
     <div className="space-y-6">
       {error && <div className="rounded border border-danger/40 bg-danger/10 p-2.5 text-xs text-danger">{error}</div>}
-      {notice && <div className="rounded border border-ok/40 bg-ok/10 p-2.5 text-xs text-ok">{notice}</div>}
+      {notice && <div className="rounded border border-ok/40 bg-ok/10 p-2.5 text-xs text-ok font-mono whitespace-pre-wrap">{notice}</div>}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted">
@@ -255,23 +304,63 @@ export function BranchesManager({
               {b.phone ? ` · ${b.phone}` : ''}
             </p>
             {b.status !== 'active' && b.status_reason && <p className="text-xs text-warn">Reason: {b.status_reason}</p>}
-            {logins.length > 0 && (
-              <p className="text-xs text-muted">
+            {canCreateLogins && (
+              <div className="rounded border border-border p-2.5 space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted">Branch logins</p>
                 {(() => {
                   const own = logins.filter((l) => (l.branch_ids ?? []).includes(b.id));
-                  return own.length ? `Own logins: ${own.map((l) => l.name).join(', ')}` : 'No login of its own yet';
+                  if (!own.length) return <p className="text-xs text-muted">No login of its own yet — only your owner panel sees this branch.</p>;
+                  return own.map((l) => (
+                    <div key={l.kind + l.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span>
+                        <b>{l.name}</b>{' '}
+                        <span className="text-muted">{l.kind === 'member' ? `${(l.detail ?? '').replace('_', ' ')} · signs in to the branch panel` : 'custom portal'}</span>
+                      </span>
+                      {l.kind === 'member' && (
+                        <Button variant="ghost" disabled={busy} onClick={() => void resetLoginPassword(l)}>
+                          Reset password
+                        </Button>
+                      )}
+                    </div>
+                  ));
                 })()}
-              </p>
+                {loginFor === b.id ? (
+                  <div className="grid gap-2 sm:grid-cols-2 pt-1">
+                    <Input id="bl-name" value={loginForm.name} onChange={(e) => setLoginForm({ ...loginForm, name: e.target.value })} placeholder="Name, e.g. Ali (DHA manager)" />
+                    <Select id="bl-role" value={loginForm.role} onChange={(e) => setLoginForm({ ...loginForm, role: e.target.value })} aria-label="Role">
+                      <option value="branch_manager">Branch manager — runs this branch</option>
+                      <option value="cashier">Cashier</option>
+                      <option value="chef">Kitchen</option>
+                      <option value="waiter">Waiter</option>
+                      <option value="accountant">Accountant</option>
+                    </Select>
+                    <Input id="bl-email" type="email" value={loginForm.email} onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} placeholder="Login email (optional)" />
+                    <Input id="bl-password" type="text" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} placeholder="Password (optional, 8+ characters)" />
+                    <div className="flex gap-1.5 sm:col-span-2">
+                      <Button disabled={busy} onClick={() => void createBranchLogin(b)}>
+                        Create login
+                      </Button>
+                      <Button variant="ghost" onClick={() => setLoginFor(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  b.status === 'active' && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <Button onClick={() => { setLoginFor(b.id); setLoginForm(EMPTY_LOGIN); }}>Add branch login</Button>
+                      <Link
+                        href={`/r/${slug}/portals?branch=${b.id}`}
+                        className="rounded px-3 py-1.5 text-xs font-semibold border border-border hover:bg-main"
+                      >
+                        Custom portal for this branch
+                      </Link>
+                    </div>
+                  )
+                )}
+              </div>
             )}
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {canCreateLogins && b.status === 'active' && (
-                <Link
-                  href={`/r/${slug}/portals?branch=${b.id}`}
-                  className="rounded px-3 py-1.5 text-xs font-semibold border border-primary/50 text-primary hover:bg-primary/10"
-                >
-                  Create a login for this branch
-                </Link>
-              )}
               {b.status === 'active' && currentBranchId !== b.id && (
                 <Button variant="ghost" onClick={() => workIn(b.id)}>
                   Work in this branch

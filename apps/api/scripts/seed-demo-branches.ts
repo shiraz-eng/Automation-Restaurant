@@ -21,7 +21,7 @@ const SQL = String.raw`
 do $$
 declare
   v_owner uuid; claims text; b_main uuid; b_dha uuid; b_clf uuid; br uuid;
-  v_mi uuid; v_mv uuid; v_price int; v_item uuid; v_qty numeric; o uuid; n int := 0; d record; res text := '';
+  v_mi uuid; v_mv uuid; v_price int; v_item uuid; v_qty numeric; o uuid; n int := 0; d record; res text := ''; v_no bigint;
 begin
   select user_id into v_owner from public.memberships where role = 'owner' and user_id is not null order by created_at limit 1;
   if v_owner is null then raise exception 'no owner account'; end if;
@@ -70,8 +70,10 @@ begin
        order by mi.name, mv.sort_order limit 6
     loop
       br := case when d.k % 3 = 0 then b_clf else b_dha end;
+      -- Take the number from the same counter place_order() uses, so real orders never collide.
+      update public.order_counter set next_number = next_number + 1 where id returning next_number - 1 into v_no;
       insert into public.orders (order_number, status, subtotal_cents, total_cents, channel, customer_name, branch_id)
-        values ((select coalesce(max(order_number), 0) + 1 from public.orders), 'served', d.price * 2, d.price * 2,
+        values (v_no, 'served', d.price * 2, d.price * 2,
                 (case when d.k % 2 = 0 then 'takeaway' else 'dine_in' end)::app.order_channel, 'Demo guest', br)
         returning id into o;
       insert into public.order_lines (order_id, name_snapshot, variant_name_snapshot, unit_price_cents, qty, line_total_cents, recipe_cost_cents)

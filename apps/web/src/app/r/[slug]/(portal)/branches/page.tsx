@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
@@ -15,6 +15,9 @@ export default async function BranchesPage({ params }: { params: Promise<{ slug:
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   const { role, perms } = await gatePortalPage(t.client, slug, 'branches.view');
+  // Branch logins never manage branches (0104 enforces it in the database too).
+  const { data: limited } = await t.client.rpc('my_branch_limited');
+  if (limited === true) redirect(`/r/${slug}`);
   const ent = await getTenantEntitlement(t.client, t.config.tier);
   const canManage = can(perms, role, 'branches.manage');
   const canPrice = canManage || can(perms, role, 'menu.update');

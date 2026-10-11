@@ -155,10 +155,15 @@ export default async function PortalLayout({
   const { logoUrl } = await fetchPortalTheme(t.client);
   // Multi-branch: the login's branches and the one being worked in (empty before migration 0098).
   const branchCtx = await loadBranchContext(t.client);
+  // A branch login (limited to its branches, 0104): its panel is that branch only — no branch
+  // management and no side-by-side comparison; the owner's panel keeps both.
+  const { data: limitedRaw } = await t.client.rpc('my_branch_limited');
+  const branchLimited = limitedRaw === true;
+  const HEAD_OFFICE_ONLY = new Set(['branches', 'finance/branches']);
 
   const visibleGroups = NAV_GROUPS.map(([group, items]) => [
     group,
-    items.filter(([, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature)),
+    items.filter(([seg, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature) && !(branchLimited && HEAD_OFFICE_ONLY.has(seg))),
   ] as [string, NavItem[]]).filter(([, items]) => items.length > 0);
 
   return (
@@ -181,10 +186,18 @@ export default async function PortalLayout({
             <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
               {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
             </div>
-            {branchCtx.multi && (
+            {branchCtx.multi ? (
               <div className="mt-3">
                 <BranchSelector slug={slug} branches={branchCtx.branches} selected={branchCtx.selectedId} allowAll />
               </div>
+            ) : (
+              branchLimited &&
+              branchCtx.selected && (
+                <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch</div>
+                  <div className="text-sm font-bold text-body">{branchCtx.selected.name}</div>
+                </div>
+              )
             )}
           </div>
           <nav className="flex-1 flex flex-col gap-4 px-3 pb-5">

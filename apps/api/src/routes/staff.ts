@@ -72,7 +72,7 @@ staffRouter.post(
 const accessSchema = z.object({
   slug: z.string().min(1),
   membership_id: z.string().uuid(),
-  role: z.enum(['owner', 'manager', 'cashier', 'chef', 'waiter', 'host', 'hr', 'accountant', 'delivery']),
+  role: z.enum(['owner', 'manager', 'branch_manager', 'cashier', 'chef', 'waiter', 'host', 'hr', 'accountant', 'delivery']),
   extra_permissions: z.array(z.string().max(48)).max(128).optional(),
 });
 

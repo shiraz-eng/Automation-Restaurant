@@ -39,9 +39,11 @@ begin
     update public.business_settings set plan_features = array_append(coalesce(plan_features, '{}'), 'branches.multi') where id = true;
     res := res || E'note: plan given branches.multi for this rolled-back run\n';
   end if;
-  select count(*) into n from public.orders where branch_id is distinct from b_main;
-  if b_main is not null and n = 0 then res := res || E'PASS B1 every existing order belongs to the default branch\n';
-  else fails := fails + 1; res := res || format(E'FAIL B1 default=%s orders elsewhere=%s\n', b_main, n); end if;
+  -- Right after 0098 everything sits on the default branch; once branches trade, every
+  -- order must still belong to some branch.
+  select count(*) into n from public.orders o where not exists (select 1 from public.branches b where b.id = o.branch_id);
+  if b_main is not null and n = 0 then res := res || E'PASS B1 every order belongs to a branch (existing ones to the default)\n';
+  else fails := fails + 1; res := res || format(E'FAIL B1 default=%s orders without a branch=%s\n', b_main, n); end if;
 
   -- B2
   perform set_config('request.jwt.claims', '${OWNER}', true); set local role authenticated;
@@ -312,6 +314,48 @@ begin
       if v_sum = v_led then res := res || format(E'PASS B22 branch rows add up exactly to the consolidated ledger sales (%s), nothing counted twice\n', v_led);
       else fails := fails + 1; res := res || format(E'FAIL B22 branches=%s ledger=%s\n', v_sum, v_led); end if;
     end if;
+  end if;
+
+  -- ── 0104: branch logins ──
+  if to_regprocedure('public.my_branch_limited()') is not null then
+    perform set_config('request.headers', '{}', true);
+    perform set_config('request.jwt.claims', '${DHA_CASHIER}', true); set local role authenticated;
+    begin
+      perform public.create_branch('GUL-QA', 'Gulshan — QA');
+      reset role; fails := fails + 1; res := res || E'FAIL B24 a branch login created a branch\n';
+    exception when insufficient_privilege then reset role;
+      res := res || E'PASS B24 a branch login cannot create branches, even holding branches.manage\n';
+    end;
+    set local role authenticated;
+    begin
+      perform public.set_branch_status(b_dha.id, 'inactive', 'QA');
+      reset role; fails := fails + 1; res := res || E'FAIL B25 a branch login deactivated its own branch\n';
+    exception when insufficient_privilege then reset role;
+      res := res || E'PASS B25 a branch login cannot deactivate or edit branches\n';
+    end;
+    set local role authenticated;
+    v := public.my_branch_limited()::text;
+    reset role;
+    perform set_config('request.jwt.claims', '${OWNER}', true); set local role authenticated;
+    v := v || '/' || public.my_branch_limited()::text;
+    reset role;
+    if v = 'true/false' then res := res || E'PASS B26 my_branch_limited(): the DHA login is limited, the owner is not\n';
+    else fails := fails + 1; res := res || 'FAIL B26 ' || v || E'\n'; end if;
+    -- A branch cookie left over from the owner (MAIN) must not blank the DHA panel, nor show MAIN.
+    perform set_config('request.jwt.claims', '${DHA_CASHIER}', true);
+    perform set_config('request.headers', json_build_object('x-branch-ids', b_main)::text, true);
+    set local role authenticated;
+    select count(*) filter (where id = o_dha), count(*) filter (where id = o_main) into n, n2 from public.orders where id in (o_dha, o_main);
+    reset role;
+    perform set_config('request.headers', '{}', true);
+    if n = 1 and n2 = 0 then res := res || E'PASS B28 a DHA login asking for MAIN still sees DHA, and never MAIN\n';
+    else fails := fails + 1; res := res || format(E'FAIL B28 dha=%s main=%s\n', n, n2); end if;
+    select count(*) into n from public.roles r
+     where r.key = 'branch_manager' and 'orders.create' = any(r.permissions) and 'stock.count' = any(r.permissions)
+       and not ('menu.update' = any(r.permissions)) and not ('deals.update' = any(r.permissions))
+       and not exists (select 1 from unnest(r.permissions) p where p like 'staff.%' or p like 'portals.%' or p like 'settings.%');
+    if n = 1 then res := res || E'PASS B27 the Branch manager role runs a branch but cannot change the shared menu, deals, staff or settings\n';
+    else fails := fails + 1; res := res || E'FAIL B27 branch_manager role preset\n'; end if;
   end if;
 
   raise exception E'RESULTS (rolled back) — % failed\n%', fails, res;

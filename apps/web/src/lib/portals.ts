@@ -17,6 +17,7 @@ export type StaffRole =
   | 'hr'
   | 'accountant'
   | 'delivery'
+  | 'branch_manager'
   | 'staff';
 
 export const ROLE_LABELS: Record<StaffRole, string> = {
@@ -29,6 +30,7 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
   hr: 'HR',
   accountant: 'Accountant',
   delivery: 'Delivery',
+  branch_manager: 'Branch manager',
   staff: 'Staff',
 };
 
