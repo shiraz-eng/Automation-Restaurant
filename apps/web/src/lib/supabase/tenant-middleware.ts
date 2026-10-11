@@ -65,14 +65,21 @@ async function refresh(request: NextRequest, url: string, anonKey: string, path:
 const SCOPED_MARKER = 'ar_cookie_scope';
 const COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 
-/** One-time move of session cookies written before they were path-scoped:
- *  this project's session is re-written at `path` (so the person stays
- *  signed in) and every old site-wide `sb-*` cookie is expired. Sessions for
- *  other restaurants are signed out rather than left to bloat every request. */
+/** Moves session cookies written before they were path-scoped: this project's
+ *  session is re-written at `path` (so the person stays signed in) and every
+ *  site-wide `sb-*` cookie is expired. Sessions for other restaurants are
+ *  signed out rather than left to bloat every request.
+ *
+ *  Runs whenever such a cookie shows up, not just once: another restaurant's
+ *  session can only reach this path if it sits site-wide, so seeing one means
+ *  a leftover to clear — before the cookies grow past what Vercel accepts
+ *  (494 REQUEST_HEADER_TOO_LARGE), after which no request reaches this code. */
 function retireSiteWideCookies(request: NextRequest, response: NextResponse, url: string, path: string) {
-  if (request.cookies.has(SCOPED_MARKER)) return response;
   const ownPrefix = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
-  const legacy = request.cookies.getAll().filter((c) => c.name.startsWith('sb-'));
+  const all = request.cookies.getAll().filter((c) => c.name.startsWith('sb-'));
+  const foreign = all.some((c) => !c.name.startsWith(ownPrefix));
+  if (request.cookies.has(SCOPED_MARKER) && !foreign) return response;
+  const legacy = all;
   for (const c of legacy) {
     if (c.name.startsWith(ownPrefix) && !response.cookies.get(c.name)) {
       response.cookies.set(c.name, c.value, { path, sameSite: 'lax', maxAge: COOKIE_MAX_AGE });
@@ -119,7 +126,15 @@ export async function updateTenantSession(request: NextRequest) {
 
   // ── Per-restaurant portals ──
   const match = pathname.match(/^\/r\/([^/]+)(\/.*)?$/);
-  if (!match) return NextResponse.next({ request });
+  if (!match) {
+    // Any other page (website, guest ordering, onboarding): no session belongs here, so every
+    // sign-in cookie this request carries is a site-wide leftover — expire it.
+    const response = NextResponse.next({ request });
+    for (const c of request.cookies.getAll()) {
+      if (c.name.startsWith('sb-')) response.headers.append('Set-Cookie', `${c.name}=; Path=/; Max-Age=0; SameSite=Lax`);
+    }
+    return response;
+  }
 
   const slug = match[1];
   const rest = match[2] ?? '';

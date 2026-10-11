@@ -6,5 +6,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/r/:path*', '/admin', '/admin/:path*'],
+  // Every page (not static files or the Next.js internals): /r/* and /admin refresh their
+  // session; any other page only clears site-wide sign-in cookies (tenant-middleware.ts).
+  matcher: ['/((?!_next/|favicon|.*\\.(?:png|jpg|jpeg|svg|webp|ico|css|js|map|txt|xml)$).*)'],
 };
