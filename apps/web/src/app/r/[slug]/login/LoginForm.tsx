@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
-import { baseSlug, slotSlug } from '@/lib/sessionSlot';
+import { baseSlug, slotOf, slotSlug } from '@/lib/sessionSlot';
 
 export function LoginForm({
   slug,
@@ -84,7 +84,10 @@ export function LoginForm({
           <img src={logoUrl} alt={`${name} logo`} className="h-12 max-w-[12rem] object-contain mb-3" />
         )}
         <div className="font-black text-xl mb-1">{name}</div>
-        <p className="text-muted mb-8">Staff portal · /{slug}</p>
+        <p className="text-muted mb-8">
+          Staff portal · /{baseSlug(slug)}
+          {slotOf(slug) && <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">{slotOf(slug)} sign-in</span>}
+        </p>
 
         <form onSubmit={onSubmit} className="space-y-4">
           <label className="block">
