@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
 import { baseSlug, slotOf, slotSlug } from '@/lib/sessionSlot';
+import { tenantCookieName } from '@/lib/supabase/cookieScope';
 
 export function LoginForm({
   slug,
@@ -58,7 +59,8 @@ export function LoginForm({
       // session into the portal's slot and leave this one free — no second password prompt.
       const target = slotSlug(baseSlug(slug), meta.portal_route);
       if (target !== slug && data.session) {
-        const portalClient = createBrowserClient(url, anonKey, { cookieOptions: { path: `/r/${target}` } });
+        const portalName = tenantCookieName(url, target);
+        const portalClient = createBrowserClient(url, anonKey, { cookieOptions: { path: `/r/${target}`, ...(portalName ? { name: portalName } : {}) } });
         await portalClient.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
         // Clear this address's copy without revoking it (a sign-out would end the portal's session too).
         const ref = new URL(url).hostname.split('.')[0];

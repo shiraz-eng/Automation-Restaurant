@@ -6,10 +6,32 @@
  * Scoping a restaurant's session to /r/<slug> (and the platform session to
  * /admin) means a request only ever carries the one session it needs.
  */
+import { slotOf } from '../sessionSlot';
+
 export const ADMIN_COOKIE_PATH = '/admin';
 
 export function tenantCookiePath(slug: string): string {
   return `/r/${slug}`;
+}
+
+/**
+ * The session's cookie name (= Supabase's storageKey) for a /r/<slug> segment. The main
+ * panel keeps Supabase's default (undefined); each session slot (lib/sessionSlot.ts) gets
+ * its own — not just for the cookie: supabase-js keeps tabs in sync over a BroadcastChannel
+ * named after the storage key, so two slots sharing it made each tab's sign-in reload the
+ * other, over and over.
+ */
+export function tenantCookieName(projectUrl: string, slug: string): string | undefined {
+  const slot = slotOf(slug);
+  if (!slot) return undefined;
+  return `sb-${new URL(projectUrl).hostname.split('.')[0]}-auth-token-${slot}`;
+}
+
+/** Browser only: the session cookie name for the page currently open. */
+export function currentCookieName(projectUrl: string): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const seg = window.location.pathname.match(/^\/r\/([^/]+)/)?.[1];
+  return seg ? tenantCookieName(projectUrl, seg) : undefined;
 }
 
 /** Browser only: the cookie path for the page currently open. */

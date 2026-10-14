@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { ADMIN_COOKIE_PATH, tenantCookiePath } from './cookieScope';
+import { ADMIN_COOKIE_PATH, tenantCookieName, tenantCookiePath } from './cookieScope';
 import { baseSlug, slotOf, slotSlug } from '../sessionSlot';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
@@ -40,10 +40,10 @@ async function tenantConfig(slug: string): Promise<{ url: string; anonKey: strin
 
 /** Refreshes a Supabase session cookie for `url`/`anonKey` against `request`,
  *  returns { response, user }. The cookie is written at `path` only. */
-async function refresh(request: NextRequest, url: string, anonKey: string, path: string) {
+async function refresh(request: NextRequest, url: string, anonKey: string, path: string, name?: string) {
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, anonKey, {
-    cookieOptions: { path },
+    cookieOptions: { path, ...(name ? { name } : {}) },
     cookies: {
       getAll() {
         return request.cookies.getAll();
@@ -154,7 +154,7 @@ export async function updateTenantSession(request: NextRequest) {
   if (!config) return NextResponse.next({ request });
 
   const path = tenantCookiePath(slug);
-  const { response, user } = await refresh(request, config.url, config.anonKey, path);
+  const { response, user } = await refresh(request, config.url, config.anonKey, path, tenantCookieName(config.url, slug));
   const done = (r: NextResponse) => retireSiteWideCookies(request, r, config.url, path);
   if (!user && !isLogin) {
     const u = request.nextUrl.clone();

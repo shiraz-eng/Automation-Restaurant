@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { getTenantConfig, type TenantConfig } from '@/lib/tenant';
-import { tenantCookiePath } from './cookieScope';
+import { tenantCookieName, tenantCookiePath } from './cookieScope';
 import { BRANCH_COOKIE, branchHeaderFrom } from '@/lib/branchScope';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
@@ -22,7 +22,7 @@ function build(config: TenantConfig, cookieStore: Awaited<ReturnType<typeof cook
   // The branch being worked in (branchScope.ts) — narrows every query; never widens access.
   const branch = branchHeaderFrom(cookieStore.get(BRANCH_COOKIE)?.value);
   return createServerClient(config.url, config.anonKey, {
-    cookieOptions: { path: tenantCookiePath(slug) },
+    cookieOptions: { path: tenantCookiePath(slug), ...(tenantCookieName(config.url, slug) ? { name: tenantCookieName(config.url, slug) } : {}) },
     ...(branch ? { global: { headers: { 'x-branch-ids': branch } } } : {}),
     cookies: {
       getAll() {
