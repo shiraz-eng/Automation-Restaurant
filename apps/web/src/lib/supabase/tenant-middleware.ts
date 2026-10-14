@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { ADMIN_COOKIE_PATH, tenantCookiePath } from './cookieScope';
+import { baseSlug, slotOf, slotSlug } from '../sessionSlot';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -140,7 +141,16 @@ export async function updateTenantSession(request: NextRequest) {
   const rest = match[2] ?? '';
   const isLogin = rest === '/login' || rest === '/login/';
 
-  const config = await tenantConfig(slug);
+  // Each portal runs in its own session slot (lib/sessionSlot.ts), so it can stay signed in
+  // next to the owner's panel in the same browser: /r/<slug>/portal/<key>/… → /r/<slug>~<key>/portal/<key>/…
+  const portalMatch = rest.match(/^\/portal\/([a-z0-9][a-z0-9-]{0,39})(\/.*)?$/);
+  if (portalMatch && !slotOf(slug)) {
+    const u = request.nextUrl.clone();
+    u.pathname = `/r/${slotSlug(baseSlug(slug), portalMatch[1])}/portal/${portalMatch[1]}${portalMatch[2] ?? ''}`;
+    return NextResponse.redirect(u);
+  }
+
+  const config = await tenantConfig(baseSlug(slug));
   if (!config) return NextResponse.next({ request });
 
   const path = tenantCookiePath(slug);

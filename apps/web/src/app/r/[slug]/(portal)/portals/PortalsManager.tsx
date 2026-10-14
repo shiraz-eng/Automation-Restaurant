@@ -6,6 +6,7 @@ import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { PortalPreview } from './PortalPreview';
+import { baseSlug, slotSlug } from '@/lib/sessionSlot';
 import { ChevronDown, ChevronRight, Plus, Search, X } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -756,7 +757,8 @@ export function PortalsManager({
                       </span>
                     )}
                   </div>
-                  <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slug}/portal/{p.route_key}</div>
+                  {/* Its own session slot (lib/sessionSlot.ts): opens next to the owner's panel, signed in on its own. */}
+                  <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slotSlug(baseSlug(slug), p.route_key)}/portal/{p.route_key}</div>
                   {p.email && <div className="text-[10px] text-muted truncate">{p.email}</div>}
                   <div className="text-[10px] text-muted mt-1">
                     {p.last_login_at ? `Last sign-in ${formatDateTime(p.last_login_at)}` : 'Never signed in'}

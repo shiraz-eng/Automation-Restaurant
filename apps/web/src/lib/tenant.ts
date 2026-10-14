@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { baseSlug } from './sessionSlot';
 
 /**
  * Resolves a restaurant slug to its dedicated Supabase project + plan, by
@@ -27,7 +28,8 @@ const CP_ANON = process.env.NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY || process.env.NE
 // bbq-night-c0fdb, while the API (exact match) said "not found". A slug
 // identifies exactly one restaurant; anything else is "not found".
 async function fetchConfig(slug: string): Promise<TenantConfig | null> {
-  const cleanSlug = slug.trim().toLowerCase();
+  // A session slot (/r/<slug>~<slot>, lib/sessionSlot.ts) is the same restaurant.
+  const cleanSlug = baseSlug(slug).trim().toLowerCase();
   const candidateSlugs = [cleanSlug, cleanSlug.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')];
   // Remove duplicates
   const uniqueSlugs = Array.from(new Set(candidateSlugs.filter(Boolean)));

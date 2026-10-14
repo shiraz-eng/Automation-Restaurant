@@ -58,7 +58,8 @@ branchLoginsRouter.post('/', express.json(), requirePortalPerm('branches.manage'
       message: Object.values(parsed.error.flatten().fieldErrors).flat().join(' ') || 'Invalid request.',
     });
   }
-  const { slug, branch_id, full_name, role } = parsed.data;
+  const { branch_id, full_name, role } = parsed.data;
+  const slug = req.tenant!.slug; // the restaurant, without a web session slot
   const { service } = req.tenant!;
 
   const { data: branch } = await service.from('branches').select('id, code, name, status').eq('id', branch_id).maybeSingle();
@@ -99,7 +100,8 @@ branchLoginsRouter.post('/', express.json(), requirePortalPerm('branches.manage'
     id: member.id,
     branch: branch.name,
     login: { email, password: parsed.data.password ? undefined : password },
-    url: `${env.APP_URL}/r/${slug}/login`,
+    // The branch's own session slot: it signs in next to the owner's panel in the same browser.
+    url: `${env.APP_URL}/r/${slug}~${String(branch.code).toLowerCase()}/login`,
   });
 });
 

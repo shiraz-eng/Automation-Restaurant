@@ -7,6 +7,7 @@ import { CURRENCIES } from '@automation-restaurant/shared';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { BRANCH_COOKIE } from '@/lib/branchScope';
+import { baseSlug, slotSlug } from '@/lib/sessionSlot';
 
 export type ManagedBranch = {
   id: string;
@@ -307,6 +308,11 @@ export function BranchesManager({
             {canCreateLogins && (
               <div className="rounded border border-border p-2.5 space-y-1.5">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-muted">Branch logins</p>
+                <p className="text-[11px] text-muted">
+                  Sign-in address for this branch:{' '}
+                  <span className="font-mono text-body">/r/{slotSlug(baseSlug(slug), b.code)}/login</span> — opens next to your owner panel in the
+                  same browser.
+                </p>
                 {(() => {
                   const own = logins.filter((l) => (l.branch_ids ?? []).includes(b.id));
                   if (!own.length) return <p className="text-xs text-muted">No login of its own yet — only your owner panel sees this branch.</p>;

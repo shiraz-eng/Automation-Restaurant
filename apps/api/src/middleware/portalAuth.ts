@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { resolveTenantClient } from '../lib/tenantAdmin';
+import { resolveTenantClient, baseSlug } from '../lib/tenantAdmin';
 import { fetchCurrency, runWithCurrency } from '../lib/currencyContext';
 
 /**
@@ -163,7 +163,8 @@ export function requirePortalPerm(need: string | string[]) {
     const { ids: branchIds, limited: branchLimited, allowed: allowedBranchIds } = await effectiveBranchIds(svc.admin, data.user.id, permissions, role, req.headers['x-branch-ids']);
 
     req.tenant = {
-      slug,
+      // The restaurant, never a session slot (/r/<slug>~<slot> in the web app).
+      slug: baseSlug(slug),
       // A login limited to some branches acts with its own token, so the database applies every
       // rule to it (the service key would skip row security). The owner keeps the service client,
       // narrowed for reports to the branch it is viewing.

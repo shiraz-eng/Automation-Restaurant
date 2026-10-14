@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr';
 import { createTenantBrowserClient } from '@/lib/supabase/tenant-client';
+import { baseSlug, slotSlug } from '@/lib/sessionSlot';
 
 export function LoginForm({
   slug,
@@ -51,7 +53,21 @@ export function LoginForm({
       portal_route?: string;
     };
     if (meta.kind === 'portal' && meta.portal_route) {
-      router.push(`/r/${slug}/portal/${meta.portal_route}`);
+      // A portal runs in its own session slot (lib/sessionSlot.ts) so it can stay open next
+      // to the owner's panel. Signed in from another address (e.g. the main /login)? Move the
+      // session into the portal's slot and leave this one free — no second password prompt.
+      const target = slotSlug(baseSlug(slug), meta.portal_route);
+      if (target !== slug && data.session) {
+        const portalClient = createBrowserClient(url, anonKey, { cookieOptions: { path: `/r/${target}` } });
+        await portalClient.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+        // Clear this address's copy without revoking it (a sign-out would end the portal's session too).
+        const ref = new URL(url).hostname.split('.')[0];
+        for (const c of document.cookie.split('; ')) {
+          const name = c.split('=')[0];
+          if (name.startsWith(`sb-${ref}-auth-token`)) document.cookie = `${name}=; path=/r/${slug}; max-age=0; samesite=lax`;
+        }
+      }
+      router.push(`/r/${target}/portal/${meta.portal_route}`);
     } else {
       // Every staff role uses the main portal; the dashboard sends anyone
       // without it to the first page their permissions open.

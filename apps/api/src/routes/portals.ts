@@ -152,7 +152,8 @@ portalsRouter.post(
       details: parsed.error.flatten().fieldErrors,
     });
   }
-  const { slug, name, type, permissions } = parsed.data;
+  const { name, type, permissions } = parsed.data;
+  const slug = req.tenant!.slug; // the restaurant, without a web session slot
   const { service: admin, permissions: callerPerms, role } = req.tenant!;
   if (type === 'super_admin') {
     return res.status(409).json({ error: 'immutable', message: 'Only one Super Admin portal exists.' });
@@ -202,7 +203,8 @@ portalsRouter.post(
   res.status(201).json({
     portal,
     login: { email, password: parsed.data.password ? undefined : password },
-    url: `${env.APP_URL}/r/${slug}/portal/${key}`,
+    // Its own session slot, so it can stay signed in next to the owner's panel (apps/web lib/sessionSlot.ts).
+    url: `${env.APP_URL}/r/${slug}~${key}/portal/${key}`,
   });
 });
 

@@ -132,9 +132,19 @@ export async function tenantServiceClient(tenantId: string): Promise<TenantClien
 
 /** Resolves a restaurant's admin client, telling "no such restaurant" apart
  *  from "couldn't reach it right now" (control plane down, OAuth failure). */
+/**
+ * The restaurant part of a /r/<slug> segment. The web app runs extra logins of one
+ * restaurant side by side in "session slots" — /r/<slug>~<slot> (apps/web lib/sessionSlot.ts);
+ * a slot is never a different restaurant.
+ */
+export function baseSlug(slug: string): string {
+  return (String(slug ?? '').split('~')[0] ?? '').trim();
+}
+
 export async function resolveTenantClient(
-  slug: string,
+  rawSlug: string,
 ): Promise<{ ok: true; client: TenantClient; tenantId: string } | { ok: false; reason: 'not_found' | 'unavailable'; detail?: string }> {
+  const slug = baseSlug(rawSlug);
   try {
     let tenantId = slugCache.get(slug);
     if (!tenantId || Date.now() - tenantId.at > CLIENT_TTL_MS) {
