@@ -388,7 +388,7 @@ type AgentResult = {
 /** Who is chatting — threaded through to proposeAction() so a persisted
  *  ai_pending_actions row (the Approval Inbox, spec §29) always knows who
  *  proposed it, not just who eventually confirmed it. */
-type Actor = { userId: string; email: string | null; role: string | null; permissions: string[] };
+type Actor = { userId: string; email: string | null; role: string | null; permissions: string[]; tenantSlug?: string };
 
 /** Retry a call through transient 429/503 "high demand" from the model host. */
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
@@ -421,7 +421,7 @@ async function callTool(
     return { error: 'tool_not_available' };
   }
   try {
-    const out = await tool.run(admin, input, { role: actor.role, permissions: actor.permissions });
+    const out = await tool.run(admin, input, { role: actor.role, permissions: actor.permissions, tenantSlug: actor.tenantSlug });
     trace.push({ name, ok: true });
     // Last one wins if the model calls the same tool more than once in a
     // turn (e.g. comparing two periods, or two orders) — the card always
@@ -770,7 +770,7 @@ aiRouter.post(
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
     const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
-    const actor: Actor = { userId, email, role, permissions };
+    const actor: Actor = { userId, email, role, permissions, tenantSlug: req.tenant!.slug };
     const run = (emit: Emitter) =>
       aiProvider === 'gemini'
         ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit)

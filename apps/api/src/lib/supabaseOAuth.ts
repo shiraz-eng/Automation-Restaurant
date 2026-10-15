@@ -164,7 +164,31 @@ export async function exchangeAndStore(
  * Return a connection for `tenantId` with a non-expired access token, rotating
  * the refresh token and persisting if a refresh was needed.
  */
-export async function getFreshConnection(tenantId: string): Promise<SupabaseConnection> {
+/**
+ * Whose Supabase connection a tenant uses. An independent branch (tenants.parent_tenant_id,
+ * control-plane 0025) lives in its owner's org through the MAIN restaurant's OAuth grant —
+ * never a copy of it: refresh tokens are single-use, so two rows holding one grant would
+ * lock each other out on the first refresh.
+ */
+export async function connectionTenantId(tenantId: string): Promise<string> {
+  const { data: own } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', tenantId).maybeSingle();
+  if (own) return tenantId;
+  const { data: t } = await supabaseAdmin.from('tenants').select('parent_tenant_id').eq('id', tenantId).maybeSingle();
+  const parent = (t as { parent_tenant_id?: string | null } | null)?.parent_tenant_id;
+  if (!parent) return tenantId;
+  const { data: p } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', parent).maybeSingle();
+  return p ? parent : tenantId;
+}
+
+/** Does this tenant (or, for a branch, its main restaurant) have a Supabase OAuth connection? */
+export async function hasConnection(tenantId: string): Promise<boolean> {
+  const id = await connectionTenantId(tenantId);
+  const { data } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', id).maybeSingle();
+  return Boolean(data);
+}
+
+export async function getFreshConnection(forTenantId: string): Promise<SupabaseConnection> {
+  const tenantId = await connectionTenantId(forTenantId);
   const { data, error } = await supabaseAdmin
     .from('supabase_connections')
     .select('*')

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { usePortal, usePortalSupabase } from '@/components/PortalProvider';
+import { usePortalSupabase } from '@/components/PortalProvider';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -49,7 +49,6 @@ export function SectionReportButtons({
 }) {
   const supabase = usePortalSupabase();
   // The branch being viewed (multi-branch) — the API narrows reports and answers to it.
-  const branchHeader: Record<string, string> = usePortal().branchId ? { 'X-Branch-Ids': usePortal().branchId as string } : {};
   const [period, setPeriod] = useState<SectionPeriod>('this_month');
   const [customRange, setCustomRange] = useState<CustomRange | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
@@ -72,7 +71,7 @@ export function SectionReportButtons({
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    return { Authorization: `Bearer ${session?.access_token ?? ''}`, ...branchHeader };
+    return { Authorization: `Bearer ${session?.access_token ?? ''}` };
   }
 
   async function handlePdf() {

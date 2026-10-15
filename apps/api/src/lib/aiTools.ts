@@ -3,6 +3,7 @@ import { money } from './currencyContext';
 import { permits } from '../middleware/portalAuth';
 import { runLowStockSweepWithAdmin } from './lowStockAutomation';
 import { fromStock } from './inventoryStock';
+import { listBranches, restaurantMetrics, tenantBySlug } from './branchTenants';
 
 // The caller's real role/permissions, threaded into a tool's run() only
 // where a tool internally blends data of different sensitivity (see
@@ -21,7 +22,7 @@ import { fromStock } from './inventoryStock';
 // the tool) is the ONLY enforcement point for AI tool calls — a tool
 // whose `needs` is broad but whose run() reaches genuinely
 // finance/cost-sensitive data must filter that internally, using this.
-export type AiActor = { role: string | null; permissions: string[] };
+export type AiActor = { role: string | null; permissions: string[]; /** The restaurant the caller is signed in to (its main panel or a branch). */ tenantSlug?: string };
 
 /**
  * The AI assistant's tool allowlist. Every tool is READ-ONLY, maps to a real
@@ -576,6 +577,87 @@ async function computeActiveAttentionItems(admin: SupabaseClient, opts?: { inclu
 }
 
 export const AI_TOOLS: AiTool[] = [
+  {
+    name: 'list_branches',
+    description:
+      "The owner's independent branches (each its own restaurant with its own database, opened from the owner's main panel): code, name, and whether its setup is finished, still running or failed. Use before answering about a specific branch. In a branch's own workspace there are no branches to list.",
+    needs: 'branches.view',
+    input_schema: { type: 'object', properties: {} },
+    async run(_admin, _args, actor) {
+      if (!actor?.tenantSlug) return { error: 'unknown restaurant' };
+      const me = await tenantBySlug(actor.tenantSlug);
+      if (!me) return { error: 'unknown restaurant' };
+      if (me.parent_tenant_id) return { note: 'This is a branch workspace. Branches are listed in the owner’s main panel.' };
+      const branches = await listBranches(me.id);
+      return {
+        main_restaurant: me.restaurant_name,
+        count: branches.length,
+        branches: branches.map((b) => ({
+          code: b.branch_code,
+          name: b.restaurant_name,
+          setup: b.status === 'active' ? (b.branch_seed_status === 'failed' ? 'ready (menu copy failed — retry from Branches)' : 'ready') : b.status,
+          error: b.provisioning_error ?? undefined,
+        })),
+      };
+    },
+  },
+  {
+    name: 'get_branch_performance',
+    description:
+      "Sales, orders, food cost, expenses, low stock, money owed to suppliers and unclosed days for the main restaurant and/or its independent branches over a period — read from EACH restaurant's own database (never merged). branch: a branch code (e.g. DHA), 'main' for the main restaurant, or 'all' (default) for every restaurant side by side plus their combined totals. A branch that is still being set up or cannot be reached is reported as unavailable, never guessed.",
+    needs: 'finance.view',
+    input_schema: {
+      type: 'object',
+      properties: { branch: { type: 'string', description: "A branch code, 'main', or 'all' (default)." }, ...INTELLIGENCE_PERIOD_SCHEMA },
+    },
+    async run(_admin, args, actor) {
+      if (!actor?.tenantSlug) return { error: 'unknown restaurant' };
+      const me = await tenantBySlug(actor.tenantSlug);
+      if (!me) return { error: 'unknown restaurant' };
+      if (me.parent_tenant_id) return { note: 'This is a branch workspace; cross-branch figures are in the owner’s main panel.' };
+      const { from, to, label } = resolvePeriod(args);
+      const day = (d: Date) => d.toISOString().slice(0, 10);
+      const p = { from: day(from), to: day(new Date(to.getTime() - 1)) };
+      const branches = await listBranches(me.id);
+      const want = String(args.branch ?? 'all').trim().toUpperCase();
+      const targets = [
+        ...(want === 'ALL' || want === 'MAIN' ? [{ code: 'MAIN', name: me.restaurant_name, slug: me.slug, ready: true }] : []),
+        ...branches
+          .filter((b) => want === 'ALL' || b.branch_code === want)
+          .map((b) => ({ code: b.branch_code ?? '?', name: b.restaurant_name, slug: b.slug, ready: b.status === 'active' })),
+      ];
+      if (!targets.length) return { error: `No branch with code ${want}.`, branches: branches.map((b) => b.branch_code) };
+      type Row = { code: string; name: string; figures?: Record<string, number> | { error: string }; unavailable?: string };
+      const rows: Row[] = await Promise.all(
+        targets.map(async (t): Promise<Row> => ({ code: t.code, name: t.name, ...(t.ready ? { figures: (await restaurantMetrics(t.slug, p.from, p.to)) as Row['figures'] } : { unavailable: 'still being set up' }) })),
+      );
+      const isNum = (f: Row['figures']): f is Record<string, number> => !!f && !('error' in f);
+      const ok = rows.filter((r) => isNum(r.figures)) as { figures: Record<string, number> }[];
+      const sum = (k: string) => ok.reduce((s, r) => s + Number(r.figures[k] ?? 0), 0);
+      return {
+        period: label ?? p,
+        restaurants: rows.map((r) => ({
+          ...r,
+          figures: isNum(r.figures)
+            ? { ...r.figures, net_sales: money(r.figures.net_sales_cents ?? 0), operating_profit: money((r.figures.net_sales_cents ?? 0) - (r.figures.cogs_cents ?? 0) - (r.figures.expenses_cents ?? 0)) }
+            : r.figures,
+        })),
+        ...(rows.length > 1
+          ? {
+              combined: {
+                note: 'Sum of separate restaurants’ own figures (each sale exists in exactly one database).',
+                restaurants_included: ok.length,
+                orders: sum('orders'),
+                net_sales: money(sum('net_sales_cents')),
+                operating_profit: money(sum('net_sales_cents') - sum('cogs_cents') - sum('expenses_cents')),
+                open_low_stock: sum('open_low_stock'),
+                unclosed_days: sum('unclosed_days'),
+              },
+            }
+          : {}),
+      };
+    },
+  },
   {
     name: 'get_restaurant_now',
     description:

@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from './supabase';
 import { env, supabaseOrgPool } from './env';
 import { platformMgmt, mgmtClient, type CreatedProject, type MgmtClient } from './mgmt';
-import { getFreshConnection } from './lib/supabaseOAuth';
+import { getFreshConnection, hasConnection } from './lib/supabaseOAuth';
 import { resolveTenantClient, tenantServiceClient } from './lib/tenantAdmin';
 import { createClaimToken } from './lib/tokens';
 import { sendWelcomeEmail, type MailResult } from './lib/mailer';
@@ -348,7 +348,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v104 Branch panel logins: only head office manages branches, Branch manager role, a stale branch selection never blanks a branch login, my_branch_limited().
 //   v105 Branch operations: suppliers per branch or shared (price lists, messages, payments and credit notes follow), Branch manager role = the whole panel except owner-only and shared-menu keys.
 //   v106 inventory_stock view: ingredient stock as the branch in view sees it (a branch login never sees another branch's stock).
-const SCHEMA_VERSION = 106;
+//   v107 retire in-database branch logins: every portal and staff login works across the whole restaurant (branches are separate restaurants now).
+const SCHEMA_VERSION = 107;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
@@ -449,8 +450,12 @@ export async function provisionTenant(input: {
   /** Model B: create the project in the owner's own Supabase org using the
    *  OAuth grant in supabase_connections, instead of the platform org pool. */
   connected?: boolean;
+  /** An independent branch of another restaurant (control-plane 0025): same project and
+   *  schema as any restaurant, but no welcome email or temporary password — the owner
+   *  opens it from their main panel (single sign-on, lib/branchTenants.ts). */
+  isBranch?: boolean;
 }, opts?: { budgetMs?: number }): Promise<'done' | 'pending' | 'failed'> {
-  const { tenantId, restaurantName, slug, ownerEmail, ownerName, connected } = input;
+  const { tenantId, restaurantName, slug, ownerEmail, ownerName, connected, isBranch } = input;
   // One step's time budget. Serverless calls are capped (60 s on Vercel), so
   // a step that runs out of time stops cleanly and the next one resumes.
   const deadline = Date.now() + (opts?.budgetMs ?? STEP_BUDGET_MS);
@@ -606,7 +611,9 @@ export async function provisionTenant(input: {
     const tenantAdmin = createClient(projectUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const tempPassword = input.ownerPassword ?? readablePassword();
+    // A branch's owner account gets a long random password nobody is told: the owner signs
+    // in from the main panel, and can still set one through "forgot password".
+    const tempPassword = input.ownerPassword ?? (isBranch ? strongPassword() : readablePassword());
     const password = tempPassword;
     const { data: created, error: userErr } = await tenantAdmin.auth.admin.createUser({
       email: ownerEmail.toLowerCase(),
@@ -656,7 +663,7 @@ export async function provisionTenant(input: {
       syncEntitlementsForTenant(tenantId).catch((err) => console.error(`[provision] ${slug}: entitlement sync failed:`, err));
     // Secure single-use set-password link for the welcome email.
     const claimLink = async (): Promise<string | null> => {
-      if (input.ownerPassword) return null;
+      if (input.ownerPassword || isBranch) return null;
       const { raw, hash } = createClaimToken();
       const expiresAt = new Date(Date.now() + env.ONBOARDING_TOKEN_TTL_MINUTES * 60_000).toISOString();
       await supabaseAdmin.from('onboarding_tokens').insert({
@@ -693,6 +700,12 @@ export async function provisionTenant(input: {
     // Workspace is ready → activate, THEN send the welcome email.
     await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', tenantId);
     const planName = sub.planName;
+    if (isBranch) {
+      // No email: the owner is already signed in to the main panel and opens the branch from there.
+      await saveTimeline();
+      console.log(`[provision] ${slug}: branch ready`);
+      return 'done';
+    }
 
     const mail = await sendWelcomeEmail({
       to: ownerEmail,
@@ -792,7 +805,7 @@ export async function advanceProvisioning(slug: string): Promise<'claimed' | 'bu
     return row?.status === 'provisioning' ? 'busy' : 'not_provisioning';
   }
   try {
-    const { data: conn } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', t.id).maybeSingle();
+    const conn = await hasConnection(t.id);
     await provisionTenant({
       tenantId: t.id,
       restaurantName: t.restaurant_name,
@@ -800,12 +813,20 @@ export async function advanceProvisioning(slug: string): Promise<'claimed' | 'bu
       ownerEmail: t.owner_email,
       ownerName: t.owner_name ?? undefined,
       connected: Boolean(conn),
+      isBranch: await isBranchTenant(t.id),
     });
   } finally {
     // Release the lease so the next poll continues immediately.
     await supabaseAdmin.from('tenants').update({ provisioning_heartbeat: null }).eq('id', t.id);
   }
   return 'claimed';
+}
+
+/** Is this tenant a branch of another restaurant (control-plane 0025)? Read on its own, so
+ *  provisioning keeps working on a control plane that doesn't have the column yet. */
+async function isBranchTenant(tenantId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.from('tenants').select('parent_tenant_id').eq('id', tenantId).maybeSingle();
+  return !error && Boolean((data as { parent_tenant_id?: string | null } | null)?.parent_tenant_id);
 }
 
 /** Advances every restaurant still provisioning (cron backstop for when
@@ -851,11 +872,7 @@ export async function retryFailedProvisions(): Promise<void> {
   }>) {
     if ((t.provisioning_attempts ?? 0) >= MAX_ATTEMPTS) continue;
     console.log(`[provision] retry sweep -> ${t.slug} (attempt ${(t.provisioning_attempts ?? 0) + 1})`);
-    const { data: conn } = await supabaseAdmin
-      .from('supabase_connections')
-      .select('tenant_id')
-      .eq('tenant_id', t.id)
-      .maybeSingle();
+    const conn = await hasConnection(t.id);
     await provisionTenant({
       tenantId: t.id,
       restaurantName: t.restaurant_name,
@@ -863,6 +880,7 @@ export async function retryFailedProvisions(): Promise<void> {
       ownerEmail: t.owner_email,
       ownerName: t.owner_name ?? undefined,
       connected: Boolean(conn),
+      isBranch: await isBranchTenant(t.id),
     });
   }
 }

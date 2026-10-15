@@ -1,8 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
-import { BranchSelector } from '@/components/BranchSelector';
-import { loadBranchContext } from '@/lib/branchServer';
+import { WorkspaceSwitcher } from '@/components/OwnerBranches';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ChangePasswordControl } from '@/components/ChangePasswordControl';
 import { NavLink } from '@/components/NavLink';
@@ -68,7 +67,6 @@ const NAV_GROUPS: [string, NavItem[]][] = [
     [
       ['finance', 'Finance overview', 'finance.view', false, 'accounting.finance'],
       ['finance/ledger', 'Ledger', 'finance.view', false, 'accounting.finance'],
-      ['finance/branches', 'Branch comparison', 'finance.view', false, 'branches.multi'],
       ['expenses', 'Expenses', 'finance.view', false, 'accounting.finance'],
       ['billing', 'Billing', 'settings.view', true],
     ],
@@ -153,23 +151,21 @@ export default async function PortalLayout({
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
-  // Multi-branch: the login's branches and the one being worked in (empty before migration 0098).
-  const branchCtx = await loadBranchContext(t.client);
-  // A branch login (limited to its branches, 0104): its panel is that branch only — no branch
-  // management and no side-by-side comparison; the owner's panel keeps both.
-  const { data: limitedRaw } = await t.client.rpc('my_branch_limited');
-  const branchLimited = limitedRaw === true;
-  const HEAD_OFFICE_ONLY = new Set(['branches', 'finance/branches']);
+  // Independent branches (control-plane 0025): this is either the owner's central panel —
+  // with the workspace dropdown — or a branch's own workspace, which links back to it.
+  // Branches are managed only from the central panel.
+  const isBranchWorkspace = Boolean(t.config.parentSlug);
+  const showSwitcher = !isBranchWorkspace && (role === 'owner' || perms.includes('*')) && ent.isEntitled('branches.multi');
 
   const visibleGroups = NAV_GROUPS.map(([group, items]) => [
     group,
-    items.filter(([seg, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature) && !(branchLimited && HEAD_OFFICE_ONLY.has(seg))),
+    items.filter(([seg, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature) && !(isBranchWorkspace && seg === 'branches')),
   ] as [string, NavItem[]]).filter(([, items]) => items.length > 0);
 
   return (
     <PortalProvider
       expectedUserId={user.id}
-      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey, branchId: branchCtx.selectedId }}
+      value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
       <div className="min-h-screen flex bg-main">
         <aside className="hidden md:flex md:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
@@ -186,18 +182,20 @@ export default async function PortalLayout({
             <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
               {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
             </div>
-            {branchCtx.multi ? (
+            {showSwitcher && (
               <div className="mt-3">
-                <BranchSelector slug={slug} branches={branchCtx.branches} selected={branchCtx.selectedId} allowAll />
+                <WorkspaceSwitcher slug={slug} />
               </div>
-            ) : (
-              branchLimited &&
-              branchCtx.selected && (
-                <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch</div>
-                  <div className="text-sm font-bold text-body">{branchCtx.selected.name}</div>
-                </div>
-              )
+            )}
+            {isBranchWorkspace && (
+              <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2 space-y-1">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch workspace · {t.config.branchCode}</div>
+                {role === 'owner' && (
+                  <a href={`/r/${t.config.parentSlug}`} className="block text-xs font-semibold text-primary hover:underline">
+                    ← Back to the owner panel
+                  </a>
+                )}
+              </div>
             )}
           </div>
           <nav className="flex-1 flex flex-col gap-4 px-3 pb-5">

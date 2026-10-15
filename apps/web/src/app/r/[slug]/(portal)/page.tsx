@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { loadTenantCurrency } from '@/lib/currencyServer';
-import { loadBranchContext } from '@/lib/branchServer';
-import { GroupBranches } from './GroupBranches';
+import { OwnerBranchesPanel } from '@/components/OwnerBranches';
 import { gatePortalPage } from '@/lib/permissions';
 import { DashboardStat } from './DashboardStat';
 import { LiveRefresh } from '@/components/LiveRefresh';
@@ -113,18 +112,9 @@ export default async function DashboardPage({
           return `${pct >= 0 ? '↑' : '↓'} ${Math.abs(pct)}% vs yesterday (${formatCents(yesterdayRevenue)})`;
         })()
       : `Yesterday: ${formatCents(yesterdayRevenue)}`;
-  // Multi-branch: in one branch, count that branch's open low-stock alerts (stock is per branch);
-  // otherwise compare each ingredient's stock with its reorder level, as before.
-  const branchCtx = await loadBranchContext(supabase);
-  const { count: branchLowCount } = branchCtx.multi && branchCtx.selectedId
-    ? await supabase.from('low_stock_events').select('id', { count: 'exact', head: true }).eq('status', 'open')
-    : { count: null };
-  const lowStock = branchLowCount != null
-    ? Array.from({ length: branchLowCount })
-    : inventory.filter(
-        (i: { stock_qty: number; min_threshold: number }) =>
-          Number(i.stock_qty) <= Number(i.min_threshold),
-      );
+  const lowStock = inventory.filter(
+    (i: { stock_qty: number; min_threshold: number }) => Number(i.stock_qty) <= Number(i.min_threshold),
+  );
   const avgOrderValue = todayCount > 0 ? Math.round(todayRevenue / todayCount) : 0;
   const pendingPurchases = pendingPurchasesRes.count ?? 0;
   const portalActivity = (portalsRes.data ?? []) as {
@@ -198,9 +188,8 @@ export default async function DashboardPage({
         )}
       </section>
 
-      {branchCtx.multi && !branchCtx.selectedId && (
-        <GroupBranches client={supabase} slug={slug} timeZone={(tzRow as { timezone?: string | null } | null)?.timezone ?? 'UTC'} />
-      )}
+      {/* The owner's central panel: every independent branch side by side (each from its own database). */}
+      {!t.config.parentSlug && (viewerRole === 'owner' || viewerPerms.includes('*')) && <OwnerBranchesPanel slug={slug} />}
 
       <DashboardClient slug={slug} restaurantName={t.config.restaurantName} logoUrl={logoUrl} />
 

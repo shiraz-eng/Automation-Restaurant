@@ -22,10 +22,7 @@ export type Portal = {
   last_login_at: string | null;
   last_logout_at: string | null;
   created_at: string;
-  /** Multi-branch (0098): the branches this portal works in; empty = every branch. */
-  branch_ids?: string[] | null;
 };
-export type PortalBranch = { id: string; code: string; name: string };
 export type PermType = 'read' | 'write' | 'approval' | 'export';
 /** type/risk_level come from permission_catalog (tenant-migration 0057);
  *  null on a tenant that hasn't received that migration yet. */
@@ -69,16 +66,7 @@ export function PortalsManager({
   caps = { create: true, update: true, disable: true, credentials: true },
   callerPermissions = ['*'],
   selfPortalId = null,
-  branches = [],
-  callerBranchIds = null,
-  startForBranch = null,
 }: {
-  /** The restaurant's branches, when it has several (multi-branch); otherwise empty. */
-  branches?: PortalBranch[];
-  /** The caller's own branches when it is limited to some (null = every branch). */
-  callerBranchIds?: string[] | null;
-  /** Open the create form for this branch (Branches → "Create a login for this branch"). */
-  startForBranch?: string | null;
   slug: string;
   restaurantName: string;
   logoUrl: string | null;
@@ -98,15 +86,8 @@ export function PortalsManager({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const forBranch = startForBranch ? branches.find((b) => b.id === startForBranch) ?? null : null;
-  const [formOpen, setFormOpen] = useState(!!forBranch && caps.create);
-  // Branches this portal works in; empty = every branch. A branch-limited caller starts
-  // with (and can only pick from) its own.
-  const pickableBranches = callerBranchIds ? branches.filter((b) => callerBranchIds.includes(b.id)) : branches;
-  const defaultBranches = () => new Set<string>(forBranch ? [forBranch.id] : (callerBranchIds ?? []));
-  const [branchSel, setBranchSel] = useState<Set<string>>(defaultBranches);
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? 'Removed branch';
-  const [name, setName] = useState(forBranch ? `${forBranch.name} manager` : '');
+  const [formOpen, setFormOpen] = useState(false);
+  const [name, setName] = useState('');
   const [type, setType] = useState('custom');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editId, setEditId] = useState<string | null>(null);
@@ -262,7 +243,6 @@ export function PortalsManager({
             type,
             permissions: [...selected],
             ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
-            ...(branches.length > 1 ? { branch_ids: [...branchSel] } : {}),
           }),
         });
         const body = await res.json().catch(() => ({}));
@@ -302,13 +282,12 @@ export function PortalsManager({
           permissions: [...selected],
           ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
           ...(loginPassword ? { password: loginPassword } : {}),
-          ...(branches.length > 1 ? { branch_ids: [...branchSel] } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) return setError(body.message ?? body.error ?? 'Could not create the portal.');
       setNotice(
-        `Portal "${body.portal.name}" created${branchSel.size ? ` for ${[...branchSel].map(branchName).join(', ')}` : ''}.\n  URL:      ${body.url}\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
+        `Portal "${body.portal.name}" created.\n  URL:      ${body.url}\n  Email:    ${body.login.email}\n  Password: ${body.login.password}\n(Shown once — copy it now.)`,
       );
       closeForm();
       router.refresh();
@@ -326,7 +305,6 @@ export function PortalsManager({
     setName('');
     setType('custom');
     setSelected(new Set());
-    setBranchSel(new Set(callerBranchIds ?? []));
     setLoginEmail('');
     setLoginPassword('');
     setPermSearch('');
@@ -334,7 +312,6 @@ export function PortalsManager({
     setFormOpen(true);
   }
   function startEditAccess(p: Portal) {
-    setBranchSel(new Set(p.branch_ids ?? []));
     setError(null);
     setNotice(null);
     setEditId(p.id);
@@ -349,7 +326,6 @@ export function PortalsManager({
   }
   function closeForm() {
     setFormOpen(false);
-    setBranchSel(new Set(callerBranchIds ?? []));
     setEditId(null);
     setName('');
     setType('custom');
@@ -494,37 +470,6 @@ export function PortalsManager({
               )}
             </div>
 
-            {branches.length > 1 && (
-              <fieldset className="rounded-lg border border-border p-3 space-y-2">
-                <legend className="px-1 text-xs font-bold">Branches</legend>
-                <p className="text-[11px] text-muted">
-                  The branches this login works in. It sees and changes only their orders, stock, cash and reports — the database
-                  enforces it.{' '}
-                  {callerBranchIds ? 'You can only choose branches you work in yourself.' : 'Tick none for every branch (head office).'}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {pickableBranches.map((b) => (
-                    <label key={b.id} className="inline-flex items-center gap-1.5 rounded border border-border px-2.5 py-1.5 text-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={branchSel.has(b.id)}
-                        onChange={(e) =>
-                          setBranchSel((s) => {
-                            const n = new Set(s);
-                            e.target.checked ? n.add(b.id) : n.delete(b.id);
-                            return n;
-                          })
-                        }
-                      />
-                      {b.name} <span className="font-mono text-muted">{b.code}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-[11px] font-semibold">
-                  {branchSel.size === 0 ? 'Every branch' : `Only ${[...branchSel].map(branchName).join(', ')}`}
-                </p>
-              </fieldset>
-            )}
 
             <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr] items-start">
               {/* ── 1. Permissions ── */}
@@ -751,11 +696,6 @@ export function PortalsManager({
                       <span className="font-bold text-body">{p.permissions.includes('*') ? 'All' : p.permissions.length}</span>{' '}
                       permissions
                     </span>
-                    {branches.length > 1 && (
-                      <span className="rounded bg-main px-1.5 py-0.5 font-semibold text-body">
-                        {(p.branch_ids ?? []).length === 0 ? 'All branches' : (p.branch_ids ?? []).map(branchName).join(', ')}
-                      </span>
-                    )}
                   </div>
                   {/* Its own session slot (lib/sessionSlot.ts): opens next to the owner's panel, signed in on its own. */}
                   <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slotSlug(baseSlug(slug), p.route_key)}/portal/{p.route_key}</div>

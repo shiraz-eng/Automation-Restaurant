@@ -15,6 +15,9 @@ export type TenantConfig = {
   tier: string | null;
   subscriptionStatus: string | null;
   billingInterval: string | null;
+  /** An independent branch (control-plane 0025): the owner's main restaurant, and the branch code. */
+  parentSlug: string | null;
+  branchCode: string | null;
 };
 
 // Public by design (RLS enforces access) — never fall back to a service_role
@@ -34,10 +37,11 @@ async function fetchConfig(slug: string): Promise<TenantConfig | null> {
   // Remove duplicates
   const uniqueSlugs = Array.from(new Set(candidateSlugs.filter(Boolean)));
 
-  const cols =
-    'slug,restaurant_name,project_ref,project_url,anon_key,tier,subscription_status,billing_interval';
+  const base = 'slug,restaurant_name,project_ref,project_url,anon_key,tier,subscription_status,billing_interval';
+  // parent_slug/branch_code arrive with control-plane 0025; before it, read the base columns.
+  const colSets = [`${base},parent_slug,branch_code`, base];
 
-  for (const s of uniqueSlugs) {
+  for (const s of uniqueSlugs) for (const cols of colSets) {
     try {
       const res = await fetch(
         `${CP_URL}/rest/v1/tenant_directory?slug=eq.${encodeURIComponent(s)}&select=${cols}`,
@@ -46,7 +50,8 @@ async function fetchConfig(slug: string): Promise<TenantConfig | null> {
           next: { revalidate: 30 },
         },
       );
-      if (!res.ok) continue;
+      if (res.status === 400) continue; // a column this control plane doesn't have yet
+      if (!res.ok) break;
       const rows = (await res.json()) as Record<string, string | null>[] | null;
       const row = rows?.[0];
       if (row) {
@@ -59,11 +64,14 @@ async function fetchConfig(slug: string): Promise<TenantConfig | null> {
           tier: row.tier,
           subscriptionStatus: row.subscription_status,
           billingInterval: row.billing_interval,
+          parentSlug: (row.parent_slug as string | null | undefined) ?? null,
+          branchCode: (row.branch_code as string | null | undefined) ?? null,
         };
       }
     } catch {
       // try next candidate
     }
+    break; // this slug answered (found nothing): next candidate
   }
 
   return null;

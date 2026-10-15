@@ -140,6 +140,8 @@ export async function updateTenantSession(request: NextRequest) {
   const slug = match[1];
   const rest = match[2] ?? '';
   const isLogin = rest === '/login' || rest === '/login/';
+  // The owner's one-time sign-in into a branch (lib/branchTenants.ts ownerSignInToken) — open without a session.
+  const isSso = rest === '/auth/sso' || rest === '/auth/sso/';
 
   // Each portal runs in its own session slot (lib/sessionSlot.ts), so it can stay signed in
   // next to the owner's panel in the same browser: /r/<slug>/portal/<key>/… → /r/<slug>~<key>/portal/<key>/…
@@ -156,7 +158,7 @@ export async function updateTenantSession(request: NextRequest) {
   const path = tenantCookiePath(slug);
   const { response, user } = await refresh(request, config.url, config.anonKey, path, tenantCookieName(config.url, slug));
   const done = (r: NextResponse) => retireSiteWideCookies(request, r, config.url, path);
-  if (!user && !isLogin) {
+  if (!user && !isLogin && !isSso) {
     const u = request.nextUrl.clone();
     u.pathname = `/r/${slug}/login`;
     return done(NextResponse.redirect(u));

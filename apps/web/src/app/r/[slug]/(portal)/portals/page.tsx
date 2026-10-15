@@ -3,7 +3,6 @@ import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
 import { getTenantEntitlement } from '@/lib/entitlements';
-import { loadBranchContext } from '@/lib/branchServer';
 import {
   PortalsManager,
   type Portal,
@@ -14,13 +13,10 @@ export const dynamic = 'force-dynamic';
 
 export default async function PortalsPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ branch?: string }>;
 }) {
   const { slug } = await params;
-  const { branch: startForBranch } = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
@@ -47,13 +43,6 @@ export default async function PortalsPage({
     const { data: basic } = await t.client.from('permission_catalog').select('key, grp, label').order('grp');
     perms = ((basic ?? []) as { key: string; grp: string; label: string }[]).map((p) => ({ ...p, type: null, risk_level: null }));
   }
-  // Multi-branch: which branches each portal works in (a separate read, so restaurants
-  // before migration 0098 — no branch_ids column — still list their portals).
-  const branchCtx = await loadBranchContext(t.client);
-  const { data: portalBranches } = branchCtx.multi
-    ? await t.client.from('portals').select('id, branch_ids')
-    : { data: [] };
-  const branchesOf = new Map(((portalBranches ?? []) as { id: string; branch_ids: string[] | null }[]).map((p) => [p.id, p.branch_ids ?? []]));
   const brandKit = Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows;
   const logoUrl: string | null = (brandKit as { logo_url?: string | null } | null)?.logo_url ?? null;
 
@@ -76,10 +65,8 @@ export default async function PortalsPage({
           slug={slug}
           restaurantName={t.config.restaurantName}
           logoUrl={logoUrl}
-          portals={((portals ?? []) as Portal[]).map((p) => ({ ...p, branch_ids: branchesOf.get(p.id) ?? [] }))}
+          portals={(portals ?? []) as Portal[]}
           perms={perms ?? []}
-          branches={branchCtx.multi ? branchCtx.branches.map((b) => ({ id: b.id, code: b.code, name: b.name })) : []}
-          startForBranch={typeof startForBranch === 'string' ? startForBranch : null}
         />
       )}
     </div>
