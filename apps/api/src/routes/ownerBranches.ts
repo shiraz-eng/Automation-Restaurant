@@ -7,6 +7,7 @@ import {
   advanceBranch,
   archiveBranch,
   branchLogin,
+  branchReceipt,
   createBranch,
   deleteBranchPermanently,
   friendlySetupError,
@@ -17,6 +18,7 @@ import {
   restoreBranch,
   retryBranch,
   setBranchLogin,
+  setBranchReceipt,
   tenantBySlug,
   type TenantRow,
 } from '../lib/branchTenants';
@@ -31,6 +33,8 @@ import {
  *   POST /api/owner-branches/:id/open          one-time owner sign-in into the branch
  *   GET  /api/owner-branches/:id/login         the branch's login (email, never a password)
  *   POST /api/owner-branches/:id/login         create / change it; a new password is shown once
+ *   GET  /api/owner-branches/:id/receipt       the branch's own receipt details (address, phone…)
+ *   POST /api/owner-branches/:id/receipt       change them
  *   PATCH /api/owner-branches/:id              rename
  *   POST /api/owner-branches/:id/archive       switch off, keep every record (restorable)
  *   POST /api/owner-branches/:id/restore
@@ -256,6 +260,40 @@ ownerBranchesRouter.post('/:id/delete', express.json(), requirePortalPerm('branc
     if (!b) return;
     await deleteBranchPermanently(b, parsed.data.confirm);
     res.json({ deleted: true, id: b.id });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+ownerBranchesRouter.get('/:id/receipt', requirePortalPerm('branches.manage'), requireOwnerPanel, async (req: Request, res: Response) => {
+  try {
+    const b = await ownBranch(req, res);
+    if (!b) return;
+    res.json({ receipt: await branchReceipt(b) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+const text = (max: number) => z.string().max(max).nullable().optional();
+const receiptSchema = z.object({
+  slug: z.string().min(1),
+  address: text(300),
+  phone: text(60),
+  contact_email: text(200),
+  website: text(200),
+  tax_registration_number: text(80),
+  receipt_footer_text: text(500),
+});
+
+ownerBranchesRouter.post('/:id/receipt', express.json(), requirePortalPerm('branches.manage'), requireOwnerPanel, async (req: Request, res: Response) => {
+  const parsed = receiptSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: 'invalid_request', message: 'One of the receipt details is too long.' });
+  try {
+    const b = await ownBranch(req, res);
+    if (!b) return;
+    const { slug: _slug, ...fields } = parsed.data;
+    res.json({ receipt: await setBranchReceipt(b, fields) });
   } catch (err) {
     sendError(res, err);
   }

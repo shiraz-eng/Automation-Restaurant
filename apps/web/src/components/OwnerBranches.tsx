@@ -354,6 +354,102 @@ function BranchLoginPanel({ slug, b, supabase }: { slug: string; b: OwnerBranch;
   );
 }
 
+type Receipt = {
+  address: string | null;
+  phone: string | null;
+  contact_email: string | null;
+  website: string | null;
+  tax_registration_number: string | null;
+  receipt_footer_text: string | null;
+};
+const RECEIPT_INPUTS: [keyof Receipt, string, string][] = [
+  ['address', 'Address', 'Plot 12, DHA Phase 6, Karachi'],
+  ['phone', 'Phone', '021-XXXXXXX'],
+  ['contact_email', 'Email', 'dha@yourrestaurant.com'],
+  ['website', 'Website', 'yourrestaurant.com'],
+  ['tax_registration_number', 'Tax / NTN number', 'Optional'],
+  ['receipt_footer_text', 'Receipt footer', 'Thank you for dining with us!'],
+];
+
+/** The branch's own address, phone and other details printed on ITS receipts and invoices. */
+function BranchReceiptPanel({ slug, b, supabase }: { slug: string; b: OwnerBranch; supabase: SupabaseClient }) {
+  const [form, setForm] = useState<Receipt | null>(null);
+  const [saved, setSaved] = useState<Receipt | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    call(supabase, 'GET', `/${b.id}/receipt?slug=${encodeURIComponent(slug)}`)
+      .then((r) => {
+        const rec = (r as { receipt: Receipt }).receipt;
+        setForm(rec);
+        setSaved(rec);
+      })
+      .catch((e) => setError((e as Error).message));
+  }, [supabase, b.id, slug]);
+
+  async function save() {
+    if (!form) return;
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      const r = (await call(supabase, 'POST', `/${b.id}/receipt`, { slug, ...form })) as { receipt: Receipt };
+      setForm(r.receipt);
+      setSaved(r.receipt);
+      setDone(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const changed = !!form && !!saved && RECEIPT_INPUTS.some(([k]) => (form[k] ?? '') !== (saved[k] ?? ''));
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-bold">Receipt details</h3>
+      <p className="text-[11px] text-muted max-w-xl">
+        Printed on this branch’s receipts and invoices only — every branch has its own address and phone. The receipt layout came from
+        the main restaurant; change it in the branch’s Brand Kit.
+      </p>
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {!form ? (
+        !error && <p className="text-xs text-muted">Loading…</p>
+      ) : (
+        <>
+          {!saved?.address && !saved?.phone && (
+            <p className="text-xs text-warn">This branch has no address or phone yet, so its receipts show none.</p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {RECEIPT_INPUTS.map(([k, label, ph]) => (
+              <label key={k} className={`text-xs ${k === 'address' || k === 'receipt_footer_text' ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                <span className="block text-muted mb-1">{label}</span>
+                <Input
+                  value={form[k] ?? ''}
+                  placeholder={ph}
+                  onChange={(e) => {
+                    setDone(false);
+                    setForm((f) => (f ? { ...f, [k]: e.target.value } : f));
+                  }}
+                  className="w-full"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" disabled={busy || !changed} onClick={() => void save()}>
+              {busy ? 'Saving…' : 'Save receipt details'}
+            </Button>
+            {done && <span className="text-xs text-ok">Saved — the next receipt at {b.code} uses them.</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function BranchManagePanel({
   slug,
   b,
@@ -389,6 +485,7 @@ function BranchManagePanel({
     <div className="space-y-4 rounded-lg border border-border bg-main/40 p-4">
       {error && <p className="text-xs text-danger">{error}</p>}
       {b.status === 'active' && <BranchLoginPanel slug={slug} b={b} supabase={supabase} />}
+      {b.status === 'active' && <BranchReceiptPanel slug={slug} b={b} supabase={supabase} />}
 
       <div className="space-y-2">
         <h3 className="text-xs font-bold">Edit</h3>

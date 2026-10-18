@@ -291,6 +291,21 @@ async function main() {
   r = await call('POST', `/${otherBranch.id}/login`, OWNER, { slug: 'grill-house', email: 'x@example.test' });
   check("G12 another restaurant's branch login cannot be touched", r.status === 404, r);
 
+  // ── The branch's own receipt details ──
+  r = await call('GET', `/${dha.id}/receipt?slug=grill-house`, OWNER);
+  check('R1 a new branch has no address or phone of its own yet', r.status === 200 && r.body.receipt?.address === null && r.body.receipt?.phone === null, r);
+  r = await call('POST', `/${dha.id}/receipt`, OWNER, { slug: 'grill-house', address: ' Plot 12, DHA Phase 6, Karachi ', phone: '021-1234567', contact_email: 'dha@example.test', receipt_footer_text: 'Thank you — DHA' });
+  check('R2 the owner sets them; they are trimmed and saved in the BRANCH\'s database', r.status === 200 && r.body.receipt.address === 'Plot 12, DHA Phase 6, Karachi' && branchDb('grill-house-dha').store.business_settings[0]!.phone === '021-1234567', r);
+  check('R3 the main restaurant\'s receipt is untouched', !('phone' in (branchDb('grill-house').store.business_settings[0] ?? {})));
+  r = await call('POST', `/${dha.id}/receipt`, OWNER, { slug: 'grill-house', phone: '' });
+  check('R4 clearing a field empties it and leaves the others', r.body.receipt.phone === null && r.body.receipt.address === 'Plot 12, DHA Phase 6, Karachi', r);
+  r = await call('POST', `/${dha.id}/receipt`, OWNER, { slug: 'grill-house', contact_email: 'not-an-email' });
+  check('R5 a bad receipt email is refused', r.status === 400 && r.body.error === 'bad_email', r);
+  r = await call('POST', `/${dha.id}/receipt`, { role: 'manager', permissions: ['branches.view'] }, { slug: 'grill-house', phone: '000' });
+  check('R6 a manager cannot change branch receipts from the owner panel', r.status === 403, r);
+  r = await call('POST', `/${otherBranch.id}/receipt`, OWNER, { slug: 'grill-house', phone: '000' });
+  check("R7 another restaurant's branch receipt cannot be touched", r.status === 404, r);
+
   // ── Edit, archive, restore ──
   r = await call('PATCH', `/${dha.id}`, OWNER, { slug: 'grill-house', name: 'DHA Phase 8' });
   check('E1 rename keeps the code and address', r.status === 200 && r.body.branch.name === 'Grill House — DHA Phase 8' && r.body.branch.slug === 'grill-house-dha' && r.body.branch.code === 'DHA', r);

@@ -549,3 +549,38 @@ export function friendlySetupError(message: string | null): string | null {
   }
   return message;
 }
+
+// ── The branch's own receipt details ──────────────────────────────────────────
+// Every branch prints its OWN address, phone, email, website, tax number and footer on
+// its receipts and invoices (business_settings in the branch's database). The receipt
+// layout is copied once from the main restaurant; these details never are — they are
+// different at every location — so the owner sets them per branch here.
+
+export const RECEIPT_FIELDS = ['address', 'phone', 'contact_email', 'website', 'tax_registration_number', 'receipt_footer_text'] as const;
+export type ReceiptDetails = Record<(typeof RECEIPT_FIELDS)[number], string | null>;
+
+export async function branchReceipt(branch: TenantRow): Promise<ReceiptDetails> {
+  const admin = await branchAdmin(branch);
+  const { data, error } = await admin.from('business_settings').select(RECEIPT_FIELDS.join(', ')).eq('id', true).maybeSingle();
+  if (error) throw new BranchError('receipt_failed', error.message, 500);
+  const row = (data ?? {}) as Partial<ReceiptDetails>;
+  return Object.fromEntries(RECEIPT_FIELDS.map((k) => [k, row[k] ?? null])) as ReceiptDetails;
+}
+
+export async function setBranchReceipt(branch: TenantRow, input: Partial<ReceiptDetails>): Promise<ReceiptDetails> {
+  const admin = await branchAdmin(branch);
+  const patch: Partial<ReceiptDetails> = {};
+  for (const k of RECEIPT_FIELDS) {
+    if (input[k] === undefined) continue;
+    const v = input[k] == null ? '' : String(input[k]).trim();
+    patch[k] = v ? v : null;
+  }
+  if (patch.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patch.contact_email)) {
+    throw new BranchError('bad_email', 'The receipt email does not look like an email address.');
+  }
+  if (Object.keys(patch).length) {
+    const { error } = await admin.from('business_settings').update(patch).eq('id', true);
+    if (error) throw new BranchError('receipt_failed', error.message, 500);
+  }
+  return branchReceipt(branch);
+}
