@@ -291,6 +291,24 @@ async function main() {
   r = await call('POST', `/${otherBranch.id}/login`, OWNER, { slug: 'grill-house', email: 'x@example.test' });
   check("G12 another restaurant's branch login cannot be touched", r.status === 404, r);
 
+  // ── Receipt details given while creating a branch ──
+  db.tenants.forEach((t) => (t.status === 'provisioning' ? (t.status = 'active') : null));
+  state.advanceTo = 'provisioning';
+  r = await call('POST', '/', OWNER, { slug: 'grill-house', code: 'BAH', name: 'Bahadurabad', receipt: { address: ' Shop 4, Bahadurabad ', phone: '021-7654321', contact_email: 'bad' } });
+  check('C1 a bad receipt email at creation is refused, and nothing is created', r.status === 400 && r.body.error === 'bad_email' && !db.tenants.some((t) => t.branch_code === 'BAH'), r);
+  r = await call('POST', '/', OWNER, { slug: 'grill-house', code: 'BAH', name: 'Bahadurabad', receipt: { address: ' Shop 4, Bahadurabad ', phone: '021-7654321', website: '' } });
+  const bah = r.body.branch as { id: string; slug: string };
+  const bahRow = db.tenants.find((t) => t.id === bah.id)!;
+  check('C2 the details wait with the branch while it is set up (blank fields dropped)', r.status === 202 && r.body.receipt_pending === true && JSON.stringify(bahRow.branch_setup) === JSON.stringify({ receipt: { address: 'Shop 4, Bahadurabad', phone: '021-7654321' } }), bahRow);
+  r = await call('POST', `/${bah.id}/advance`, OWNER, { slug: 'grill-house' });
+  check('C3 not written anywhere before the branch is ready', bahRow.branch_setup !== null && !branchDbs.get(bah.slug)?.store.business_settings[0]?.address, r.body);
+  state.advanceTo = 'active';
+  bahRow.branch_seed_status = 'done'; // the copy itself is rehearsed in test-branch-seed.ts
+  r = await call('POST', `/${bah.id}/advance`, OWNER, { slug: 'grill-house' });
+  check("C4 once ready, they are written into the branch's OWN database and cleared", branchDb(bah.slug).store.business_settings[0]!.address === 'Shop 4, Bahadurabad' && branchDb(bah.slug).store.business_settings[0]!.phone === '021-7654321' && bahRow.branch_setup === null, branchDb(bah.slug).store);
+  r = await call('GET', `/${bah.id}/receipt?slug=grill-house`, OWNER);
+  check('C5 and the owner sees them in Manage → Receipt details', r.body.receipt?.address === 'Shop 4, Bahadurabad' && r.body.receipt?.website === null, r);
+
   // ── The branch's own receipt details ──
   r = await call('GET', `/${dha.id}/receipt?slug=grill-house`, OWNER);
   check('R1 a new branch has no address or phone of its own yet', r.status === 200 && r.body.receipt?.address === null && r.body.receipt?.phone === null, r);

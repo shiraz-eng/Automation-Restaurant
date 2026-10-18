@@ -562,20 +562,34 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [managing, setManaging] = useState<string | null>(null);
+  // The new branch's own receipt details, written into it as soon as its database is ready.
+  const emptyReceipt: Receipt = { address: null, phone: null, contact_email: null, website: null, tax_registration_number: null, receipt_footer_text: null };
+  const [receipt, setReceipt] = useState<Receipt>(emptyReceipt);
 
   async function create() {
     setBusy(true);
     setNotice(null);
     setActionError(null);
     try {
-      const r = (await call(supabase, 'POST', '', { slug, code: code.trim().toUpperCase(), name: name.trim() })) as { existed: boolean };
+      const r = (await call(supabase, 'POST', '', { slug, code: code.trim().toUpperCase(), name: name.trim(), receipt })) as {
+        existed: boolean;
+        receipt_pending: boolean;
+      };
+      const hasReceipt = RECEIPT_INPUTS.some(([k]) => (receipt[k] ?? '').trim());
       setNotice(
         r.existed
           ? `A branch with code ${code.toUpperCase()} already exists — no second one was created.`
-          : `Setting up ${name.trim()}: its own database is being created in your Supabase account. This takes a few minutes; you can leave this page. When it is ready, open Manage to give it a login.`,
+          : `Setting up ${name.trim()}: its own database is being created in your Supabase account. This takes a few minutes; you can leave this page.${
+              hasReceipt
+                ? r.receipt_pending
+                  ? ' Its receipt details are saved and go in as soon as it is ready.'
+                  : ' Its receipt details could not be saved yet — set them in Manage → Receipt details once it is ready.'
+                : ''
+            } When it is ready, open Manage to give it a login.`,
       );
       setCode('');
       setName('');
+      setReceipt(emptyReceipt);
       await load();
     } catch (e) {
       setActionError((e as Error).message);
@@ -700,10 +714,25 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
               <span className="block text-muted mb-1">Name</span>
               <Input id="branch-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="DHA Phase 6" className="w-64" />
             </label>
-            <Button disabled={busy || code.trim().length < 2 || name.trim().length < 2} onClick={() => void create()}>
-              {busy ? 'Creating…' : 'Create branch'}
-            </Button>
           </div>
+          <fieldset className="rounded border border-border p-3 space-y-2">
+            <legend className="px-1 text-xs font-bold">Receipt details for this branch</legend>
+            <p className="text-[11px] text-muted max-w-2xl">
+              Printed on this branch’s receipts and invoices. Only you can change them later (Manage → Receipt details); the branch
+              manager prints with them but can’t edit them.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {RECEIPT_INPUTS.map(([k, label, ph]) => (
+                <label key={k} className={`text-xs ${k === 'address' || k === 'receipt_footer_text' ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
+                  <span className="block text-muted mb-1">{label}</span>
+                  <Input value={receipt[k] ?? ''} placeholder={ph} onChange={(e) => setReceipt((r) => ({ ...r, [k]: e.target.value }))} className="w-full" />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Button disabled={busy || code.trim().length < 2 || name.trim().length < 2} onClick={() => void create()}>
+            {busy ? 'Creating…' : 'Create branch'}
+          </Button>
         </section>
       )}
 

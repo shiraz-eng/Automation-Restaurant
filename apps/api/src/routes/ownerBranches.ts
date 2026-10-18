@@ -118,15 +118,33 @@ ownerBranchesRouter.get('/', requirePortalPerm('branches.view'), requireOwnerPan
   }
 });
 
-const createSchema = z.object({ slug: z.string().min(1), code: z.string().trim().min(2).max(12), name: z.string().trim().min(2).max(60) });
+const receiptFields = {
+  address: z.string().max(300).nullable().optional(),
+  phone: z.string().max(60).nullable().optional(),
+  contact_email: z.string().max(200).nullable().optional(),
+  website: z.string().max(200).nullable().optional(),
+  tax_registration_number: z.string().max(80).nullable().optional(),
+  receipt_footer_text: z.string().max(500).nullable().optional(),
+};
+const createSchema = z.object({
+  slug: z.string().min(1),
+  code: z.string().trim().min(2).max(12),
+  name: z.string().trim().min(2).max(60),
+  // The branch's own receipt details, applied as soon as its database is ready.
+  receipt: z.object(receiptFields).optional(),
+});
 
 ownerBranchesRouter.post('/', express.json(), requirePortalPerm('branches.manage'), requireOwnerPanel, async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(422).json({ error: 'invalid_request', message: 'Give the branch a code (2–12 characters) and a name.' });
   try {
-    const { branch, existed } = await createBranch(res.locals.parent as TenantRow, { code: parsed.data.code, name: parsed.data.name });
+    const { branch, existed, receiptPending } = await createBranch(res.locals.parent as TenantRow, {
+      code: parsed.data.code,
+      name: parsed.data.name,
+      receipt: parsed.data.receipt,
+    });
     // Setup takes a few minutes; the panel polls /advance. Nothing is "created" until it is active.
-    res.status(existed ? 200 : 202).json({ branch: view(branch), existed });
+    res.status(existed ? 200 : 202).json({ branch: view(branch), existed, receipt_pending: receiptPending ?? false });
   } catch (err) {
     sendError(res, err);
   }
@@ -275,16 +293,7 @@ ownerBranchesRouter.get('/:id/receipt', requirePortalPerm('branches.manage'), re
   }
 });
 
-const text = (max: number) => z.string().max(max).nullable().optional();
-const receiptSchema = z.object({
-  slug: z.string().min(1),
-  address: text(300),
-  phone: text(60),
-  contact_email: text(200),
-  website: text(200),
-  tax_registration_number: text(80),
-  receipt_footer_text: text(500),
-});
+const receiptSchema = z.object({ slug: z.string().min(1), ...receiptFields });
 
 ownerBranchesRouter.post('/:id/receipt', express.json(), requirePortalPerm('branches.manage'), requireOwnerPanel, async (req: Request, res: Response) => {
   const parsed = receiptSchema.safeParse(req.body);

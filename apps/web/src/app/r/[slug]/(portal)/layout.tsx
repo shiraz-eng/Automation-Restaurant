@@ -257,7 +257,8 @@ export default async function PortalLayout({
             <div className="truncate" title={user.email ?? undefined}>
               {user.email}
             </div>
-            <ChangePasswordControl />
+            {/* In a branch only the owner changes passwords: branch logins are set from the owner panel. */}
+            {(!isBranchWorkspace || role === 'owner') && <ChangePasswordControl />}
             <SignOutButton redirectTo={`/r/${slug}/login`} />
           </div>
         </aside>

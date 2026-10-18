@@ -73,7 +73,10 @@ async function branchLimit(parentId: string): Promise<number> {
  * (whatever its state) instead of a second project. Provisioning then runs in steps
  * (advanceBranch); nothing is reported as created until it is active.
  */
-export async function createBranch(parent: TenantRow, input: { code: string; name: string }): Promise<{ branch: TenantRow; existed: boolean }> {
+export async function createBranch(
+  parent: TenantRow,
+  input: { code: string; name: string; receipt?: Partial<ReceiptDetails> },
+): Promise<{ branch: TenantRow; existed: boolean; receiptPending?: boolean }> {
   if (parent.parent_tenant_id) throw new BranchError('nested_branch', 'A branch cannot have branches of its own.');
   if (parent.status !== 'active') throw new BranchError('parent_not_active', 'The main restaurant is not active.');
   const code = input.code.trim().toUpperCase();
@@ -82,6 +85,8 @@ export async function createBranch(parent: TenantRow, input: { code: string; nam
   }
   const name = input.name.trim();
   if (name.length < 2 || name.length > 60) throw new BranchError('bad_name', 'Give the branch a name (2–60 characters).');
+  // Checked before anything is written, so a bad detail never leaves a half-made branch.
+  const receipt = cleanReceipt(input.receipt);
 
   const { data: same } = await supabaseAdmin.from('tenants').select(COLS).eq('parent_tenant_id', parent.id).eq('branch_code', code).maybeSingle();
   if (same) return { branch: same as TenantRow, existed: true };
@@ -132,6 +137,12 @@ export async function createBranch(parent: TenantRow, input: { code: string; nam
     if (raced) return { branch: raced as TenantRow, existed: true };
     throw new BranchError('create_failed', error?.message ?? 'Could not create the branch.', 500);
   }
+  // Receipt details given now wait until the branch's database exists (control-plane 0026).
+  let receiptPending: boolean | undefined;
+  if (receipt) {
+    const { error: setupErr } = await supabaseAdmin.from('tenants').update({ branch_setup: { receipt } }).eq('id', (row as TenantRow).id);
+    receiptPending = !setupErr;
+  }
   // The branch runs on the main restaurant's plan; it is billed there, not on its own.
   if (sub) {
     await supabaseAdmin.from('subscriptions').insert({
@@ -142,7 +153,7 @@ export async function createBranch(parent: TenantRow, input: { code: string; nam
       current_period_end: sub.current_period_end,
     });
   }
-  return { branch: row as TenantRow, existed: false };
+  return { branch: row as TenantRow, existed: false, receiptPending };
 }
 
 /**
@@ -158,6 +169,9 @@ export async function advanceBranch(parent: TenantRow, branch: TenantRow): Promi
     await seedBranch(parent, fresh);
     fresh = (await tenantBySlug(branch.slug)) ?? fresh;
   }
+  // After the copy (which brings the main restaurant's receipt footer), the details the
+  // owner gave for THIS branch go in.
+  if (fresh.status === 'active' && fresh.branch_seed_status === 'done') await applyPendingSetup(fresh);
   return fresh;
 }
 
@@ -558,6 +572,34 @@ export function friendlySetupError(message: string | null): string | null {
 
 export const RECEIPT_FIELDS = ['address', 'phone', 'contact_email', 'website', 'tax_registration_number', 'receipt_footer_text'] as const;
 export type ReceiptDetails = Record<(typeof RECEIPT_FIELDS)[number], string | null>;
+
+function cleanReceipt(input: Partial<ReceiptDetails> | undefined): Partial<ReceiptDetails> | null {
+  if (!input) return null;
+  const out: Partial<ReceiptDetails> = {};
+  for (const k of RECEIPT_FIELDS) {
+    const v = input[k] == null ? '' : String(input[k]).trim();
+    if (v) out[k] = v;
+  }
+  if (out.contact_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.contact_email)) {
+    throw new BranchError('bad_email', 'The receipt email does not look like an email address.');
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Write what the owner gave at creation into the now-ready branch, once (control-plane 0026). */
+async function applyPendingSetup(branch: TenantRow): Promise<void> {
+  const { data, error } = await supabaseAdmin.from('tenants').select('branch_setup').eq('id', branch.id).maybeSingle();
+  if (error) return; // a control plane without 0026: nothing can be pending
+  const setup = (data as { branch_setup?: { receipt?: Partial<ReceiptDetails> } | null } | null)?.branch_setup;
+  if (!setup?.receipt) return;
+  try {
+    await setBranchReceipt(branch, setup.receipt);
+    await supabaseAdmin.from('tenants').update({ branch_setup: null }).eq('id', branch.id);
+  } catch (err) {
+    // Kept for the next poll; the owner can also set them in Manage → Receipt details.
+    console.error(`[branches] ${branch.slug}: receipt details not applied yet:`, (err as Error).message);
+  }
+}
 
 export async function branchReceipt(branch: TenantRow): Promise<ReceiptDetails> {
   const admin = await branchAdmin(branch);
