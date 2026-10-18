@@ -39,7 +39,8 @@ export async function gatePortalPage(
   client: SupabaseClient,
   slug: string,
   key: string,
-  opts?: { ownerOnly?: boolean },
+  /** alsoBranchManager: a branch workspace's own manager (independent branches) passes an ownerOnly gate too. */
+  opts?: { ownerOnly?: boolean; alsoBranchManager?: boolean },
 ): Promise<{ user: User; role: string; perms: string[] }> {
   const {
     data: { user },
@@ -59,7 +60,7 @@ export async function gatePortalPage(
   const role = meta.role ?? 'owner';
   const perms = Array.isArray(meta.permissions) ? meta.permissions : [];
 
-  if (opts?.ownerOnly && role !== 'owner') redirect(`/r/${slug}`);
+  if (opts?.ownerOnly && role !== 'owner' && !(opts.alsoBranchManager && role === 'branch_manager')) redirect(`/r/${slug}`);
   if (key !== '' && !can(perms, role, key)) redirect(`/r/${slug}`);
   return { user, role, perms };
 }

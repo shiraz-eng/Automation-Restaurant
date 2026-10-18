@@ -350,7 +350,7 @@ guideAiAuthRouter.use(corsMiddleware);
 guideAiAuthRouter.post(
   '/chat',
   express.json({ limit: '32kb' }),
-  requirePortalPerm('settings.view'),
+  requirePortalPerm(['settings.view', 'analytics.view', 'orders.view']),
   async (req: Request, res: Response) => {
     if (!aiEnabled) {
       return res.status(503).json({ error: 'ai_not_configured', message: 'The AI Guide is not available right now.' });

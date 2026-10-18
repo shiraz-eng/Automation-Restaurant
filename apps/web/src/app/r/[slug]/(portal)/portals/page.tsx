@@ -20,7 +20,8 @@ export default async function PortalsPage({
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
 
-  await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true });
+  // In a branch workspace its own Branch manager manages the branch's portals too.
+  await gatePortalPage(t.client, slug, 'portals.view', { ownerOnly: true, alsoBranchManager: Boolean(t.config.parentSlug) });
 
   const ent = await getTenantEntitlement(t.client, t.config.tier);
   if (!ent.isEntitled('portals.advanced')) {

@@ -9,19 +9,40 @@ import type { Request, Response, NextFunction } from 'express';
 
 type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = { tenants: [], subscriptions: [] };
-const state = { limit: 'Unlimited', connected: true, advanceTo: 'provisioning' as string, raceOnInsert: false };
+const state = { limit: 'Unlimited', connected: true, advanceTo: 'provisioning' as string, raceOnInsert: false, multi: true };
+// Each branch's own database: memberships, the permission catalog and its auth users.
+type Users = Map<string, { id: string; email: string; password: string; app_metadata: Row }>;
+const branchDbs = new Map<string, { store: Record<string, Row[]>; users: Users }>();
+function branchDb(slug: string) {
+  let b = branchDbs.get(slug);
+  if (!b) {
+    b = {
+      store: {
+        memberships: [],
+        business_settings: [{ id: true }],
+        permission_catalog: ['orders.view', 'finance.view', 'portals.create', 'settings.view', 'settings.update', 'branches.view', 'branches.manage'].map((key) => ({ key })),
+      },
+      users: new Map(),
+    };
+    branchDbs.set(slug, b);
+  }
+  return b;
+}
 let seq = 0;
 
 // ── A tiny stand-in for the control-plane client (only what branchTenants uses) ──
 class Query implements PromiseLike<{ data: unknown; error: { message: string } | null }> {
   private filters: [string, unknown][] = [];
-  private op: 'select' | 'insert' | 'update' = 'select';
+  private op: 'select' | 'insert' | 'update' | 'delete' = 'select';
   private payload: Row | null = null;
   private one: 'many' | 'maybe' | 'single' = 'many';
-  constructor(private table: string) {}
+  constructor(private table: string, private store: Record<string, Row[]> = db) {}
   select() { return this; }
   eq(k: string, v: unknown) { this.filters.push([k, v]); return this; }
   order() { return this; }
+  limit() { return this; }
+  upsert(row: Row) { this.op = 'insert'; this.payload = row; return this; }
+  delete() { this.op = 'delete'; return this; }
   insert(row: Row) { this.op = 'insert'; this.payload = row; return this; }
   update(p: Row) { this.op = 'update'; this.payload = p; return this; }
   maybeSingle() { this.one = 'maybe'; return this.run(); }
@@ -30,11 +51,11 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string } |
     return this.run().then(ok, bad);
   }
   private async run(): Promise<{ data: unknown; error: { message: string } | null }> {
-    const rows = (db[this.table] ??= []);
+    const rows = (this.store[this.table] ??= []);
     const match = (r: Row) => this.filters.every(([k, v]) => r[k] === v);
     if (this.op === 'insert') {
       const row: Row = { id: `id-${++seq}`, created_at: new Date(Date.now() + seq).toISOString(), provisioning_error: null, branch_seed_error: null, ...this.payload };
-      if (this.table === 'tenants') {
+      if (this.table === 'tenants' && this.store === db) {
         if (state.raceOnInsert) {
           // Another request for the same code got in first.
           state.raceOnInsert = false;
@@ -45,6 +66,10 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string } |
       }
       rows.push(row);
       return { data: { ...row }, error: null };
+    }
+    if (this.op === 'delete') {
+      this.store[this.table] = rows.filter((r) => !match(r));
+      return { data: null, error: null };
     }
     if (this.op === 'update') {
       rows.filter(match).forEach((r) => Object.assign(r, this.payload));
@@ -62,14 +87,15 @@ function stub(rel: string, exports: Record<string, unknown>) {
   require.cache[file] = { id: file, filename: file, loaded: true, exports } as NodeJS.Module;
 }
 stub('../src/supabase', { supabaseAdmin: { from: (t: string) => new Query(t) } });
-stub('../src/mgmt', { mgmtClient: () => ({ runSql: async () => [] }) });
+const deletedProjects: string[] = [];
+stub('../src/mgmt', { mgmtClient: () => ({ runSql: async () => [], deleteProject: async (ref: string) => void deletedProjects.push(ref) }) });
 stub('../src/provisioning', {
   advanceProvisioning: async (slug: string) => {
     const t = db.tenants.find((r) => r.slug === slug)!;
     t.status = state.advanceTo;
   },
 });
-stub('../src/lib/plans', { getPlanByTier: async () => ({ limits: { branches: state.limit } }) });
+stub('../src/lib/plans', { getPlanByTier: async () => ({ limits: { branches: state.limit }, features: state.multi ? ['branches.multi'] : [] }) });
 stub('../src/lib/supabaseOAuth', { hasConnection: async () => state.connected, getFreshConnection: async () => ({ access_token: 'x' }) });
 stub('../src/lib/tenantAdmin', {
   resolveTenantClient: async (slug: string) => ({
@@ -77,7 +103,24 @@ stub('../src/lib/tenantAdmin', {
     client: {
       admin: {
         rpc: async () => ({ data: [{ orders_count: slug.length, net_sales_cents: 1000, cogs_cents: 300 }], error: null }),
-        auth: { admin: { generateLink: async ({ email }: { email: string }) => ({ data: { properties: { hashed_token: `tok:${slug}:${email}` } }, error: null }) } },
+        from: (t: string) => new Query(t, branchDb(slug).store),
+        auth: {
+          admin: {
+            generateLink: async ({ email }: { email: string }) => ({ data: { properties: { hashed_token: `tok:${slug}:${email}` } }, error: null }),
+            createUser: async (u: { email: string; password: string; app_metadata: Row }) => {
+              const users = branchDb(slug).users;
+              if ([...users.values()].some((x) => x.email === u.email)) return { data: null, error: { message: 'A user with this email address has already been registered' } };
+              const id = `user-${++seq}`;
+              users.set(id, { id, email: u.email, password: u.password, app_metadata: u.app_metadata });
+              return { data: { user: { id } }, error: null };
+            },
+            updateUserById: async (id: string, u: { email?: string; password?: string; app_metadata?: Row }) => {
+              const x = branchDb(slug).users.get(id)!;
+              Object.assign(x, { ...(u.email ? { email: u.email } : {}), ...(u.password ? { password: u.password } : {}), ...(u.app_metadata ? { app_metadata: u.app_metadata } : {}) });
+              return { data: { user: x }, error: null };
+            },
+          },
+        },
       },
     },
   }),
@@ -202,7 +245,12 @@ async function main() {
   // ── Plan limits and the Supabase connection ──
   state.limit = '2';
   r = await call('POST', '/', OWNER, { slug: 'grill-house', code: 'GUL', name: 'Gulshan' });
-  check('L1 the plan\'s location limit is enforced (main + 2 branches = 3 > 2)', r.status === 403 && r.body.error === 'branch_limit', r);
+  check('L1 the plan\'s branch limit is enforced (2 branches on a 2-branch plan; the owner panel doesn\'t count)', r.status === 403 && r.body.error === 'branch_limit', r);
+  state.limit = 'Unlimited';
+  state.multi = false;
+  r = await call('POST', '/', OWNER, { slug: 'grill-house', code: 'GUL', name: 'Gulshan' });
+  check('L1b a plan without multi-branch cannot add branches', r.status === 403 && r.body.error === 'branch_limit', r);
+  state.multi = true;
   state.limit = 'Unlimited';
   state.connected = false;
   const before = db.tenants.length;
@@ -214,6 +262,62 @@ async function main() {
   check('L3 a suspended main restaurant cannot add branches', r.status === 400 && r.body.error === 'parent_not_active', r);
   main.status = 'active';
   check('L4 the main restaurant stays a normal restaurant (no parent)', main.parent_tenant_id === null && (await listBranches(main.id as string)).length === 2);
+
+  // ── The branch's own login ──
+  const DELEGATE = { role: 'admin', permissions: ['*'], email: 'admin@example.test' };
+  r = await call('GET', `/${dha.id}/login?slug=grill-house`, OWNER);
+  check('G1 a new branch has no login yet', r.status === 200 && r.body.login === null && r.body.url === '/r/grill-house-dha/login', r);
+  r = await call('POST', `/${dha.id}/login`, DELEGATE, { slug: 'grill-house', email: 'dha@example.test' });
+  check('G2 a delegated * login cannot set branch logins', r.status === 403, r);
+  r = await call('POST', `/${dha.id}/login`, { role: 'manager', permissions: ['branches.view'], email: 'owner@example.test' }, { slug: 'grill-house', email: 'dha@example.test' });
+  check('G3 a manager cannot set branch logins', r.status === 403, r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', email: 'OWNER@example.test' });
+  check("G4 the owner's own email is refused as a branch login", r.status === 400 && r.body.error === 'owner_email', r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', email: 'dha@example.test', name: 'Ali' });
+  const pw1 = r.body.password as string;
+  check('G5 the owner creates the login: a generated password, shown once', r.status === 200 && /^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/.test(pw1 ?? ''), r);
+  const users = [...branchDb('grill-house-dha').users.values()];
+  const meta = users[0]?.app_metadata as { role?: string; permissions?: string[] } | undefined;
+  check("G6 it is a Branch manager in the BRANCH's own database", users.length === 1 && meta?.role === 'branch_manager' && branchDb('grill-house').users.size === 0, users);
+  check('G7 it works the branch (orders, finance, portals) but has no settings, billing or branch keys', !!meta?.permissions?.includes('orders.view') && !!meta?.permissions?.includes('portals.create') && !meta?.permissions?.some((k) => k.startsWith('settings.') || k.startsWith('branches.')), meta);
+  r = await call('GET', `/${dha.id}/login?slug=grill-house`, OWNER);
+  check('G8 Show login gives the email and name — never a password', r.body.login?.email === 'dha@example.test' && r.body.login?.name === 'Ali' && !('password' in (r.body.login ?? {})) && !JSON.stringify(r.body).includes(pw1), r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', new_password: true });
+  check('G9 Generate new password: a different one, and the login keeps its email', r.status === 200 && !!r.body.password && r.body.password !== pw1 && users[0]!.password === r.body.password && users[0]!.email === 'dha@example.test', r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', email: 'dha2@example.test' });
+  check('G10 changing only the email keeps the password (none returned)', r.status === 200 && r.body.password === null && users[0]!.email === 'dha2@example.test', r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', password: 'short' });
+  check('G11 a password under 8 characters is refused', r.status === 422, r);
+  r = await call('POST', `/${otherBranch.id}/login`, OWNER, { slug: 'grill-house', email: 'x@example.test' });
+  check("G12 another restaurant's branch login cannot be touched", r.status === 404, r);
+
+  // ── Edit, archive, restore ──
+  r = await call('PATCH', `/${dha.id}`, OWNER, { slug: 'grill-house', name: 'DHA Phase 8' });
+  check('E1 rename keeps the code and address', r.status === 200 && r.body.branch.name === 'Grill House — DHA Phase 8' && r.body.branch.slug === 'grill-house-dha' && r.body.branch.code === 'DHA', r);
+  r = await call('PATCH', `/${dha.id}`, { role: 'manager', permissions: ['branches.view'] }, { slug: 'grill-house', name: 'Hacked' });
+  check('E2 a manager cannot rename branches', r.status === 403, r);
+  r = await call('POST', `/${dha.id}/archive`, OWNER, { slug: 'grill-house' });
+  check('E3 archive: switched off, records kept', r.status === 200 && r.body.branch.status === 'archived' && db.tenants.some((t) => t.id === dha.id), r);
+  r = await call('POST', `/${dha.id}/open`, OWNER, { slug: 'grill-house' });
+  check('E4 an archived branch cannot be opened', r.status === 409, r);
+  r = await call('POST', `/${dha.id}/login`, OWNER, { slug: 'grill-house', new_password: true });
+  check('E4b nor can its login be changed while archived', r.status === 409, r);
+  r = await call('GET', '/?slug=grill-house', OWNER);
+  check('E5 an archived branch shows no figures', (r.body.branches as { id: string; metrics: unknown }[]).find((b) => b.id === dha.id)?.metrics === null, r.body);
+  r = await call('POST', `/${dha.id}/restore`, OWNER, { slug: 'grill-house' });
+  check('E6 restore brings it back', r.status === 200 && r.body.branch.status === 'active', r);
+
+  // ── Delete permanently ──
+  db.tenant_projects = [{ tenant_id: dha.id, project_ref: 'refdha' }];
+  r = await call('POST', `/${dha.id}/delete`, OWNER, { slug: 'grill-house', confirm: 'CLF' });
+  check('D1 the wrong code does not delete', r.status === 400 && r.body.error === 'confirm_mismatch' && deletedProjects.length === 0, r);
+  r = await call('POST', `/${dha.id}/delete`, DELEGATE, { slug: 'grill-house', confirm: 'DHA' });
+  check('D2 a delegated * login cannot delete', r.status === 403 && deletedProjects.length === 0, r);
+  r = await call('POST', `/${otherBranch.id}/delete`, OWNER, { slug: 'grill-house', confirm: 'X1' });
+  check("D3 another restaurant's branch cannot be deleted", r.status === 404 && db.tenants.some((t) => t.id === otherBranch.id), r);
+  r = await call('POST', `/${dha.id}/delete`, OWNER, { slug: 'grill-house', confirm: 'dha' });
+  check('D4 the owner deletes it: its project, its subscription and its row are gone', r.status === 200 && deletedProjects.includes('refdha') && !db.tenants.some((t) => t.id === dha.id) && !db.subscriptions.some((x) => x.tenant_id === dha.id), r);
+  check('D5 the main restaurant and other branches are untouched', db.tenants.some((t) => t.id === main.id) && db.tenants.some((t) => t.branch_code === 'CLF'));
 
   server.close();
   console.log(`\n${fails} failed`);

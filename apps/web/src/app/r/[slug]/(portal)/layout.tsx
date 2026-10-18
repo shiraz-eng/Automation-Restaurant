@@ -21,6 +21,30 @@ import type { FeatureKey } from '@automation-restaurant/shared';
 //
 // Grouped for the sidebar's category headings.
 type NavItem = [string, string, string?, boolean?, FeatureKey?];
+// A multi-branch restaurant's main panel is the owner's panel only (decision 2026-10-18):
+// branches, comparison, the AI, billing, and the defaults new branches start from. Every
+// operation — orders, kitchen, menu, stock, staff, finance — runs inside a branch.
+const OWNER_PANEL_GROUPS: [string, NavItem[]][] = [
+  [
+    'Owner panel',
+    [
+      ['', 'Overview'],
+      ['branches', 'Branches', 'branches.view'],
+      ['branches/compare', 'Compare branches', 'branches.view'],
+    ],
+  ],
+  ['AI Intelligence', [['ai', 'Assistant', 'ai.view', false, 'analytics.advanced'], ['guide', 'AI Guide']]],
+  ['Account', [['billing', 'Billing', 'settings.view', true]]],
+  [
+    'Defaults for new branches',
+    [
+      ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
+      ['settings/currency', 'Currency', 'settings.view', true],
+      ['settings/tax', 'Tax', 'settings.view', true],
+    ],
+  ],
+];
+
 const NAV_GROUPS: [string, NavItem[]][] = [
   ['Main', [['', 'Dashboard', 'analytics.view']]],
   [
@@ -140,8 +164,13 @@ export default async function PortalLayout({
   // features array (Starter has none) is enforced for real. The real
   const ent = await getTenantEntitlement(t.client, t.config.tier);
 
-  const canSee = (key?: string, ownerOnly?: boolean, feature?: FeatureKey) => {
-    if (ownerOnly && role !== 'owner') return false;
+  // Independent branches (control-plane 0025): this is either the owner's central panel —
+  // with the workspace dropdown — or a branch's own workspace, which links back to it.
+  const isBranchWorkspace = Boolean(t.config.parentSlug);
+  const canSee = (seg: string, key?: string, ownerOnly?: boolean, feature?: FeatureKey) => {
+    // A branch's own manager runs its portals; billing and settings stay with the owner.
+    const branchManagerMay = isBranchWorkspace && role === 'branch_manager' && seg === 'portals';
+    if (ownerOnly && role !== 'owner' && !branchManagerMay) return false;
     if (key && !can(perms, role, key)) return false;
     // For non-owner staff, hide unentitled plan features to keep screens clean
     if (role !== 'owner' && feature && !ent.isEntitled(feature)) return false;
@@ -151,15 +180,15 @@ export default async function PortalLayout({
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
-  // Independent branches (control-plane 0025): this is either the owner's central panel —
-  // with the workspace dropdown — or a branch's own workspace, which links back to it.
   // Branches are managed only from the central panel.
-  const isBranchWorkspace = Boolean(t.config.parentSlug);
   const showSwitcher = !isBranchWorkspace && (role === 'owner' || perms.includes('*')) && ent.isEntitled('branches.multi');
 
-  const visibleGroups = NAV_GROUPS.map(([group, items]) => [
+  const ownerPanelOnly = showSwitcher && role === 'owner';
+  // A branch is billed on the main restaurant's plan, so no branch workspace shows Billing.
+  const hiddenInBranch = new Set(['branches', 'billing']);
+  const visibleGroups = (ownerPanelOnly ? OWNER_PANEL_GROUPS : NAV_GROUPS).map(([group, items]) => [
     group,
-    items.filter(([seg, , key, ownerOnly, feature]) => canSee(key, ownerOnly, feature) && !(isBranchWorkspace && seg === 'branches')),
+    items.filter(([seg, , key, ownerOnly, feature]) => canSee(seg, key, ownerOnly, feature) && !(isBranchWorkspace && hiddenInBranch.has(seg))),
   ] as [string, NavItem[]]).filter(([, items]) => items.length > 0);
 
   return (

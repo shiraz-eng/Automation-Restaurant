@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { loadTenantCurrency } from '@/lib/currencyServer';
-import { OwnerBranchesPanel } from '@/components/OwnerBranches';
+import { OwnerBranchesPanel, OwnerPanelHome } from '@/components/OwnerBranches';
 import { gatePortalPage } from '@/lib/permissions';
 import { DashboardStat } from './DashboardStat';
 import { LiveRefresh } from '@/components/LiveRefresh';
@@ -44,6 +44,10 @@ export default async function DashboardPage({
   // analytics.view; everyone else starts on their own working page.
   if (!can(viewerPerms, viewerRole, 'analytics.view')) redirect(staffStartPath(viewerPerms, viewerRole, slug));
   const canViewPortals = can(viewerPerms, viewerRole, 'portals.view');
+  // A multi-branch restaurant's main panel is the owner's panel: its home is the branches.
+  if (!t.config.parentSlug && viewerRole === 'owner' && (await getTenantEntitlement(supabase, t.config.tier)).isEntitled('branches.multi')) {
+    return <OwnerPanelHome slug={slug} name={t.config.restaurantName} />;
+  }
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);

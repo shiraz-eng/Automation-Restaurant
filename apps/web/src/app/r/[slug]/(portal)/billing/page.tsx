@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage } from '@/lib/permissions';
 import { getTenantConfig } from '@/lib/tenant';
@@ -14,6 +14,8 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
   await gatePortalPage(t.client, slug, 'settings.view', { ownerOnly: true });
+  // A branch is billed on the main restaurant's plan.
+  if (t.config.parentSlug) redirect(`/r/${t.config.parentSlug}/billing`);
 
   const config = await getTenantConfig(slug);
   const [info, billingConfigured] = await Promise.all([

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { supabaseAdmin } from '../supabase';
 import { mgmtClient } from '../mgmt';
 import { advanceProvisioning } from '../provisioning';
@@ -51,11 +52,17 @@ export async function listBranches(parentId: string): Promise<TenantRow[]> {
   return (data ?? []) as TenantRow[];
 }
 
-/** How many locations the main restaurant's plan allows (plans.limits.branches: "1", "3", "Unlimited"). */
-async function locationLimit(parentId: string): Promise<number> {
+/**
+ * How many branches the main restaurant's plan allows (plans.limits.branches: "1", "3",
+ * "Unlimited") — 0 on a plan without multi-branch. The main restaurant is the owner's panel
+ * (decision 2026-10-18), so every location is a branch and the panel itself doesn't count.
+ */
+async function branchLimit(parentId: string): Promise<number> {
   const { data: sub } = await supabaseAdmin.from('subscriptions').select('tier').eq('tenant_id', parentId).maybeSingle();
   const plan = sub?.tier ? await getPlanByTier(String(sub.tier)) : undefined;
-  const raw = String((plan as { limits?: Record<string, unknown> } | undefined)?.limits?.branches ?? '1');
+  const p = plan as { limits?: Record<string, unknown>; features?: string[] } | undefined;
+  if (!p?.features?.includes('branches.multi')) return 0;
+  const raw = String(p.limits?.branches ?? '1');
   if (/unlimited/i.test(raw)) return Infinity;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : 1;
@@ -80,10 +87,10 @@ export async function createBranch(parent: TenantRow, input: { code: string; nam
   if (same) return { branch: same as TenantRow, existed: true };
 
   const existing = await listBranches(parent.id);
-  const limit = await locationLimit(parent.id);
-  if (existing.length + 1 >= limit) {
-    throw new BranchError('branch_limit', limit === 1 ? 'Your plan includes one location. Upgrade to add branches.' : `Your plan includes ${limit} locations.`, 403);
-  }
+  const limit = await branchLimit(parent.id);
+  if (limit === 0) throw new BranchError('branch_limit', 'Branches are part of the Enterprise plan. Upgrade to add branches.', 403);
+  // An archived branch still has its project, so it still counts.
+  if (existing.length >= limit) throw new BranchError('branch_limit', `Your plan includes ${limit} branch${limit === 1 ? '' : 'es'}.`, 403);
   // Decision 2026-10-14: branch projects live in the owner's own Supabase org, through
   // the main restaurant's connection (supabaseOAuth.connectionTenantId).
   if (!(await hasConnection(parent.id))) {
@@ -268,11 +275,34 @@ export function buildSeedSql(data: SeedData, opts: { wrap?: boolean } = {}): str
   return out.join('\n');
 }
 
+/** Does this restaurant have a menu to copy? */
+async function hasMenu(slug: string): Promise<boolean> {
+  const r = await resolveTenantClient(slug);
+  if (!r.ok) return false;
+  const { count } = await r.client.admin.from('menu_items').select('id', { count: 'exact', head: true });
+  return (count ?? 0) > 0;
+}
+
+/**
+ * Where a new branch's menu comes from: the main restaurant's, if it has one (a restaurant
+ * that ran before it became an owner panel); otherwise the oldest active branch that has a
+ * menu — so a new owner sets the menu up once, in the first branch, and every later branch
+ * starts from it. With neither, the branch starts empty. Settings come from the same restaurant.
+ */
+async function seedSource(parent: TenantRow, branch: TenantRow): Promise<string> {
+  if (await hasMenu(parent.slug)) return parent.slug;
+  for (const b of await listBranches(parent.id)) {
+    if (b.id !== branch.id && b.status === 'active' && (await hasMenu(b.slug))) return b.slug;
+  }
+  return parent.slug;
+}
+
 async function seedBranch(parent: TenantRow, branch: TenantRow): Promise<void> {
   try {
-    const data = await readSeedData(parent.slug);
+    const source = await seedSource(parent, branch);
+    const data = await readSeedData(source);
     // Recipes go in without their current version (it doesn't exist yet), then get it back.
-    const r = await resolveTenantClient(parent.slug);
+    const r = await resolveTenantClient(source);
     if (!r.ok) throw new Error('main restaurant not reachable');
     const { data: recipes } = await r.client.admin.from('recipes').select('id, current_version_id');
     data.rows.recipes_original = (recipes ?? []) as Record<string, unknown>[];
@@ -339,4 +369,183 @@ export async function ownerSignInToken(branch: TenantRow): Promise<string> {
   const token = data?.properties?.hashed_token;
   if (error || !token) throw new BranchError('sso_failed', error?.message ?? 'Could not sign you in to the branch.', 500);
   return token;
+}
+
+// ── The branch's own login ─────────────────────────────────────────────────────
+// Each branch has one Branch manager login in the branch's OWN database, set by the
+// owner. It works the whole branch — orders, kitchen, menu, stock, suppliers, finance,
+// staff and portals — but never billing, restaurant settings (currency, tax, branding,
+// refund rules) or branches: those stay with the owner. It can never reach another
+// branch, which is a different database.
+
+const BRANCH_MANAGER = 'branch_manager';
+const HIDDEN_FROM_BRANCH = (key: string) => key.startsWith('settings.') || key.startsWith('branches.');
+
+export type BranchLogin = { email: string; name: string | null; created_at: string | null };
+
+async function branchAdmin(branch: TenantRow) {
+  if (branch.status !== 'active') throw new BranchError('branch_not_ready', 'This branch is not active.', 409);
+  const r = await resolveTenantClient(branch.slug);
+  if (!r.ok) throw new BranchError('branch_unreachable', 'This branch cannot be reached right now.', 503);
+  return r.client.admin;
+}
+
+/** The branch's login (email and name), or null when none is set yet. Never a password. */
+export async function branchLogin(branch: TenantRow): Promise<BranchLogin | null> {
+  const admin = await branchAdmin(branch);
+  const { data } = await admin
+    .from('memberships')
+    .select('email, full_name, created_at')
+    .eq('role', BRANCH_MANAGER)
+    .order('created_at')
+    .limit(1)
+    .maybeSingle();
+  const m = data as { email: string; full_name: string | null; created_at: string | null } | null;
+  return m ? { email: m.email, name: m.full_name, created_at: m.created_at } : null;
+}
+
+/** A password that is easy to read out and type: 3 groups of 4 (no 0/O, 1/l/I). */
+function generatePassword(): string {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const s = Array.from(randomBytes(12), (b) => abc[b % abc.length]).join('');
+  return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8, 12)}`;
+}
+
+/**
+ * Create the branch's login, or change its email / name / password. The password is
+ * returned ONCE (generated when not given) and is never stored readable anywhere.
+ */
+export async function setBranchLogin(
+  branch: TenantRow,
+  input: { email?: string; name?: string | null; password?: string; newPassword?: boolean },
+): Promise<{ email: string; password: string | null }> {
+  const admin = await branchAdmin(branch);
+  const { data: current } = await admin
+    .from('memberships')
+    .select('id, user_id, email')
+    .eq('role', BRANCH_MANAGER)
+    .order('created_at')
+    .limit(1)
+    .maybeSingle();
+  const cur = current as { id: string; user_id: string | null; email: string } | null;
+  const email = (input.email ?? cur?.email ?? '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BranchError('bad_email', 'Give the branch login a valid email address.');
+  if (branch.owner_email && email === branch.owner_email.toLowerCase()) {
+    throw new BranchError('owner_email', 'Use a different email from the owner’s — the owner opens branches from the owner panel.');
+  }
+  if (input.password !== undefined && input.password.length < 8) {
+    throw new BranchError('weak_password', 'The password needs at least 8 characters.');
+  }
+  // A new login always gets a password; an edit only when one is asked for.
+  const password = input.password ?? (!cur?.user_id || input.newPassword ? generatePassword() : null);
+
+  const { data: cat } = await admin.from('permission_catalog').select('key');
+  const permissions = ((cat ?? []) as { key: string }[]).map((c) => c.key).filter((k) => !HIDDEN_FROM_BRANCH(k)).sort();
+  const app_metadata = { role: BRANCH_MANAGER, permissions };
+
+  let userId = cur?.user_id ?? null;
+  if (userId) {
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      ...(email !== cur!.email ? { email, email_confirm: true } : {}),
+      ...(password ? { password } : {}),
+      app_metadata,
+      ...(input.name !== undefined ? { user_metadata: { full_name: input.name } } : {}),
+    });
+    if (error) {
+      if (/already|exists|registered/i.test(error.message)) throw new BranchError('email_in_use', 'That email already has a login in this branch.', 409);
+      throw new BranchError('login_failed', error.message, 500);
+    }
+  } else {
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password: password!,
+      email_confirm: true,
+      app_metadata,
+      user_metadata: input.name ? { full_name: input.name } : {},
+    });
+    if (error || !data?.user) {
+      if (/already|exists|registered/i.test(error?.message ?? '')) throw new BranchError('email_in_use', 'That email already has a login in this branch.', 409);
+      throw new BranchError('login_failed', error?.message ?? 'Could not create the login.', 500);
+    }
+    userId = data.user.id;
+  }
+
+  const row = { user_id: userId, email, role: BRANCH_MANAGER, status: 'active', ...(input.name !== undefined ? { full_name: input.name } : {}) };
+  const { error: mErr } = cur
+    ? await admin.from('memberships').update(row).eq('id', cur.id)
+    : await admin.from('memberships').upsert(row, { onConflict: 'email' });
+  if (mErr) throw new BranchError('login_failed', `membership: ${mErr.message}`, 500);
+  return { email, password };
+}
+
+// ── Edit, archive, restore, delete ────────────────────────────────────────────
+
+/** Rename a branch (its code and address stay; they are its identity). */
+export async function renameBranch(parent: TenantRow, branch: TenantRow, name: string): Promise<TenantRow> {
+  const clean = name.trim();
+  if (clean.length < 2 || clean.length > 60) throw new BranchError('bad_name', 'Give the branch a name (2–60 characters).');
+  const restaurantName = `${parent.restaurant_name} — ${clean}`;
+  await supabaseAdmin.from('tenants').update({ restaurant_name: restaurantName, branch_name: clean }).eq('id', branch.id);
+  if (branch.status === 'active') {
+    // Receipts and reports in the branch read its own settings; best effort.
+    const r = await resolveTenantClient(branch.slug);
+    if (r.ok) await r.client.admin.from('business_settings').update({ restaurant_name: restaurantName }).eq('id', true);
+  }
+  return (await tenantBySlug(branch.slug)) ?? branch;
+}
+
+/**
+ * Archive: the branch is switched off — nobody can sign in or order there and it leaves
+ * the owner's figures — but its database and every record stay, and it can be restored.
+ */
+export async function archiveBranch(branch: TenantRow): Promise<TenantRow> {
+  if (branch.status !== 'active') throw new BranchError('not_active', 'Only an active branch can be archived.', 409);
+  await supabaseAdmin.from('tenants').update({ status: 'archived' }).eq('id', branch.id);
+  return (await tenantBySlug(branch.slug)) ?? branch;
+}
+
+export async function restoreBranch(branch: TenantRow): Promise<TenantRow> {
+  if (branch.status !== 'archived') throw new BranchError('not_archived', 'This branch is not archived.', 409);
+  await supabaseAdmin.from('tenants').update({ status: 'active' }).eq('id', branch.id);
+  return (await tenantBySlug(branch.slug)) ?? branch;
+}
+
+/**
+ * Delete a branch for good: its Supabase project — and every order, stock movement and
+ * finance record in it — is deleted, then its registry rows. Needs the branch code typed
+ * back as confirmation. Cannot be undone.
+ */
+export async function deleteBranchPermanently(branch: TenantRow, confirmCode: string): Promise<void> {
+  if (!branch.parent_tenant_id) throw new BranchError('not_a_branch', 'Only a branch can be deleted here.', 400);
+  if (confirmCode.trim().toUpperCase() !== branch.branch_code) {
+    throw new BranchError('confirm_mismatch', `Type the branch code (${branch.branch_code}) to confirm.`);
+  }
+  if (branch.status === 'provisioning') {
+    throw new BranchError('busy', 'This branch is still being set up. Wait for it to finish or fail, then delete it.', 409);
+  }
+  const { data: proj } = await supabaseAdmin.from('tenant_projects').select('project_ref').eq('tenant_id', branch.id).maybeSingle();
+  if (proj?.project_ref) {
+    const conn = await getFreshConnection(branch.id);
+    try {
+      await mgmtClient(conn.access_token).deleteProject(String(proj.project_ref));
+    } catch (err) {
+      // Already gone in Supabase is fine; anything else stops before the registry is touched.
+      if (!/-> 404|not found/i.test(String((err as Error).message))) {
+        throw new BranchError('delete_failed', `Supabase did not delete the project: ${String((err as Error).message).slice(0, 300)}`, 502);
+      }
+    }
+  }
+  await supabaseAdmin.from('subscriptions').delete().eq('tenant_id', branch.id);
+  // tenant_projects and the connection rows go with the tenant (on delete cascade).
+  const { error } = await supabaseAdmin.from('tenants').delete().eq('id', branch.id);
+  if (error) throw new BranchError('delete_failed', error.message, 500);
+}
+
+/** Supabase's free-plan project limit, said plainly (the raw API error is hard to act on). */
+export function friendlySetupError(message: string | null): string | null {
+  if (!message) return message;
+  if (/maximum limits for the number of active free projects/i.test(message)) {
+    return 'Your Supabase organization is on the free plan, which allows only 2 active projects, and it has reached that limit. In the Supabase dashboard, upgrade the organization or pause a project you don’t need, then click Retry.';
+  }
+  return message;
 }
