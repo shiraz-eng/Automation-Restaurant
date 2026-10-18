@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isAllowedOrigin, env, aiEnabled, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, buildReportData, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
+import { AI_TOOLS, AI_ACTIONS, SYSTEM_PROMPT, workspaceLine, buildReportData, computeAttentionItems, periodRange, resolvePeriod, type AiTool, type AiAction, type Period } from '../lib/aiTools';
 import { supabaseAdmin } from '../supabase';
 import { currencyPromptLine } from '../lib/currencyContext';
 import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
@@ -769,7 +769,8 @@ aiRouter.post(
     const allowedActions = permits(permissions, role, 'ai.execute_write')
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
-    const system = SYSTEM_PROMPT(req.tenant!.slug, await currentTimeLine(admin));
+    const [timeLine, workspace] = await Promise.all([currentTimeLine(admin), workspaceLine(req.tenant!.slug, role)]);
+    const system = SYSTEM_PROMPT(req.tenant!.slug, timeLine, workspace);
     const actor: Actor = { userId, email, role, permissions, tenantSlug: req.tenant!.slug };
     const run = (emit: Emitter) =>
       aiProvider === 'gemini'

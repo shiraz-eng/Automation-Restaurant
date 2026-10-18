@@ -132,9 +132,9 @@ const getFeatureDescriptions: GuideAiTool = {
       },
       'branches.multi': {
         name: 'Multi-location / Branches',
-        what: 'Manage multiple restaurant locations under one account.',
-        why: 'Chains and groups need central visibility across branches.',
-        gain: 'One dashboard, one billing relationship, per-branch reporting.',
+        what: 'An owner panel that creates and monitors independent branches — each its own restaurant with its own database, login, menu, stock, staff, finance and receipt details.',
+        why: 'Chains and groups need central control and comparison while every location runs on its own, and branch staff never see another branch.',
+        gain: 'One owner panel, one billing relationship, side-by-side branch comparison, per-branch logins and receipts.',
       },
     },
   }),
@@ -585,6 +585,19 @@ Automation Restaurant is a multi-tenant SaaS restaurant operating system. It pro
 - **Role-specific portals**: Owner, Manager, Kitchen, Cashier, Waiter, Floor, Finance — each role sees only what they need.
 - **AI assistance** built into operations: Smart Import, inventory prediction, scheduling, AI chat for the operations team.
 - **Customer ordering**: guest-facing order/track pages, QR table ordering.
+
+## Branches (Enterprise plan)
+- On a multi-branch plan the main restaurant becomes the **owner panel**: Overview (a card per branch), Branches, Compare branches, the AI assistant, Billing, and the defaults new branches start from (Brand Kit, currency, tax). Orders, kitchen, menu, stock, suppliers, staff and finance run **inside each branch**.
+- Every branch is a **restaurant of its own** with its own Supabase project (in the owner's own Supabase account), its own login, menu, recipes, stock, suppliers, orders, staff, portals, finance and reports. Nothing is merged between branches.
+- **Create a branch**: owner panel → Branches → Add a branch → a code (e.g. DHA), a name (e.g. "DHA Phase 6") and that branch's receipt details (address, phone, email, website, tax/NTN number, footer). Setup takes a few minutes. The branch then gets a one-time copy of the menu, recipes, ingredients (stock 0), suppliers, deals, branding, tax and currency; orders, staff and finance start empty.
+- **Manage a branch** (Branches → Manage, owner only):
+  - *Branch login* — the branch manager's email; the password is generated or typed and shown **once** to copy; "Generate new password" makes a new one. Passwords can't be shown again because they are stored securely.
+  - *Receipt details* — that branch's own address, phone, email, website, tax number and footer, printed on its receipts and invoices only. Only the owner changes them.
+  - *Edit* (rename), *Archive / Restore* (switch the branch off but keep all its data), *Delete permanently* (deletes the branch's database and all its data after typing the branch code; cannot be undone).
+- **Opening a branch**: the Workspace selector in the owner panel opens any ready branch without signing out; "Back to the owner panel" returns.
+- **Branch manager access**: everything for their own branch (orders, kitchen, menu, stock, suppliers, purchasing, finance, staff, portals) — but no billing, restaurant settings (currency, tax, branding, receipt details), branch creation, comparison, or other branches. In a branch only the owner can change passwords.
+- **Billing**: branches run on the main restaurant's plan — no separate Automation Restaurant subscription. Separately, each branch is a Supabase project: the Supabase free plan allows only **2 active projects**, so more branches need a paid Supabase organization (Supabase billing, not ours).
+- **Troubleshooting "Setup failed"**: if the reason mentions the free-project limit, the owner's Supabase organization is full — upgrade it or pause a project they don't need in the Supabase dashboard, then press **Retry** on the branch. Other failures can also be retried; a branch is never shown as ready until setup really finished.
 
 ## Tone & Style
 - Clear, practical, patient, concise.

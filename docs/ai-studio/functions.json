@@ -1,5 +1,46 @@
 [
   {
+    "name": "list_branches",
+    "description": "The owner's independent branches (each its own restaurant with its own database, opened from the owner's main panel): code, name, and whether its setup is finished, still running or failed. Use before answering about a specific branch. In a branch's own workspace there are no branches to list."
+  },
+  {
+    "name": "get_branch_performance",
+    "description": "Sales, orders, food cost, expenses, low stock, money owed to suppliers and unclosed days for the main restaurant and/or its independent branches over a period — read from EACH restaurant's own database (never merged). branch: a branch code (e.g. DHA), 'main' for the main restaurant, or 'all' (default) for every restaurant side by side plus their combined totals. A branch that is still being set up or cannot be reached is reported as unavailable, never guessed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "A branch code, 'main', or 'all' (default)."
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        }
+      }
+    }
+  },
+  {
     "name": "get_restaurant_now",
     "description": "A single live snapshot of the restaurant: today's net sales (same figure as the dashboard) and paid revenue, kitchen load, unpaid bills, occupied tables, low-stock count. Use this first for \"how are we doing / what's happening / what needs attention\" questions."
   },
@@ -495,6 +536,10 @@
         }
       }
     }
+  },
+  {
+    "name": "send_low_stock_reorders",
+    "description": "Immediately trigger a sweep to dispatch low-stock reorder emails to suppliers for any ingredients currently at or below their reorder threshold. Use when asked to \"send low stock emails\", \"send low request email\", \"reorder low stock items now\", or \"email suppliers for low inventory\". Returns the number of emails sent and suppliers contacted."
   },
   {
     "name": "get_purchasing_summary",
@@ -1052,7 +1097,7 @@
   },
   {
     "name": "update_supplier_price",
-    "description": "Update the price a specific supplier charges for one inventory item ALREADY in their catalog (e.g. \"Metro Foods now charges $0.85/kg for chicken\"). Only updates an existing catalog entry's price — it cannot add a new supplier/item pairing, which has other details (purchase unit, minimum order quantity) best set up in Suppliers first; if there's no catalog entry yet, this reports that rather than creating one. Proposes the change for a manager to confirm.",
+    "description": "Update the price a specific supplier charges for one inventory item ALREADY in their catalog (e.g. \"Metro Foods now charges 0.85/kg for chicken\"). Only updates an existing catalog entry's price — it cannot add a new supplier/item pairing, which has other details (purchase unit, minimum order quantity) best set up in Suppliers first; if there's no catalog entry yet, this reports that rather than creating one. Proposes the change for a manager to confirm.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -1064,7 +1109,7 @@
         },
         "new_price": {
           "type": "number",
-          "description": "The new price in the restaurant's normal currency units (e.g. 8.50 for $8.50), NOT cents — per the supplier's own purchase unit for this item (shown back in the proposal), not necessarily the item's stock base unit."
+          "description": "The new price in the restaurant's normal currency units (e.g. 8.50), NOT cents — per the supplier's own purchase unit for this item (shown back in the proposal), not necessarily the item's stock base unit."
         }
       },
       "required": [
@@ -1076,7 +1121,7 @@
   },
   {
     "name": "draft_deal",
-    "description": "Propose a new fixed-price deal/combo bundling specific menu items (e.g. \"create a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Soft Drinks for $25\"). Always created NOT available to customers — a manager must review it in Deals and turn it on, exactly like draft_recipe never auto-activates. Does not build \"choose one of\" Build-Your-Own-Combo option groups — those have their own dedicated setup in Deals and need a human's judgment on choice/pricing rules. Every item must match an existing menu item (and variant, if it has more than one); any that don't are reported back rather than invented, and nothing is created until every line resolves.",
+    "description": "Propose a new fixed-price deal/combo bundling specific menu items (e.g. \"create a Family Meal deal: 2 Chicken Burgers, 2 Fries, 2 Soft Drinks for 25\"). Always created NOT available to customers — a manager must review it in Deals and turn it on, exactly like draft_recipe never auto-activates. Does not build \"choose one of\" Build-Your-Own-Combo option groups — those have their own dedicated setup in Deals and need a human's judgment on choice/pricing rules. Every item must match an existing menu item (and variant, if it has more than one); any that don't are reported back rather than invented, and nothing is created until every line resolves.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -1085,7 +1130,7 @@
         },
         "price": {
           "type": "number",
-          "description": "The deal's total price in the restaurant's normal currency units (e.g. 25 for $25), NOT cents."
+          "description": "The deal's total price in the restaurant's normal currency units (e.g. 25), NOT cents."
         },
         "description": {
           "type": "string"
@@ -1190,7 +1235,8 @@
             "purchasing",
             "inventory",
             "orders",
-            "expenses"
+            "expenses",
+            "finance"
           ],
           "description": "Default complete (the full report)."
         }
@@ -1199,7 +1245,7 @@
   },
   {
     "name": "export_excel_report",
-    "description": "Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, AI actions and a verification sheet, for independent reconciliation. This is an accountant/analyst's detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. [\"Orders\",\"Inventory\"]) to export only specific sheets instead of the full workbook — the Executive Summary, Profit Summary and Verification sheets are always included regardless.",
+    "description": "Export a detailed multi-sheet Excel (.xlsx) workbook for a period — profit summary, orders, purchasing, supplier payments & performance, inventory, expenses, deals, promotions, management activity, and AI actions. This is an accountant/analyst's detailed tool, not a summary — use generate_report for a PDF summary instead. Confirming downloads the real file in your browser; nothing is changed or saved anywhere. Pass either `period` or an exact `from`/`to` custom range — not both. Pass `sheets` (e.g. [\"Orders\",\"Inventory\"]) to export only specific sheets instead of the full workbook — the Executive Summary and Profit Summary sheets are always included regardless.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -1242,7 +1288,8 @@
             "purchasing",
             "inventory",
             "orders",
-            "expenses"
+            "expenses",
+            "finance"
           ],
           "description": "Optional shortcut instead of naming sheets — a preset sheet list for that one section. Ignored if sheets is given explicitly. Default complete (the full workbook)."
         }
@@ -1275,6 +1322,194 @@
       },
       "required": [
         "caption"
+      ]
+    }
+  },
+  {
+    "name": "add_inventory_items",
+    "description": "Add new inventory items or update stock/cost/thresholds for existing items directly from chat details (e.g. \"add inventory: Tomato 5kg at 2/kg, Onion 10kg at 1/kg, min threshold 2kg\"). Creates new items in inventory_items if they do not exist, or updates cost/stock/threshold if they already do. Proposes the structured items for the manager to review and confirm.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "The inventory items to add or update.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Item name, e.g. \"Roma Tomatoes\" or \"Chicken Breast\""
+              },
+              "unit": {
+                "type": "string",
+                "description": "Stock unit: kg, g, l, ml, unit, pcs, box, bottle, etc. Default \"unit\"."
+              },
+              "stock_qty": {
+                "type": "number",
+                "description": "Initial quantity on hand (e.g. 5, 10.5). Default 0."
+              },
+              "cost_cents_per_unit": {
+                "type": "number",
+                "description": "Cost per base unit in integer cents (e.g. 2.50 = 250 cents)."
+              },
+              "min_threshold": {
+                "type": "number",
+                "description": "Low-stock warning threshold. Default 0."
+              },
+              "target_stock_qty": {
+                "type": "number",
+                "description": "Optional target stock level."
+              },
+              "supplier_name": {
+                "type": "string",
+                "description": "Optional supplier name."
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "add_menu_items",
+    "description": "Add new dishes or items to the restaurant menu directly from chat details (e.g. \"add to menu: Chicken Biryani 14 in Mains, Mint Lemonade 5 in Drinks\"). Creates the category if it doesn't exist, inserts the menu item, and creates a default variant with the given price. Proposes the dishes for manager confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "description": "The dishes/menu items to add.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Dish name, e.g. \"Beef Seekh Kebab\""
+              },
+              "category_name": {
+                "type": "string",
+                "description": "Category name, e.g. \"Mains\", \"Starters\", \"Beverages\""
+              },
+              "price_cents": {
+                "type": "number",
+                "description": "Price in cents (e.g. 14.50 = 1450 cents)."
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional description of the dish."
+              }
+            },
+            "required": [
+              "name",
+              "price_cents"
+            ]
+          }
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "record_expenses",
+    "description": "Record one or more operating expenses (e.g. \"record expense: Electricity 350 under Utilities, Cleaning supplies 40 under Supplies\"). Categorizes each expense under Rent, Utilities, Labor, Marketing, Maintenance, Supplies, or Other. Each one is SUBMITTED for approval — it affects Net Profit only after someone with expense approval approves it in Finance. Proposes for manager confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "expenses": {
+          "type": "array",
+          "description": "The operating expenses to record.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "enum": [
+                  "Rent",
+                  "Utilities",
+                  "Labor",
+                  "Marketing",
+                  "Maintenance",
+                  "Supplies",
+                  "Other"
+                ],
+                "description": "Expense category"
+              },
+              "amount_cents": {
+                "type": "number",
+                "description": "Amount in cents (e.g. 50.00 = 5000 cents)."
+              },
+              "description": {
+                "type": "string",
+                "description": "Description or details of the expense."
+              },
+              "expense_date": {
+                "type": "string",
+                "description": "YYYY-MM-DD date. Defaults to today."
+              },
+              "supplier_name": {
+                "type": "string",
+                "description": "Optional supplier name."
+              }
+            },
+            "required": [
+              "category",
+              "amount_cents"
+            ]
+          }
+        }
+      },
+      "required": [
+        "expenses"
+      ]
+    }
+  },
+  {
+    "name": "add_staff_members",
+    "description": "Add one or more staff members to the restaurant roster (e.g. \"add staff: Ali as Chef, Fatima as Cashier\"). Creates staff records with their full name, job title, phone, and optional email. Proposes for manager confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "staff": {
+          "type": "array",
+          "description": "Staff members to add.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "full_name": {
+                "type": "string",
+                "description": "Full name of the staff member"
+              },
+              "job_title": {
+                "type": "string",
+                "description": "Job title, e.g. \"Chef\", \"Waiter\", \"Cashier\", \"Manager\""
+              },
+              "phone": {
+                "type": "string",
+                "description": "Optional phone number"
+              },
+              "email": {
+                "type": "string",
+                "description": "Optional email"
+              }
+            },
+            "required": [
+              "full_name",
+              "job_title"
+            ]
+          }
+        }
+      },
+      "required": [
+        "staff"
       ]
     }
   }
