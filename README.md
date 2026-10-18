@@ -10,7 +10,39 @@ live data.
 
 ![Automation Restaurant website](docs/screenshots/website.jpg)
 
+**Contents:** [Problem statement](#problem-statement) ·
+[Proposed solution](#proposed-solution) · [Screenshots](#screenshots) ·
+[Technology stack](#technology-stack) ·
+[AI methodology](#ai-methodology-and-implementation) ·
+[AI models and APIs](#ai-models-and-api-usage) ·
+[Development tools](#development-tools-used) ·
+[Setup and installation](#setup-and-installation) ·
+[Team member contributions](#team-member-contributions)
+
 ---
+
+## Problem statement
+
+New restaurants often face high upfront costs and technical complexity when
+they have custom restaurant management software built for billing, orders,
+inventory, menus and kitchen operations. Building and maintaining that software
+takes developers, time and money that a new restaurant rarely has.
+
+## Proposed solution
+
+Automation Restaurant is an AI-powered, subscription-based Restaurant
+Management System (RMS). It lets a restaurant manage billing, orders, menus,
+inventory, kitchen operations, suppliers and finances on one central platform.
+
+- **Ready to use:** instead of hiring developers to build custom software, the
+  owner signs up and gets working tools straight away.
+- **Automated workflows:** an order flows to the kitchen, stock, suppliers and
+  finance without anyone re-typing it.
+- **AI insights:** an AI assistant answers questions from the restaurant's live
+  data, and AI imports turn existing menus and documents into records.
+- **Affordable and scalable:** modular features, plan tiers and role-based
+  portals let a restaurant start small and grow, including independent branches,
+  without the cost of development and ongoing maintenance.
 
 ## Why Automation Restaurant
 
@@ -88,6 +120,116 @@ live data.
 | 10. Stock | Every ingredient in the order's recipes is deducted; availability updates. |
 | 11. Purchasing | Low stock alerts the owner and drafts a purchase order to the supplier. |
 | 12. Results | Dashboard, reports and the AI assistant all read the same numbers. |
+
+## Technology stack
+
+| Layer | Technologies |
+| --- | --- |
+| **Frontend** (`apps/web`) | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Lucide icons, Recharts (finance and performance charts), jsPDF + jspdf-autotable (PDF reports), qrcode (table QR codes), Zod (input validation) |
+| **Backend** (`apps/api`) | Node.js, Express and TypeScript, deployed as Vercel serverless functions; Zod (request validation), ExcelJS (Excel exports), unpdf (reading supplier invoice PDFs), Nodemailer / Resend (transactional e-mail and supplier messages), Stripe (subscriptions and plan billing) |
+| **Database & multi-tenancy** | Supabase PostgreSQL with **a dedicated Supabase project for each restaurant**, so restaurant data is physically separate |
+| **Control plane** | A central Supabase project for restaurant registrations, subscriptions, plans and connections to owners' Supabase accounts |
+| **Provisioning** | Supabase OAuth and the Management API create each restaurant's database in the owner's own Supabase account, including independent branches |
+| **Security** | About 78 Row-Level Security policies and 247 restricted (security-definer) database functions; permissions are enforced in Postgres, not only in the UI |
+| **Auth & realtime** | Supabase Auth, with separate session slots so the owner panel, staff portals and branches can stay signed in side by side; Supabase Realtime for live kitchen, order and checkout updates |
+| **Schema management** | 107 versioned tenant migrations plus a reusable template schema for every new restaurant |
+| **AI** | Google Gemini (Flash and Flash-Lite) as the primary provider; the Anthropic Claude SDK as a second provider — see [AI models and API usage](#ai-models-and-api-usage) |
+| **Infrastructure** | Vercel for both apps, redeployed automatically from GitHub; npm workspaces monorepo (`apps/web`, `apps/api`, `packages/shared`) |
+| **Testing** | Test scripts run with tsx against real tenant databases inside transactions that are rolled back afterwards |
+
+## AI methodology and implementation
+
+AI in Automation Restaurant is built to deliver practical outcomes across
+day-to-day operations, always on the restaurant's own live data and always
+under human control.
+
+| AI feature | What it does | Outcome |
+| --- | --- | --- |
+| **Owner & staff assistant** | Answers questions about sales, profit, food cost, stock, suppliers, kitchen, staff and branches, and proposes actions (drafting a purchase order, adjusting stock, adding menu items) | Faster decisions; less time spent digging through reports |
+| **AI Guide** | Step-by-step, role-specific help on the website and inside the app | Faster staff onboarding, less training effort, fewer operational errors |
+| **AI Import** | Turns prompts or uploaded menu, recipe, inventory, supplier, invoice, purchase-order, staff and table files into structured, validated drafts | Much less manual data entry; faster menu and stock setup |
+| **Customer AI** | Helps guests explore the menu, understand ingredients and find relevant deals | A better ordering experience, more conversions and a higher average order value |
+| **Billing assistant** | Answers the owner's questions about plans and the subscription | Self-service billing support |
+
+**How it is implemented**
+
+1. **Tools, not guesses.** The assistant reads business data only through
+   **71 permission-checked tools** (52 that read figures, 19 that propose
+   actions). Each tool checks the signed-in user's permissions before it runs,
+   so the AI sees only what that person may see.
+2. **Human confirmation.** An action tool only *proposes* a change. It runs
+   after a person taps Confirm. The AI never approves expenses or invoices and
+   never makes payments.
+3. **Drafts, then approval.** AI Import (`aiDocumentEngine`) extracts text from
+   PDFs, images, spreadsheets and text files, asks the model for output that
+   must match a fixed schema, validates and cleans the result, compares it with
+   live data (new / changed / missing), and shows a draft. Nothing is saved
+   until the owner approves it.
+4. **Grounded answers.** Figures come from the same ledger and reports as the
+   rest of the app; the AI is instructed never to invent numbers.
+5. **One platform.** Combined with POS, kitchen, inventory, recipes, suppliers
+   and finance, the AI reduces administrative work, improves stock visibility
+   and keeps the customer experience consistent.
+
+## AI models and API usage
+
+Automation Restaurant uses **Google Gemini** as its primary AI provider, with
+the **Anthropic Claude API** as a built-in alternative. The server picks the
+provider from its configuration (`GEMINI_API_KEY` first, then
+`ANTHROPIC_API_KEY`); if neither is set, AI features switch off gracefully. The
+live deployment uses Gemini.
+
+| Provider | Models | Used for |
+| --- | --- | --- |
+| **Google Gemini** | `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash`, `gemini-flash-latest`, `gemini-flash-lite-latest` (default `GEMINI_MODEL`: `gemini-flash-lite-latest`) | Every AI feature (primary) |
+| **Anthropic Claude** | `claude-sonnet-5` (configurable with `AI_MODEL`) | Every AI feature (alternative) |
+
+| API | How it is used |
+| --- | --- |
+| Gemini `streamGenerateContent` (`generativelanguage.googleapis.com/v1beta`) | Streaming chat replies, sent to the browser as server-sent events so answers appear as they are written |
+| Gemini `generateContent` | Structured one-shot tasks such as document import and the AI Guide |
+| Gemini function calling | Lets the model call the app's permission-checked tools |
+| Anthropic Messages API (`@anthropic-ai/sdk`) | The same features with tool use, when Claude is the configured provider |
+
+| Endpoint | Feature |
+| --- | --- |
+| `/api/ai` | Owner & staff assistant (71 tools; actions confirmed through `/api/ai/confirm`) |
+| `/api/public/ai/chat` | Customer AI on the guest menu (read-only, rate-limited per visitor) |
+| `/api/public/guide-ai/chat`, `/api/guide-ai/chat` | AI Guide (public and signed-in) |
+| `/api/saas-ai/chat` | Billing assistant (owner only) |
+| Import routes (menu, recipe, inventory, supplier, supplier price, supplier invoice, PO, staff, table) | AI document import into reviewable drafts |
+
+**Reliability**
+- **Model racing:** if a Gemini model hasn't started answering quickly, or
+  fails or is overloaded, the next model starts in parallel; the first to
+  answer wins and the others are cancelled.
+- **Structured output:** imports force a fixed JSON schema and retry a bounded
+  number of times on malformed output.
+
+**Security**
+- API keys stay on the server and never reach the browser.
+- Uploaded documents are treated as data, never as instructions.
+- The restaurant is identified from the authenticated session before any tool
+  runs, never from the request body, so one restaurant can never reach
+  another's data.
+- Customer AI is read-only, limited to the restaurant's public data and
+  rate-limited per visitor.
+
+## Development tools used
+
+| Tool | Used for |
+| --- | --- |
+| **Git & GitHub** | Version control; every push to `main` triggers a deploy |
+| **Vercel** | Hosting, preview and production deployments, cron jobs |
+| **npm workspaces** | Monorepo for the web app, the API and the shared package |
+| **TypeScript compiler (`tsc`)** | Type checking across `packages/shared`, `apps/api` and `apps/web` |
+| **tsx** | Running the API in development and the test and migration scripts |
+| **Next.js build / dev server** | Local development and production builds of the web app |
+| **Supabase** (dashboard, CLI, Management API) | Databases, auth, migrations and automated provisioning |
+| **Stripe dashboard** | Plans, prices and webhooks |
+| **Google AI Studio** | Gemini API keys and prompt / function-declaration testing (`docs/ai-studio`) |
+| **Claude Code** | AI-assisted development, code review and testing |
+| **PostCSS & Autoprefixer** | Tailwind CSS build pipeline |
 
 ## Finance model
 
@@ -196,70 +338,53 @@ period.
 
 ## Multi-branch
 
-A restaurant on the Enterprise plan (`branches.multi`) can run several
-locations from one account. The restaurant is the organization; each location
-is a **branch** in the same database. A restaurant with one location keeps
-working exactly as before: everything it already has belongs to its default
-branch, `MAIN`.
+On the Enterprise plan (`branches.multi`) an owner runs several locations as
+**independent restaurants under one owner panel**. A restaurant with one
+location keeps working exactly as before.
 
-**Shared by every branch:** the menu, recipes, deals, suppliers, staff and
-settings.
+- **The main restaurant is the owner panel.** From **Branches** the owner
+  creates a branch with a short code and a name (e.g. `DHA`, "DHA Phase 6").
+- **Each branch is its own restaurant** with its own Supabase project, created
+  in the owner's Supabase account through the main restaurant's connection, by
+  the same automated provisioning as any new restaurant. It has its own menu,
+  recipes, inventory, suppliers, orders, kitchen, staff, portals, finance and
+  reports. Branch databases are never merged.
+- **One-time copy.** A new branch starts with a copy of the main restaurant's
+  menu, recipes, ingredients (stock set to 0), suppliers, deals, branding, tax
+  and currency. Orders, stock levels, staff and finance start empty. The copy
+  runs as one transaction: all of it, or nothing.
+- **Monitoring.** The owner dashboard shows a card per branch (orders, net
+  sales, food cost, expenses, low stock, money owed, unclosed days), each read
+  from that branch's own database. The owner's AI can answer for one branch,
+  the main restaurant, or all of them; combined totals are labelled as sums
+  across separate databases.
+- **Switching workspaces.** A dropdown in the owner panel opens a branch with a
+  one-time sign-in, without logging out of the main panel. Inside a branch, a
+  "Back to the owner panel" link returns to it.
+- **Branch staff stay in their branch.** Branch managers and portals are
+  created inside the branch and can only ever reach that branch's database.
 
-**Owned by one branch:** orders and their payments, tables and QR codes,
-reservations, stock levels and stock movements, low-stock alerts, purchase
-orders and supplier invoices, expenses, cash counts and movements, the day
-close, shifts and attendance.
+**Safeguards**
+- Only the main restaurant's owner can create, retry or open branches; a branch
+  workspace cannot create branches of its own.
+- A branch id is only looked up among the caller's own branches.
+- Creating the same code twice returns the existing branch instead of a second
+  project.
+- A branch is never shown as created until provisioning has finished; a failed
+  setup or menu copy can be retried.
+- The plan's location limit is enforced.
 
-| Task | Where | Permission |
-| --- | --- | --- |
-| Add, edit, deactivate or archive a branch; set the default | Branches | `branches.manage` |
-| Limit a portal or a staff member to some branches | Branches → Which branches each login may use | `branches.manage` |
-| Give a branch its own price for a dish, or switch a dish off there | Branches → Menu prices by branch | `menu.update` or `branches.manage` |
-| Move stock from one branch to another | Inventory (with a branch selected) | `stock.update` |
-| See every branch side by side | Finance → Branch comparison, and the dashboard | `finance.view` |
+| Piece | Where |
+| --- | --- |
+| Control-plane columns (`parent_tenant_id`, `branch_code`, copy status) | `supabase/control-plane/0025_branch_tenants.sql` |
+| Create, provision, copy, metrics, owner sign-in | `apps/api/src/lib/branchTenants.ts` |
+| API (`/api/owner-branches`) | `apps/api/src/routes/ownerBranches.ts` |
+| Switcher, dashboard panel, Branches manager | `apps/web/src/components/OwnerBranches.tsx` |
+| One-time sign-in page | `apps/web/src/app/r/[slug]/auth/sso` |
 
-- **Branch selector.** It sits in the portal menu. It shows one branch or All branches, and only lists the
-  branches the login may use. Choosing All is for viewing: a new order, a
-  stock count or a day close always needs one branch selected.
-- **Guest orders.** A table's QR code carries its branch (`/order/<slug>?table=…&b=DHA`).
-  The guest sees that branch's prices and dishes, and the order is placed in it.
-- **Stock.** `inventory_items.stock_qty` is the total across branches;
-  `branch_stock` holds each branch's level. Sales, waste, counts and deliveries
-  change only their own branch. A transfer is two stock movements with one
-  transfer reference.
-- **Day close.** Each branch closes its own day and counts its own cash.
-- **Consolidation.** `branch_summary(from, to)` reads the same ledger as the
-  Finance pages. Branch rows add up exactly to the restaurant's totals, so
-  nothing is counted twice. Entries that belong to the whole restaurant are
-  listed on their own.
-
-**Who can see a branch is enforced in the database.**
-- A `branch_wall` row-security policy sits on every branch table.
-- Reporting functions read branch-scoped views.
-- Triggers refuse to move a row into a branch the login may not use.
-- The selected branch travels as the `x-branch-ids` request header. It can
-  only narrow what a login sees, never widen it.
-- In the API, a branch-limited login acts with its own token, so every
-  database rule applies to it. An owner viewing one branch gets a service
-  client that filters branch tables itself.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/branches.jpg" alt="Branches"><br><b>Branches</b>: each location with its code and status, the branch selector in the menu, and which branches each login may use</td>
-    <td width="50%"><img src="docs/screenshots/branch-comparison.jpg" alt="Branch comparison"><br><b>Branch comparison</b>: orders, sales, food cost, profit, money owed, low stock and day close per branch, adding up to the restaurant total</td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/dashboard-branches.jpg" alt="Dashboard branches panel"><br><b>Dashboard</b>: with All branches selected, this month branch by branch</td>
-    <td><img src="docs/screenshots/branch-stock-transfer.jpg" alt="Branch stock and transfer"><br><b>Inventory at one branch</b>: that branch's stock, and sending stock to another branch</td>
-  </tr>
-</table>
-
-Screenshots: the BBQ Tonight test restaurant. The DHA and Clifton branches hold
-demo orders (`apps/api/scripts/seed-demo-branches.ts`).
-
-Not per branch yet: priority allocation pools, and each branch's timezone and
-currency (saved, but the restaurant's own are used, so consolidated totals
-stay in one currency and one business day).
+The earlier in-database branch model (tenant migrations 0098–0106) is retired:
+its screens were removed and migration 0107 clears the old per-login branch
+limits. Its data stays in the database.
 
 ## Architecture
 
@@ -304,7 +429,8 @@ stay in one currency and one business day).
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
 | `/r/<slug>/finance`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
-| `/r/<slug>/branches`, `/r/<slug>/finance/branches` | Manage branches; compare branches (Enterprise) |
+| `/r/<slug>/branches` | Owner panel: create, monitor and open branches (Enterprise) |
+| `/r/<slug>/auth/sso` | One-time sign-in into a branch workspace |
 | `/r/<slug>/portal/<portalKey>` | A custom portal, composed from its permissions |
 | `/order/<slug>?table=…` | Guest ordering, tracking and feedback |
 | `/admin` | Platform super-admin |
@@ -319,27 +445,56 @@ stay in one currency and one business day).
 
 Features are enforced per plan in both the API and the portal (`packages/shared`).
 
-## Local development
+## Setup and installation
 
-Requires Node.js 20+.
+**Prerequisites:** Node.js 20+ and npm, Git, a Supabase account (for the
+control-plane project and restaurant projects), and optionally a Google Gemini
+or Anthropic API key (AI features), a Stripe account (payments) and Resend or
+SMTP (e-mail).
 
-```bash
-npm run setup      # install + build packages/shared
-npm run dev:api    # API on http://localhost:4000
-npm run dev:web    # web on http://localhost:3000
-npm run typecheck  # shared + api + web
-```
+1. **Clone and install**
 
-Environment variables (names only — never commit values):
+   ```bash
+   git clone https://github.com/shiraz-eng/Automation-Restaurant.git
+   cd Automation-Restaurant
+   npm run setup      # npm install + build packages/shared
+   ```
 
-- **`apps/api/.env`** — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (control plane),
-  `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ORG_ID`, `SUPABASE_OAUTH_CLIENT_ID`,
-  `SUPABASE_OAUTH_CLIENT_SECRET`, `SUPABASE_OAUTH_REDIRECT_URI`, `APP_URL`,
-  `ALLOWED_ORIGINS`, `GEMINI_API_KEY`, `RESEND_API_KEY` or `SMTP_*`, `EMAIL_FROM`,
-  `CRON_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MAP`,
-  `PAYMENTS_MODE`. See `apps/api/src/env.ts` for the full list and defaults.
-- **`apps/web/.env.local`** — `NEXT_PUBLIC_CONTROL_PLANE_URL`,
-  `NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`.
+2. **Create the control plane.** Create a Supabase project and run the files in
+   `supabase/control-plane/` in order (SQL editor or Supabase CLI). Restaurant
+   databases are created automatically later, from
+   `supabase/tenant-template/schema.sql`.
+
+3. **Set environment variables** (names only — never commit values):
+
+   - **`apps/api/.env`** — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (control plane),
+     `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ORG_ID`, `SUPABASE_OAUTH_CLIENT_ID`,
+     `SUPABASE_OAUTH_CLIENT_SECRET`, `SUPABASE_OAUTH_REDIRECT_URI`, `APP_URL`,
+     `ALLOWED_ORIGINS`, `GEMINI_API_KEY` (optional `GEMINI_MODEL`) or
+     `ANTHROPIC_API_KEY` (optional `AI_MODEL`), `RESEND_API_KEY` or `SMTP_*`,
+     `EMAIL_FROM`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+     `STRIPE_PRICE_MAP`, `PAYMENTS_MODE`. See `apps/api/src/env.ts` for the full
+     list and defaults.
+   - **`apps/web/.env.local`** — `NEXT_PUBLIC_CONTROL_PLANE_URL`,
+     `NEXT_PUBLIC_CONTROL_PLANE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`.
+
+4. **Run locally**
+
+   ```bash
+   npm run dev:api    # API on http://localhost:4000
+   npm run dev:web    # web on http://localhost:3000
+   ```
+
+5. **Check and build**
+
+   ```bash
+   npm run typecheck                            # shared + api + web
+   npm run build -w @automation-restaurant/web  # production build of the web app
+   ```
+
+6. **Create a restaurant.** Open http://localhost:3000, pick a plan and sign up.
+   The restaurant's own database is provisioned automatically and a
+   set-password e-mail is sent to the owner.
 
 ## Database changes
 
@@ -347,7 +502,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **103**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **107**).
 
 Roll it out to every live restaurant:
 
@@ -389,14 +544,23 @@ day close and finance overview suites, a full fictional restaurant day
 (`test-finance-scenario.ts`) and cross-restaurant isolation against the live
 API (`test-tenant-isolation.ts`).
 
-Multi-branch: `test-branches.ts <project_ref>` (isolation, permissions, plan
-limit, per-branch day close, stock, transfers, receiving, branch prices, deals,
-consolidation) and `test-branch-fetch.ts` (the owner's branch filter). Any
+Independent branches: `test-owner-branches.ts` (31 checks: owner-only access, branch isolation
+between restaurants, idempotent create including a race, never "created" before
+provisioning finishes, retry, plan limit, owner sign-in) and `test-branch-seed.ts`
+(rehearses the one-time menu copy inside a rolled-back transaction). Any
 database suite can rehearse a migration that is not applied yet: set
-`PRE_SQL=<file.sql>`, or pass `--with-migration <file.sql>` to
-`test-branches.ts`. The migration runs inside the same rolled-back transaction.
+`PRE_SQL=<file.sql>`. The migration runs inside the same rolled-back transaction.
+
+## Team member contributions
+
+| Member | Role | Contributions |
+| --- | --- | --- |
+| _Name_ | _Role_ | _What this member built or did_ |
+| _Name_ | _Role_ | _What this member built or did_ |
 
 ## Known limitations
 
 - AI features use Google Gemini; the free quota can run out (HTTP 429/503). Use a paid key for production.
 - Stripe price IDs must be set in `STRIPE_PRICE_MAP` before live card payments work.
+- Each branch is a separate Supabase project in the owner's account, so it counts toward
+  that account's project limit and cost (the Supabase free plan allows two projects).
