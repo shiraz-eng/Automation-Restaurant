@@ -105,6 +105,7 @@ inventory, kitchen operations, suppliers and finances on one central platform.
 | **Staff & access** | Staff without logins (name, job, shift), custom portals built from individual permissions with a live preview, approvals, audit log, attendance and scheduling |
 | **AI** | Owner assistant (live answers from restaurant data, reads and creates PDFs, every chat saved), Smart Import (upload a menu, recipe, inventory, supplier, table, staff or PO document → reviewable draft → approve), customer menu assistant, website AI Guide |
 | **Brand** | Brand Kit (logo, colours, receipt style) applied to the menu, receipts, invoices and reports |
+| **Branches** | Owner panel for a group of locations: create independent branches (each its own database), a login per branch (password shown once), per-branch receipt details, rename, archive / restore, delete permanently, side-by-side comparison, one-click switching between workspaces — see [Multi-branch](#multi-branch) |
 | **Platform** | Marketing site, self-service sign-up and payment, automatic provisioning, plan tiers and upgrades, super-admin console |
 
 ## How a restaurant goes live
@@ -145,18 +146,19 @@ under human control.
 
 | AI feature | What it does | Outcome |
 | --- | --- | --- |
-| **Owner & staff assistant** | Answers questions about sales, profit, food cost, stock, suppliers, kitchen, staff and branches, and proposes actions (drafting a purchase order, adjusting stock, adding menu items) | Faster decisions; less time spent digging through reports |
-| **AI Guide** | Step-by-step, role-specific help on the website and inside the app | Faster staff onboarding, less training effort, fewer operational errors |
+| **Owner & staff assistant** | Answers questions about sales, profit, food cost, stock, suppliers, kitchen, staff and branches (one branch, or all side by side), and proposes actions (drafting a purchase order, adjusting stock, adding menu items). Knows whether it is in the owner panel or a branch, and who it is talking to | Faster decisions; less time spent digging through reports |
+| **AI Guide** | Step-by-step, role-specific help on the website and inside the app, including setting up and managing branches and fixing a failed branch setup | Faster staff onboarding, less training effort, fewer operational errors |
 | **AI Import** | Turns prompts or uploaded menu, recipe, inventory, supplier, invoice, purchase-order, staff and table files into structured, validated drafts | Much less manual data entry; faster menu and stock setup |
 | **Customer AI** | Helps guests explore the menu, understand ingredients and find relevant deals | A better ordering experience, more conversions and a higher average order value |
-| **Billing assistant** | Answers the owner's questions about plans and the subscription | Self-service billing support |
+| **Billing assistant** | Answers the owner's questions about plans and the subscription, and explains that branches are billed on the main plan while their Supabase projects are Supabase billing | Self-service billing support |
 
 **How it is implemented**
 
 1. **Tools, not guesses.** The assistant reads business data only through
-   **71 permission-checked tools** (52 that read figures, 19 that propose
-   actions). Each tool checks the signed-in user's permissions before it runs,
-   so the AI sees only what that person may see.
+   **71 permission-checked tools** (53 that read figures, 17 that propose
+   actions, and one that writes a PDF document). Each tool checks the signed-in
+   user's permissions before it runs, so the AI sees only what that person may
+   see.
 2. **Human confirmation.** An action tool only *proposes* a change. It runs
    after a person taps Confirm. The AI never approves expenses or invoices and
    never makes payments.
@@ -167,7 +169,18 @@ under human control.
    until the owner approves it.
 4. **Grounded answers.** Figures come from the same ledger and reports as the
    rest of the app; the AI is instructed never to invent numbers.
-5. **One platform.** Combined with POS, kitchen, inventory, recipes, suppliers
+5. **Knows the platform as it is now.** Each assistant's instructions describe
+   the current product, and are updated with every feature:
+   - the owner panel, independent branches and their management;
+   - branch logins and receipt details;
+   - what a branch manager can and can't do.
+
+   A **workspace line** tells the owner assistant where it is (the owner panel
+   with its branches, or one branch) and who it is talking to (the owner or the
+   branch manager). It can't create, archive or delete branches, set logins or
+   change receipt details. It explains where to do that instead, and it never
+   states or asks for a password.
+6. **One platform.** Combined with POS, kitchen, inventory, recipes, suppliers
    and finance, the AI reduces administrative work, improves stock visibility
    and keeps the customer experience consistent.
 
@@ -339,48 +352,128 @@ period.
 ## Multi-branch
 
 On the Enterprise plan (`branches.multi`) an owner runs several locations as
-**independent restaurants under one owner panel**. A restaurant with one
-location keeps working exactly as before.
+**independent restaurants under one owner panel**. A restaurant on a
+single-location plan keeps working exactly as before.
 
-- **The main restaurant is the owner panel.** From **Branches** the owner
-  creates a branch with a short code and a name (e.g. `DHA`, "DHA Phase 6").
-- **Each branch is its own restaurant** with its own Supabase project, created
-  in the owner's Supabase account through the main restaurant's connection, by
-  the same automated provisioning as any new restaurant. It has its own menu,
-  recipes, inventory, suppliers, orders, kitchen, staff, portals, finance and
-  reports. Branch databases are never merged.
-- **One-time copy.** A new branch starts with a copy of the main restaurant's
-  menu, recipes, ingredients (stock set to 0), suppliers, deals, branding, tax
-  and currency. Orders, stock levels, staff and finance start empty. The copy
-  runs as one transaction: all of it, or nothing.
-- **Monitoring.** The owner dashboard shows a card per branch (orders, net
-  sales, food cost, expenses, low stock, money owed, unclosed days), each read
-  from that branch's own database. The owner's AI can answer for one branch,
-  the main restaurant, or all of them; combined totals are labelled as sums
-  across separate databases.
-- **Switching workspaces.** A dropdown in the owner panel opens a branch with a
-  one-time sign-in, without logging out of the main panel. Inside a branch, a
-  "Back to the owner panel" link returns to it.
-- **Branch staff stay in their branch.** Branch managers and portals are
-  created inside the branch and can only ever reach that branch's database.
+### Owner panel and branches
 
-**Safeguards**
-- Only the main restaurant's owner can create, retry or open branches; a branch
-  workspace cannot create branches of its own.
-- A branch id is only looked up among the caller's own branches.
+- **The main restaurant is the owner panel.** It shows only what the owner
+  needs to run the group:
+  - **Overview:** a card per branch;
+  - **Branches:** create and manage;
+  - **Compare branches**;
+  - the **AI assistant** and **AI Guide**;
+  - **Billing**;
+  - **defaults for new branches:** Brand Kit, currency and tax.
+
+  Orders, kitchen, menu, stock, suppliers, staff and finance all run **inside a
+  branch**, including the owner's first shop.
+- **Each branch is its own restaurant:**
+  - it has its own Supabase project, created in the owner's Supabase account
+    through the main restaurant's connection, by the same automated
+    provisioning as any new restaurant;
+  - it has its own login, menu, recipes, inventory, suppliers, orders, kitchen,
+    staff, portals, finance and reports;
+  - branch databases are never merged.
+- **Creating a branch:**
+  - In **Branches → Add a branch**, the owner gives a code (e.g. `DHA`), a name
+    (e.g. "DHA Phase 6") and that branch's **receipt details**.
+  - Setup takes a few minutes. The branch is never shown as ready before it
+    really is, and a failed setup can be retried.
+- **One-time copy.** A new branch starts with a copy of these:
+  - the menu, recipes and ingredients (stock set to 0);
+  - suppliers and deals;
+  - branding, tax and currency.
+
+  The copy comes from the owner panel if it has a menu; otherwise it comes from
+  the first branch that has one. So a new owner sets the menu up once and later
+  branches start from it.
+
+  Orders, stock levels, staff and finance start empty. The copy runs as one
+  transaction: all of it, or nothing.
+- **Monitoring and comparison:**
+  - The **Overview** shows a card per branch: orders, net sales, operating
+    profit, low stock, money owed and days not closed.
+  - **Compare branches** puts every branch side by side for any period: this
+    month, last month, the last 7 or 30 days, or custom dates.
+  - The comparison shows orders, net sales, food cost and food cost %, expenses,
+    operating profit and margin, average order, low stock, money owed and days
+    not closed.
+  - It adds an all-branches total and names the most profitable branch.
+  - Every figure is read from that branch's own database.
+- **Switching workspaces.** The Workspace selector opens any ready branch with a
+  one-time sign-in, without logging out of the owner panel. **Back to the owner
+  panel** returns to it.
+
+### Managing a branch (Branches → Manage, owner only)
+
+| Option | What it does |
+| --- | --- |
+| **Branch login** | Sets the branch manager's email (and name). The password is typed or generated (e.g. `Ab3k-9QxP-7mTd`) and **shown once** to copy. **Generate new password** makes a new one. Passwords are never stored readably, so they can't be shown again. Sign-in address: `/r/<branch-slug>/login`. |
+| **Receipt details** | That branch's own address, phone, email, website, tax/NTN number and receipt footer, printed on **its** receipts and invoices only. Set while creating the branch, editable here any time. |
+| **Edit** | Renames the branch. Its code and address stay the same. |
+| **Archive / Restore** | Archive switches the branch off: no sign-ins, no orders, and it leaves the figures. Every record is kept, and it can be restored. |
+| **Delete permanently** | Deletes the branch's Supabase project and all its data. The owner types the branch code to confirm. Cannot be undone. |
+
+### What a branch manager can do
+
+| Branch manager | Access |
+| --- | --- |
+| Orders, checkout, kitchen, tables & QR | ✅ |
+| Menu, deals, recipes, inventory | ✅ |
+| Suppliers, purchasing, expenses, finance, day close | ✅ |
+| Staff, shifts, kiosk portals, AI assistant, AI Guide | ✅ |
+| Billing & subscription | ❌ |
+| Restaurant settings (currency, tax, branding, receipt details) | ❌ |
+| Change password | ❌ — only the owner changes passwords inside a branch |
+| Branch creation, branch comparison, other branches | ❌ |
+
+These rules are enforced by the database as well as by the screens:
+- The branch manager's login carries no `settings.*` or `branches.*`
+  permission, so the branch database refuses any change to its settings or
+  receipt details.
+- Another branch is a different database, which a branch login can never reach.
+
+### Safeguards
+- Only the owner panel's owner can create, retry, manage or open branches.
+  Setting logins and permanent deletes also need the owner's own account, not a
+  delegated full-access login.
+- A branch workspace can't create branches of its own.
+- A branch id is only ever looked up among the caller's own branches.
 - Creating the same code twice returns the existing branch instead of a second
-  project.
-- A branch is never shown as created until provisioning has finished; a failed
-  setup or menu copy can be retried.
-- The plan's location limit is enforced.
+  project. Two creates racing on one code also end with one branch.
+- Branch details are checked before anything is written, so a bad value never
+  leaves a half-made branch.
+- The plan's branch limit is enforced: branches only count, and the owner panel
+  doesn't.
+- If Supabase refuses a new project because the owner's organization reached
+  the free plan's **2 active projects**, the branch shows that in plain words.
+  To fix it, upgrade the organization or pause an unused project, then press
+  **Retry**.
+
+### Where it lives
 
 | Piece | Where |
 | --- | --- |
 | Control-plane columns (`parent_tenant_id`, `branch_code`, copy status) | `supabase/control-plane/0025_branch_tenants.sql` |
-| Create, provision, copy, metrics, owner sign-in | `apps/api/src/lib/branchTenants.ts` |
+| Receipt details held until a new branch is ready (`branch_setup`) | `supabase/control-plane/0026_branch_setup.sql` |
+| Create, provision, copy, metrics, logins, receipt details, archive, delete, owner sign-in | `apps/api/src/lib/branchTenants.ts` |
 | API (`/api/owner-branches`) | `apps/api/src/routes/ownerBranches.ts` |
-| Switcher, dashboard panel, Branches manager | `apps/web/src/components/OwnerBranches.tsx` |
+| Owner panel overview, switcher, Branches manager, comparison | `apps/web/src/components/OwnerBranches.tsx` |
+| Compare branches page | `apps/web/src/app/r/[slug]/(portal)/branches/compare` |
 | One-time sign-in page | `apps/web/src/app/r/[slug]/auth/sso` |
+
+| API endpoint | Purpose |
+| --- | --- |
+| `GET /api/owner-branches` | The branches with their figures for a period |
+| `POST /api/owner-branches` | Create a branch (idempotent per code; optional receipt details) |
+| `POST /:id/advance`, `POST /:id/retry` | Move setup forward / retry a failed setup or copy |
+| `POST /:id/open` | One-time owner sign-in into the branch |
+| `GET`/`POST /:id/login` | The branch login (email only) / create or change it, with the password returned once |
+| `GET`/`POST /:id/receipt` | The branch's receipt details |
+| `PATCH /:id` | Rename |
+| `POST /:id/archive`, `POST /:id/restore` | Switch off and back on, keeping all data |
+| `POST /:id/delete` | Delete the branch's project and data (`confirm` = its code) |
 
 The earlier in-database branch model (tenant migrations 0098–0106) is retired:
 its screens were removed and migration 0107 clears the old per-login branch
@@ -429,7 +522,10 @@ limits. Its data stays in the database.
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
 | `/r/<slug>/finance`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
-| `/r/<slug>/branches` | Owner panel: create, monitor and open branches (Enterprise) |
+| `/r/<slug>` (multi-branch) | Owner panel overview: a card per branch and this month's comparison |
+| `/r/<slug>/branches` | Owner panel: create, manage (login, receipt details, rename, archive, delete) and open branches (Enterprise) |
+| `/r/<slug>/branches/compare` | Compare branches side by side for any period |
+| `/r/<branch-slug>/login` | A branch's own sign-in (e.g. `/r/bbq-tonight-dha/login`) |
 | `/r/<slug>/auth/sso` | One-time sign-in into a branch workspace |
 | `/r/<slug>/portal/<portalKey>` | A custom portal, composed from its permissions |
 | `/order/<slug>?table=…` | Guest ordering, tracking and feedback |
@@ -544,10 +640,19 @@ day close and finance overview suites, a full fictional restaurant day
 (`test-finance-scenario.ts`) and cross-restaurant isolation against the live
 API (`test-tenant-isolation.ts`).
 
-Independent branches: `test-owner-branches.ts` (31 checks: owner-only access, branch isolation
-between restaurants, idempotent create including a race, never "created" before
-provisioning finishes, retry, plan limit, owner sign-in) and `test-branch-seed.ts`
-(rehearses the one-time menu copy inside a rolled-back transaction). Any
+Independent branches:
+- **`test-owner-branches.ts`**: 68 checks, run in-process against an in-memory
+  control plane, so no real project is created. It covers:
+  - owner-only access, and isolation between restaurants;
+  - idempotent create, including two creates racing on one code;
+  - never "created" before provisioning finishes; retry;
+  - plan and branch limits, and owner sign-in;
+  - branch logins: the password is shown once and never read back; the branch
+    manager gets no settings, billing or branch permissions;
+  - receipt details set at creation and applied after the copy;
+  - rename, archive and restore, and permanent delete with code confirmation.
+- **`test-branch-seed.ts`**: rehearses the one-time menu copy inside a
+  rolled-back transaction. Any
 database suite can rehearse a migration that is not applied yet: set
 `PRE_SQL=<file.sql>`. The migration runs inside the same rolled-back transaction.
 
@@ -563,4 +668,8 @@ database suite can rehearse a migration that is not applied yet: set
 - AI features use Google Gemini; the free quota can run out (HTTP 429/503). Use a paid key for production.
 - Stripe price IDs must be set in `STRIPE_PRICE_MAP` before live card payments work.
 - Each branch is a separate Supabase project in the owner's account, so it counts toward
-  that account's project limit and cost (the Supabase free plan allows two projects).
+  that account's project limit and cost (the Supabase free plan allows two active projects).
+- Inside a branch the Change password button is shown only to the owner, but Supabase always
+  lets a signed-in user change their own password through its API; the owner can override it at
+  any time with **Generate new password**.
+- Portal logins created inside a branch are still asked to set their own password at first sign-in.
