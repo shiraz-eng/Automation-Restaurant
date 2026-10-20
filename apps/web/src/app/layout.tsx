@@ -6,6 +6,15 @@ const SITE_URL = 'https://automationrestaurant.app';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
+  // The Automation Restaurant robot — the website's own icon. Every restaurant's portal and
+  // guest pages declare their own (lib/portalMetadata.ts), so this never shows inside one.
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180' }],
+  },
   title: {
     default: 'Automation Restaurant — The Operating System for Your Restaurant',
     template: '%s — Automation Restaurant',
