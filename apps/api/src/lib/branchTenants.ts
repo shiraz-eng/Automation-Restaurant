@@ -203,6 +203,12 @@ export const SEED_TABLES: Copy[] = [
   { table: 'recipes', reset: { current_version_id: null, created_by: null } },
   { table: 'recipe_versions', reset: { created_by: null } },
   { table: 'recipe_ingredients' },
+  // Which recipe each dish uses. Without it a branch's dishes sell without deducting any
+  // stock until each recipe is re-saved there (found 2026-10-20 in DHA). What one portion
+  // deducts (recipe_components) is rebuilt from these links in buildSeedSql, never copied:
+  // a copy beside rows the branch already has would deduct twice.
+  { table: 'recipe_links' },
+  { table: 'modifier_recipe_components' },
   { table: 'suppliers', reset: { branch_id: null } },
   { table: 'supplier_items' },
   { table: 'deals' },
@@ -261,7 +267,7 @@ export function buildSeedSql(data: SeedData, opts: { wrap?: boolean } = {}): str
     const rows = data.rows[c.table] ?? [];
     if (!rows.length) continue;
     out.push(
-      `insert into public.${c.table} select * from json_populate_recordset(null::public.${c.table}, ${dollar(JSON.stringify(rows))}::json) on conflict (id) do nothing;`,
+      `insert into public.${c.table} select * from json_populate_recordset(null::public.${c.table}, ${dollar(JSON.stringify(rows))}::json) on conflict do nothing;`,
     );
   }
   const recipes = (data.rows.recipes_original ?? []).filter((r) => r.current_version_id);
@@ -271,6 +277,11 @@ export function buildSeedSql(data: SeedData, opts: { wrap?: boolean } = {}): str
         JSON.stringify(recipes.map((r) => ({ id: r.id, current_version_id: r.current_version_id }))),
       )}::json) as x(id uuid, current_version_id uuid) where r.id = x.id;`,
     );
+  }
+  // Each linked dish's stock rows, from its recipe's active version — the same function the
+  // Recipes page uses, which replaces a dish's rows instead of adding beside them.
+  if ((data.rows.recipe_links ?? []).length) {
+    out.push('select app.sync_recipe_components(r.id) from public.recipes r where exists (select 1 from public.recipe_links l where l.recipe_id = r.id);');
   }
   if (data.settings) {
     const keys = Object.keys(data.settings).filter((k) => SETTINGS_COLUMNS.includes(k));

@@ -4,7 +4,7 @@
 // its links intact and stock at 0, then ROLLS BACK — nothing changes in either restaurant.
 //   npx tsx scripts/test-branch-seed.ts <source-slug> <target-project-ref>
 import { supabaseAdmin } from '../src/supabase';
-import { getFreshConnection } from '../src/lib/supabaseOAuth';
+import { getFreshConnection, hasConnection } from '../src/lib/supabaseOAuth';
 import { env } from '../src/env';
 import { buildSeedSql, readSeedData, SEED_TABLES } from '../src/lib/branchTenants';
 import { resolveTenantClient } from '../src/lib/tenantAdmin';
@@ -27,6 +27,10 @@ async function main() {
     ...counts.map((c) => `'${c.table}', json_build_array(${c.expected}, ${c.sql})`),
     `'stock_all_zero', json_build_array(1, (select case when count(*) filter (where stock_qty <> 0) = 0 then 1 else 0 end from public.inventory_items where id in (${(data.rows.inventory_items ?? []).map((x) => `'${String(x.id)}'`).join(',') || 'null'})))`,
     `'recipes_linked', json_build_array(${(data.rows.recipes_original ?? []).filter((x) => x.current_version_id).length}, (select count(*) from public.recipes where current_version_id is not null and id in (${(data.rows.recipes_original ?? []).map((x) => `'${String(x.id)}'`).join(',') || 'null'})))`,
+    // No dish deducts the same ingredient twice.
+    `'no_double_deduction', json_build_array(0, (select count(*) from (select menu_item_id, variant_id, inventory_item_id from public.recipe_components group by 1, 2, 3 having count(*) > 1) d))`,
+    // Every dish with a recipe in the source has one — and deducts stock — in the copy.
+    `'dishes_deducting', json_build_array((select 0), (select count(*) from (select distinct menu_item_id from public.recipe_links where menu_item_id in (${[...new Set((data.rows.recipe_links ?? []).map((x) => `'${String(x.menu_item_id)}'`))].join(',') || 'null'})) l where not exists (select 1 from public.recipe_components rc where rc.menu_item_id = l.menu_item_id)))`,
     `'currency', json_build_array(1, (select case when currency_code = ${data.settings?.currency_code ? `'${String(data.settings.currency_code)}'` : 'currency_code'} then 1 else 0 end from public.business_settings where id))`,
   ];
   const sql = `begin;\n${buildSeedSql(data, { wrap: false })}\nselect json_build_object(${checks.join(', ')}) as result;\nrollback;`;
@@ -34,7 +38,8 @@ async function main() {
   const { data: proj } = await supabaseAdmin.from('tenant_projects').select('tenant_id').eq('project_ref', TARGET).maybeSingle();
   if (!proj) throw new Error('unknown target');
   const { data: conn } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', proj.tenant_id).maybeSingle();
-  const token = conn ? (await getFreshConnection(proj.tenant_id)).access_token : env.SUPABASE_ACCESS_TOKEN;
+  // A branch borrows its main restaurant's connection (getFreshConnection resolves it).
+  const token = conn || (await hasConnection(proj.tenant_id)) ? (await getFreshConnection(proj.tenant_id)).access_token : env.SUPABASE_ACCESS_TOKEN;
   const res = await fetch(`https://api.supabase.com/v1/projects/${TARGET}/database/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
