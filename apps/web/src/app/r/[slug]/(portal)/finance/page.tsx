@@ -1,52 +1,32 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
+import {
+  BookOpen, CalendarCheck, ChartColumn, CreditCard, HandCoins, Landmark, PieChart, ReceiptText, Settings, Undo2, Wallet, type LucideIcon,
+} from 'lucide-react';
+import type { FeatureKey } from '@automation-restaurant/shared';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { loadTenantCurrency } from '@/lib/currencyServer';
 import { gatePortalPage, can } from '@/lib/permissions';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import { PlanUpgradePaywall } from '@/components/PlanUpgradePaywall';
-import { SectionReportButtons } from '@/components/SectionReportButtons';
-import { formatCents } from '@/lib/format';
-import { resolveFinancePeriod, rangeLabel, monthsInRange, monthLabel, monthEnd, todayIn } from '@/lib/financePeriod';
-import { FinancePeriodBar } from '@/components/FinancePeriodBar';
-import { FoodCostTarget } from './FoodCostTarget';
+import { rangeLabel, resolveFinancePeriod } from '@/lib/financePeriod';
+import { ModuleHeader, ModuleSection, ModuleSkeleton, ModuleToolGrid, type ModuleAccent, type ModuleTool } from '@/components/module/ModuleLanding';
+import { ModuleRangePicker } from '@/components/module/ModuleRangePicker';
+import { FinanceKpis, KpiSkeleton, RecentTransactions, RevenueExpenseSection, type Access } from './FinanceLandingSections';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Finance' };
 
-type SummaryRow = { category: string; net_cents: number; increase_cents: number; decrease_cents: number; events: number };
-type AgingRow = {
-  supplier_id: string; supplier_name: string; invoices: number; current_cents: number; d1_30_cents: number;
-  d31_60_cents: number; d61_90_cents: number; d90_plus_cents: number; total_cents: number;
-};
-type WatchRow = {
-  recipe_id: string; name: string; price_cents: number; cost_cents: number; food_cost_pct: number | null;
-  previous_cost_cents: number | null; change_pts: number | null; target_pct: number; over_target: boolean; rising: boolean;
-};
+/**
+ * The Finance module's landing page: KPIs, the Finance tools (each an existing
+ * screen), revenue vs expenses and recent money movements for the chosen
+ * period. Every figure comes from the financial ledger (ledger_summary /
+ * ledger_events, RLS: finance.view) read with the signed-in user's own
+ * session — the same source and definitions as the Finance overview.
+ */
 
-function bucket(rows: SummaryRow[]) {
-  const by = (c: string) => rows.find((r) => r.category === c);
-  const n = (v: unknown) => Number(v ?? 0);
-  const revenue = n(by('revenue')?.net_cents);
-  const cogs = n(by('cogs')?.net_cents);
-  const expenses = n(by('expense')?.net_cents);
-  return {
-    revenue,
-    cogs,
-    gross: revenue - cogs,
-    expenses,
-    operating: revenue - cogs - expenses,
-    paymentsIn: n(by('payment')?.increase_cents),
-    refunds: n(by('payment')?.decrease_cents),
-    cashMovements: n(by('cash')?.net_cents),
-    waste: n(by('waste')?.net_cents),
-    payableAdded: n(by('payable')?.increase_cents),
-    payablePaid: n(by('payable')?.decrease_cents),
-  };
-}
-
-export default async function FinanceOverviewPage({
+export default async function FinancePage({
   params,
   searchParams,
 }: {
@@ -57,7 +37,6 @@ export default async function FinanceOverviewPage({
   const sp = await searchParams;
   const t = await createTenantServerClient(slug);
   if (!t) notFound();
-  // Money on this server-rendered page uses the restaurant's currency.
   await loadTenantCurrency(t.client);
   const { role, perms } = await gatePortalPage(t.client, slug, 'finance.view');
   const ent = await getTenantEntitlement(t.client, t.config.tier);
@@ -65,334 +44,82 @@ export default async function FinanceOverviewPage({
     return <PlanUpgradePaywall slug={slug} featureKey="accounting.finance" currentTier={ent.tier} />;
   }
 
-  const canCogs = can(perms, role, 'finance.view_cogs') || can(perms, role, 'finance.view_profit') || can(perms, role, 'inventory.view_cost');
-  const canPayables = can(perms, role, 'payables.view') || can(perms, role, 'payables.manage') || can(perms, role, 'finance.view');
-  const canSetTarget = can(perms, role, 'finance.manage_costs') || role === 'owner' || role === 'manager';
+  // Same rules as the Finance overview.
+  const access: Access = {
+    canCogs: can(perms, role, 'finance.view_cogs') || can(perms, role, 'finance.view_profit') || can(perms, role, 'inventory.view_cost'),
+    canPayables: can(perms, role, 'payables.view') || can(perms, role, 'payables.manage') || can(perms, role, 'finance.view'),
+  };
 
-  const { data: settings } = await t.client.from('business_settings').select('timezone, currency_code, food_cost_target_bps').maybeSingle();
-  const tz = settings?.timezone ?? 'UTC';
-  const range = resolveFinancePeriod(sp, tz);
-  const today = todayIn(tz);
-  const twoWeeksAgo = new Date(Date.parse(`${today}T00:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
-
-  const [cur, prev, payableRes, agingRes, watchRes, holdsRes, awaitingRes, unmatchedRes, salesDaysRes, closedDaysRes] = await Promise.all([
-    t.client.rpc('ledger_summary', { p_from: range.from, p_to: range.to }),
-    t.client.rpc('ledger_summary', { p_from: range.prevFrom, p_to: range.prevTo }),
-    canPayables ? t.client.rpc('supplier_payable') : Promise.resolve({ data: [] }),
-    canPayables ? t.client.rpc('payables_aging') : Promise.resolve({ data: [] }),
-    canCogs ? t.client.rpc('food_cost_watch', { p_days: 30 }) : Promise.resolve({ data: [] }),
-    t.client.from('supplier_payment_holds').select('id', { count: 'exact', head: true }).eq('status', 'open'),
-    t.client.from('expenses').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
-    t.client.from('supplier_invoices').select('id', { count: 'exact', head: true }).eq('status', 'received'),
-    t.client.from('financial_events').select('business_date').eq('category', 'revenue').gte('business_date', twoWeeksAgo).lt('business_date', today).limit(5000),
-    t.client.from('daily_closings').select('business_date').eq('status', 'closed').gte('business_date', twoWeeksAgo),
-  ]);
-
-  // Month by month, when the period covers more than one month (latest 24 months at most).
-  const months = monthsInRange(range.from, range.to).slice(-24);
-  const monthly =
-    months.length > 1
-      ? await Promise.all(
-          months.map(async (ym) => {
-            const mFrom = `${ym}-01` < range.from ? range.from : `${ym}-01`;
-            const mTo = monthEnd(`${ym}-01`) > range.to ? range.to : monthEnd(`${ym}-01`);
-            const { data } = await t.client.rpc('ledger_summary', { p_from: mFrom, p_to: mTo });
-            return { ym, from: mFrom, to: mTo, ...bucket((data as SummaryRow[] | null) ?? []) };
-          }),
-        )
-      : [];
-
-  // Leave out months before the first activity in the period (e.g. before the restaurant opened).
-  const firstActive = monthly.findIndex((m) => m.revenue || m.cogs || m.expenses);
-  if (firstActive > 0) monthly.splice(0, firstActive);
-
-  const now = bucket((cur.data as SummaryRow[] | null) ?? []);
-  const before = bucket((prev.data as SummaryRow[] | null) ?? []);
-  const targetPct = (settings?.food_cost_target_bps ?? 3000) / 100;
-  const foodPct = now.revenue > 0 ? Math.round((now.cogs / now.revenue) * 1000) / 10 : null;
-  const payable = ((payableRes.data ?? []) as { outstanding_cents: number; overdue_cents: number }[]).reduce(
-    (s, r) => ({ outstanding: s.outstanding + Number(r.outstanding_cents), overdue: s.overdue + Number(r.overdue_cents) }),
-    { outstanding: 0, overdue: 0 },
-  );
-  const aging = (agingRes.data as AgingRow[] | null) ?? [];
-  const agingTotals = aging.reduce(
-    (s, r) => ({
-      current: s.current + Number(r.current_cents), d30: s.d30 + Number(r.d1_30_cents), d60: s.d60 + Number(r.d31_60_cents),
-      d90: s.d90 + Number(r.d61_90_cents), d90p: s.d90p + Number(r.d90_plus_cents), total: s.total + Number(r.total_cents),
-    }),
-    { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0, total: 0 },
-  );
-  const watch = ((watchRes.data as WatchRow[] | null) ?? []).filter((w) => w.over_target || (w.rising && (w.change_pts ?? 0) >= 1));
-  const closed = new Set(((closedDaysRes.data ?? []) as { business_date: string }[]).map((d) => d.business_date));
-  const unclosed = [...new Set(((salesDaysRes.data ?? []) as { business_date: string }[]).map((d) => d.business_date))]
-    .filter((d) => !closed.has(d))
-    .sort();
-
+  const { data: settings } = await t.client.from('business_settings').select('timezone').maybeSingle();
+  const range = resolveFinancePeriod(sp, settings?.timezone ?? 'UTC');
   const base = `/r/${slug}`;
-  const ledger = (category: string) => `${base}/finance/ledger?category=${category}&from=${range.from}&to=${range.to}`;
-  const attention = [
-    unclosed.length > 0 && { text: `${unclosed.length} day(s) with sales not closed yet (${unclosed.slice(-3).join(', ')})`, href: `${base}/close` },
-    (holdsRes.count ?? 0) > 0 && { text: `${holdsRes.count} supplier-invoice exception(s) to resolve`, href: `${base}/purchasing` },
-    (unmatchedRes.count ?? 0) > 0 && { text: `${unmatchedRes.count} supplier invoice(s) waiting for the 3-way match`, href: `${base}/purchasing` },
-    (awaitingRes.count ?? 0) > 0 && { text: `${awaitingRes.count} expense(s) awaiting approval`, href: `${base}/expenses` },
-    payable.overdue > 0 && { text: `${formatCents(payable.overdue)} owed to suppliers is overdue`, href: `${base}/purchasing` },
-    watch.length > 0 && { text: `${watch.length} dish(es) over the ${targetPct}% food-cost target or rising`, href: '#food-cost' },
-  ].filter(Boolean) as { text: string; href: string }[];
+  const rangeQuery = `period=custom&from=${range.from}&to=${range.to}`;
+
+  // Mirrors the sidebar's canSee() in the portal layout: permission, owner-only
+  // and (for staff) plan gates. Each destination page enforces its own gate
+  // again; hiding a tile is never the security boundary.
+  const isBranchWorkspace = Boolean(t.config.parentSlug);
+  const allowed = (key: string, ownerOnly = false, feature?: FeatureKey) => {
+    if (ownerOnly && role !== 'owner') return false;
+    if (!can(perms, role, key)) return false;
+    if (role !== 'owner' && feature && !ent.isEntitled(feature)) return false;
+    return true;
+  };
+  const tool = (key: string, title: string, description: string, path: string, icon: LucideIcon, accent: ModuleAccent): ModuleTool => ({
+    key, title, description, href: `${base}/${path}`, icon, accent,
+  });
+  const tools = [
+    tool('overview', 'Finance Overview', 'Profit, food cost, payables aging and month-by-month results.', `finance/overview?${rangeQuery}`, ChartColumn, 'violet'),
+    tool('expenses', 'Expenses', 'Record, approve and pay operating expenses.', `expenses?${rangeQuery}`, ReceiptText, 'blue'),
+    tool('ledger', 'Ledger', 'Every money event, traceable to the record behind it.', `finance/ledger?${rangeQuery}`, BookOpen, 'emerald'),
+    allowed('settings.view', true) && tool('refunds', 'Refund Approvals', 'Set how large a refund staff can give before it needs sign-off.', 'settings/refunds', Undo2, 'orange'),
+    allowed('purchases.view', false, 'inventory.recipe_deduction') &&
+      tool('payouts', 'Payments & Payouts', 'Match supplier invoices, record payouts and see what you owe.', 'purchasing', HandCoins, 'indigo'),
+    allowed('settings.view', true) && tool('tax', 'Tax & Compliance', 'The sales tax rate charged on every order.', 'settings/tax', Landmark, 'amber'),
+    tool('close', 'Day Close & Cash', 'Cash movements, counted cash and locking the business day.', 'close', CalendarCheck, 'teal'),
+    allowed('reports.view', false, 'analytics.advanced') && tool('reports', 'Reports', 'Every PDF report and Excel export, who ran it and for when.', 'exports', PieChart, 'fuchsia'),
+    allowed('settings.view', true) && tool('settings', 'Finance Settings', 'The currency used on bills, reports and exports.', 'settings/currency', Settings, 'slate'),
+    allowed('settings.view', true) && !isBranchWorkspace && tool('billing', 'Subscription Billing', 'Your Automation Restaurant plan and payments.', 'billing', CreditCard, 'rose'),
+  ].filter(Boolean) as ModuleTool[];
+
+  const rangeKey = `${range.from}:${range.to}`;
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black">Finance</h1>
-          <p className="text-muted text-xs mt-1">
-            Profit, cash and what you owe — every figure comes from the financial ledger and links to the entries behind it.
-          </p>
-        </div>
-        <SectionReportButtons
-          slug={slug}
-          restaurantName={t.config.restaurantName}
-          domain="finance"
-          label="Finance"
-          range={{ from: range.from, to: range.to, label: rangeLabel(range.from, range.to) }}
-        />
-      </div>
-
-      <FinancePeriodBar
-        basePath={`${base}/finance`}
-        period={range.period}
-        from={range.from}
-        to={range.to}
-        compareLabel={`${rangeLabel(range.from, range.to)} · vs ${rangeLabel(range.prevFrom, range.prevTo)}`}
+    <div className="mx-auto max-w-7xl space-y-6">
+      <ModuleHeader
+        icon={Wallet}
+        accent="violet"
+        title="Finance"
+        subtitle="Manage your restaurant's financial operations, expenses and payments."
+        actions={
+          <ModuleRangePicker
+            basePath={`${base}/finance`}
+            period={range.period}
+            from={range.from}
+            to={range.to}
+            label={rangeLabel(range.from, range.to)}
+            compareLabel={`Compared with ${rangeLabel(range.prevFrom, range.prevTo)}`}
+          />
+        }
       />
 
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Kpi label="Net sales" cents={now.revenue} prev={before.revenue} href={ledger('revenue')} />
-        {canCogs && <Kpi label="Food cost (COGS)" cents={now.cogs} prev={before.cogs} href={ledger('cogs')} invert />}
-        {canCogs && <Kpi label="Gross profit" cents={now.gross} prev={before.gross} sub={now.revenue > 0 ? `${Math.round((now.gross / now.revenue) * 1000) / 10}% margin` : undefined} />}
-        <Kpi label="Operating expenses" cents={now.expenses} prev={before.expenses} href={ledger('expense')} invert sub="approved, dated in period" />
-        {canCogs && (
-          <Kpi
-            label="Operating profit"
-            cents={now.operating}
-            prev={before.operating}
-            sub={now.revenue > 0 ? `${Math.round((now.operating / now.revenue) * 1000) / 10}% of sales` : undefined}
-            tone={now.operating < 0 ? 'bad' : 'good'}
-          />
-        )}
-        <Kpi label="Payments received" cents={now.paymentsIn} prev={before.paymentsIn} href={ledger('payment')} sub={now.refunds ? `${formatCents(now.refunds)} refunded / voided` : undefined} />
-        {canPayables && (
-          <Kpi label="Owed to suppliers" cents={payable.outstanding} sub={payable.overdue ? `${formatCents(payable.overdue)} overdue` : 'nothing overdue'} href={ledger('payable')} tone={payable.overdue ? 'bad' : undefined} />
-        )}
-        {canCogs && (
-          <div className="rounded-lg border border-border bg-surface p-3">
-            <p className="text-[11px] text-muted">Food cost %</p>
-            <p className={`text-lg font-black ${foodPct != null && foodPct > targetPct ? 'text-danger' : 'text-ok'}`}>{foodPct == null ? '—' : `${foodPct}%`}</p>
-            <p className="text-[11px] text-muted">target {targetPct}%</p>
-          </div>
-        )}
-      </section>
+      <Suspense key={`kpi:${rangeKey}`} fallback={<KpiSkeleton />}>
+        <FinanceKpis client={t.client} range={range} access={access} base={base} />
+      </Suspense>
 
-      {attention.length > 0 && (
-        <section className="rounded-lg border border-warn/40 bg-warn/10 p-3">
-          <p className="text-xs font-bold text-warn mb-1.5">Needs attention</p>
-          <ul className="space-y-1 text-xs">
-            {attention.map((a) => (
-              <li key={a.text}>
-                <Link href={a.href} className="hover:underline">
-                  ● {a.text}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <ModuleSection title="Finance Tools" description="Quick access to your financial features and management tools.">
+        <ModuleToolGrid tools={tools} />
+      </ModuleSection>
 
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        {[
-          ['finance/ledger', 'Ledger', 'Every money event, traceable'],
-          ['expenses', 'Expenses', 'Record, approve, pay'],
-          ['purchasing', 'Payables & invoices', 'Match, approve, pay suppliers'],
-          ['close', 'Cash & day close', 'Movements, counts, lock the day'],
-          ['recipes', 'Recipes & food cost', 'Costed recipes'],
-          ['', 'Performance', 'Charts and trends'],
-          ['exports', 'Report history', 'Saved PDFs and exports'],
-          ['audit', 'Audit log', 'Who changed what'],
-        ].map(([path, title, desc]) => (
-          <Link key={title} href={`${base}${path ? `/${path}` : ''}`} className="rounded-lg border border-border bg-surface p-3 hover:border-primary">
-            <p className="font-bold">{title}</p>
-            <p className="text-muted">{desc}</p>
-          </Link>
-        ))}
-      </section>
-
-      {monthly.length > 1 && (
-        <section>
-          <h2 className="font-bold text-sm mb-2">Month by month</h2>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted border-b border-border">
-                <tr>
-                  <th className="p-2.5 font-semibold">Month</th>
-                  <th className="p-2.5 font-semibold text-right">Net sales</th>
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost</th>}
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Gross profit</th>}
-                  <th className="p-2.5 font-semibold text-right">Expenses</th>
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Operating profit</th>}
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost %</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {[...monthly].reverse().map((m) => (
-                  <tr key={m.ym} className="border-b border-border/60 last:border-0">
-                    <td className="p-2.5 font-semibold">
-                      <Link href={`${base}/finance?period=custom&from=${m.from}&to=${m.to}`} className="hover:underline">
-                        {monthLabel(m.ym)}
-                      </Link>
-                    </td>
-                    <Money c={m.revenue} />
-                    {canCogs && <Money c={m.cogs} />}
-                    {canCogs && <Money c={m.gross} />}
-                    <Money c={m.expenses} />
-                    {canCogs && <Money c={m.operating} bold />}
-                    {canCogs && (
-                      <td className="p-2.5 text-right font-mono">{m.revenue > 0 ? `${Math.round((m.cogs / m.revenue) * 1000) / 10}%` : '—'}</td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-1 text-[11px] text-muted">Newest month first. Click a month to open it.</p>
-        </section>
-      )}
-
-      {canPayables && (
-        <section>
-          <h2 className="font-bold text-sm mb-2">Supplier payables aging</h2>
-          {aging.length === 0 ? (
-            <p className="text-xs text-muted">Nothing owed to suppliers.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-left text-xs">
-                <thead className="text-muted border-b border-border">
-                  <tr>
-                    <th className="p-2.5 font-semibold">Supplier</th>
-                    <th className="p-2.5 font-semibold text-right">Not yet due</th>
-                    <th className="p-2.5 font-semibold text-right">1–30 days</th>
-                    <th className="p-2.5 font-semibold text-right">31–60</th>
-                    <th className="p-2.5 font-semibold text-right">61–90</th>
-                    <th className="p-2.5 font-semibold text-right">90+</th>
-                    <th className="p-2.5 font-semibold text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aging.map((r) => (
-                    <tr key={r.supplier_id} className="border-b border-border/60 last:border-0">
-                      <td className="p-2.5 font-semibold">
-                        {r.supplier_name} <span className="text-muted font-normal">· {r.invoices}</span>
-                      </td>
-                      <Money c={r.current_cents} />
-                      <Money c={r.d1_30_cents} warn />
-                      <Money c={r.d31_60_cents} warn />
-                      <Money c={r.d61_90_cents} warn />
-                      <Money c={r.d90_plus_cents} warn />
-                      <Money c={r.total_cents} bold />
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="border-t border-border bg-main/60 font-bold">
-                  <tr>
-                    <td className="p-2.5">Total</td>
-                    <Money c={agingTotals.current} />
-                    <Money c={agingTotals.d30} warn />
-                    <Money c={agingTotals.d60} warn />
-                    <Money c={agingTotals.d90} warn />
-                    <Money c={agingTotals.d90p} warn />
-                    <Money c={agingTotals.total} bold />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      {canCogs && (
-        <section id="food-cost">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h2 className="font-bold text-sm">Food cost watch</h2>
-            <FoodCostTarget targetPct={targetPct} canEdit={canSetTarget} />
-          </div>
-          {watch.length === 0 ? (
-            <p className="text-xs text-muted">Every costed dish is within the {targetPct}% target and no recipe cost has risen in the last 30 days.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-left text-xs">
-                <thead className="text-muted border-b border-border">
-                  <tr>
-                    <th className="p-2.5 font-semibold">Dish</th>
-                    <th className="p-2.5 font-semibold text-right">Price</th>
-                    <th className="p-2.5 font-semibold text-right">Cost now</th>
-                    <th className="p-2.5 font-semibold text-right">Food cost</th>
-                    <th className="p-2.5 font-semibold text-right">Change (30 days)</th>
-                    <th className="p-2.5 font-semibold text-right">Margin</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {watch.map((w) => (
-                    <tr key={w.recipe_id} className="border-b border-border/60 last:border-0">
-                      <td className="p-2.5 font-semibold">{w.name}</td>
-                      <Money c={w.price_cents} />
-                      <Money c={w.cost_cents} />
-                      <td className={`p-2.5 text-right font-mono ${w.over_target ? 'text-danger font-bold' : ''}`}>
-                        {w.food_cost_pct == null ? '—' : `${Number(w.food_cost_pct)}%`}
-                      </td>
-                      <td className={`p-2.5 text-right font-mono ${w.rising ? 'text-danger' : 'text-muted'}`}>
-                        {w.change_pts == null ? '—' : `${Number(w.change_pts) > 0 ? '+' : ''}${Number(w.change_pts)} pts`}
-                      </td>
-                      <Money c={w.price_cents - w.cost_cents} bold />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      <p className="text-[11px] text-muted">
-        Operating profit here = net sales − food cost − approved expenses dated in this period. (Restaurant Performance on the dashboard
-        subtracts every expense up to the period end, as chosen earlier, so the two can differ.)
-      </p>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+        <Suspense key={`chart:${rangeKey}`} fallback={<ModuleSkeleton className="h-[25rem]" />}>
+          <RevenueExpenseSection client={t.client} range={range} access={access} />
+        </Suspense>
+        <Suspense key={`tx:${rangeKey}`} fallback={<ModuleSkeleton className="h-[25rem]" />}>
+          <RecentTransactions client={t.client} range={range} access={access} viewAllHref={`${base}/finance/ledger?${rangeQuery}`} />
+        </Suspense>
+      </div>
     </div>
   );
 }
 
-function Kpi({
-  label, cents, prev, href, sub, invert, tone,
-}: {
-  label: string; cents: number; prev?: number; href?: string; sub?: string; invert?: boolean; tone?: 'good' | 'bad';
-}) {
-  const delta = prev != null && prev !== 0 ? Math.round(((cents - prev) / Math.abs(prev)) * 1000) / 10 : null;
-  const better = delta == null ? null : invert ? delta < 0 : delta > 0;
-  const body = (
-    <div className="rounded-lg border border-border bg-surface p-3 h-full hover:border-primary/60">
-      <p className="text-[11px] text-muted">{label}</p>
-      <p className={`text-lg font-black font-mono ${tone === 'bad' ? 'text-danger' : tone === 'good' ? 'text-ok' : ''}`}>{formatCents(cents)}</p>
-      <p className="text-[11px] text-muted">
-        {delta != null && <span className={better ? 'text-ok' : 'text-danger'}>{delta > 0 ? '▲' : delta < 0 ? '▼' : '●'} {Math.abs(delta)}% </span>}
-        {sub ?? (prev != null ? `prev ${formatCents(prev)}` : '')}
-      </p>
-    </div>
-  );
-  return href ? <Link href={href}>{body}</Link> : body;
-}
-
-function Money({ c, warn, bold }: { c: number; warn?: boolean; bold?: boolean }) {
-  const v = Number(c);
-  return (
-    <td className={`p-2.5 text-right font-mono ${warn && v > 0 ? 'text-danger' : ''} ${bold ? 'font-bold' : ''} ${v === 0 ? 'text-muted' : ''}`}>
-      {formatCents(v)}
-    </td>
-  );
-}

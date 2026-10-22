@@ -86,15 +86,9 @@ const NAV_GROUPS: [string, NavItem[]][] = [
       ['purchasing', 'Purchasing', 'purchases.view', false, 'inventory.recipe_deduction'],
     ],
   ],
-  [
-    'Finance',
-    [
-      ['finance', 'Finance overview', 'finance.view', false, 'accounting.finance'],
-      ['finance/ledger', 'Ledger', 'finance.view', false, 'accounting.finance'],
-      ['expenses', 'Expenses', 'finance.view', false, 'accounting.finance'],
-      ['billing', 'Billing', 'settings.view', true],
-    ],
-  ],
+  // One module entry: the Finance landing page lists its tools (overview, ledger,
+  // expenses, payouts, tax, reports…) as tiles instead of a link per screen.
+  ['Finance', [['finance', 'Finance', 'finance.view', false, 'accounting.finance']]],
   ['Marketing & Social', [['social', 'Social', 'social.view']]],
   [
     'Staff',
@@ -120,9 +114,13 @@ const NAV_GROUPS: [string, NavItem[]][] = [
       ['settings/currency', 'Currency', 'settings.view', true],
       ['settings/tax', 'Tax', 'settings.view', true],
       ['settings/refunds', 'Refund approvals', 'settings.view', true],
+      ['billing', 'Billing', 'settings.view', true],
     ],
   ],
 ];
+
+// A module entry that stays highlighted on the module's own screens outside its segment.
+const ALSO_ACTIVE: Record<string, string[]> = { finance: ['expenses'] };
 
 export default async function PortalLayout({
   children,
@@ -237,7 +235,12 @@ export default async function PortalLayout({
                     const rawBadge = isLocked && feature ? ent.requiredPlanName(feature) : null;
                     const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
                     return (
-                      <NavLink key={seg} href={`/r/${slug}${seg ? `/${seg}` : ''}`} exact={seg === ''}>
+                      <NavLink
+                        key={seg}
+                        href={`/r/${slug}${seg ? `/${seg}` : ''}`}
+                        exact={seg === ''}
+                        alsoActive={ALSO_ACTIVE[seg]?.map((s) => `/r/${slug}/${s}`)}
+                      >
                         <span className="flex items-center justify-between w-full">
                           <span>{label}</span>
                           {badge && (
