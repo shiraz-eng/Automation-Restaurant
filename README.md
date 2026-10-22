@@ -12,6 +12,7 @@ live data.
 
 **Contents:** [Problem statement](#problem-statement) ·
 [Proposed solution](#proposed-solution) · [Screenshots](#screenshots) ·
+[Module navigation](#module-navigation) ·
 [Technology stack](#technology-stack) ·
 [AI methodology](#ai-methodology-and-implementation) ·
 [AI models and APIs](#ai-models-and-api-usage) ·
@@ -92,6 +93,74 @@ inventory, kitchen operations, suppliers and finances on one central platform.
 
 ---
 
+## Module navigation
+
+The restaurant portal is organised by **module** instead of listing every screen in
+the sidebar:
+
+- **Module sidebar:** one entry per module, with an icon. The modules are
+  Dashboard, POS & Orders, Kitchen, Menu, Inventory, Suppliers, Finance, Staff,
+  Analytics, AI Intelligence and Settings. A module appears only when the user may
+  open at least one of its screens, and it stays highlighted on all of them.
+- **Landing pages** (`/r/<slug>/modules/<module>`; Finance at `/r/<slug>/finance`):
+  each one has KPI cards and a tile for each of the module's screens.
+  - The KPIs use the same queries as the screens they link to, under the user's
+    own permissions.
+  - A figure that cannot be loaded shows as "Unavailable", never as a made-up
+    number.
+  - Change badges appear only when there is a real previous period to compare.
+- **Sub-navigation bar:** a slim bar above every module screen lists that
+  module's screens and underlines the current one. A screen two modules share
+  keeps the bar the user arrived with, so Finance → Payables keeps the Finance bar.
+- **Breadcrumb:** the top bar shows "Module › Screen" on every page and links back
+  to the module's landing page.
+- **Phones:** the modules scroll across under the top bar, and the
+  sub-navigation scrolls sideways.
+- **Permissions:** every tile, KPI and link follows the permission, owner-only
+  and plan rules of the screen it opens. The owner panel of a multi-branch
+  restaurant keeps its own sidebar.
+
+The modules, their screens and their access rules are defined in one place,
+`apps/web/src/lib/modules.ts`, which drives the sidebar, the landing pages and
+the sub-navigation.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/finance-landing.jpg" alt="Finance landing page"><br><b>Finance</b>: date range, revenue, expenses, operating profit and supplier payables, and a tile for each Finance screen</td>
+    <td width="50%"><img src="docs/screenshots/finance-chart.jpg" alt="Revenue vs expenses and recent transactions"><br><b>Revenue vs expenses</b> from the ledger, plus recent payments, expenses and supplier bills</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/module-pos.jpg" alt="POS and Orders"><br><b>POS &amp; Orders</b>: today's sales, orders, average order, open bills</td>
+    <td><img src="docs/screenshots/module-kitchen.jpg" alt="Kitchen"><br><b>Kitchen</b>: new, cooking and ready tickets, dishes off sale</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/module-menu.jpg" alt="Menu"><br><b>Menu</b>: dishes, off sale now, live deals, active promotions</td>
+    <td><img src="docs/screenshots/module-inventory.jpg" alt="Inventory"><br><b>Inventory</b>: stock items, low and out of stock, waste this month</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/module-suppliers.jpg" alt="Suppliers"><br><b>Suppliers</b>: active suppliers, open purchase orders, invoices to match, money owed</td>
+    <td><img src="docs/screenshots/module-staff.jpg" alt="Staff"><br><b>Staff</b>: team members, shifts today, clocked in now</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/module-analytics.jpg" alt="Analytics"><br><b>Analytics</b>: sales and orders this month, audit activity, guest rating</td>
+    <td><img src="docs/screenshots/module-settings.jpg" alt="Settings"><br><b>Settings</b>: currency, sales tax, refund sign-off limit, plan</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/module-ai.jpg" alt="AI Intelligence"><br><b>AI Intelligence</b>: Assistant, Approvals and AI Guide</td>
+    <td><img src="docs/screenshots/subnav-deals.jpg" alt="Sub-navigation on Deals"><br><b>Sub-navigation</b>: the Menu bar on Deals &amp; Combos, with the breadcrumb Menu › Deals &amp; Combos</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/mobile-finance.jpg" alt="Finance on a phone" width="260"><br><b>Phone</b>: module bar, Finance sub-navigation, stacked KPI cards</td>
+    <td><img src="docs/screenshots/mobile-menu.jpg" alt="Menu on a phone" width="260"><br><b>Phone</b>: the Menu module</td>
+  </tr>
+</table>
+
+<sub>Captured from a branch workspace (owner login, dark theme). The signed-in
+email is hidden. All screens are also in
+[docs/module-navigation/Automation-Restaurant-Module-Navigation.pdf](docs/module-navigation/Automation-Restaurant-Module-Navigation.pdf).</sub>
+
+---
+
 ## What it does
 
 | Area | Features |
@@ -101,7 +170,7 @@ inventory, kitchen operations, suppliers and finances on one central platform.
 | **Menu & recipes** | Categories, variants, modifiers, deals, promotions; recipes in base units (g / ml / piece) linked to dishes; per-dish food cost and margin; availability calculated from stock |
 | **Inventory** | Stock on hand, low-stock thresholds and email alerts, automatic deduction by recipe on every order, shared-ingredient impact across dishes |
 | **Purchasing** | Supplier directory with payment terms, purchase requests → purchase orders → goods received → stock update → supplier invoices with a 3-way match (PO ↔ delivery ↔ invoice), typed exceptions, credit notes, and AI reading of invoice PDFs and photos |
-| **Finance** | Finance overview (P&L vs the previous period, food cost % vs target, payables aging, needs-attention list), append-only ledger with corrections, expense approval workflow, supplier payables, cash movements and a locked day close, branded PDF and Excel finance reports — see [Finance model](#finance-model) |
+| **Finance** | Finance landing page (KPIs, tools, revenue vs expenses, recent transactions) and sub-navigation, finance overview (P&L vs the previous period, food cost % vs target, payables aging, needs-attention list), append-only ledger with corrections, expense approval workflow, supplier payables, cash movements and a locked day close, branded PDF and Excel finance reports — see [Finance model](#finance-model) |
 | **Staff & access** | Staff without logins (name, job, shift), custom portals built from individual permissions with a live preview, approvals, audit log, attendance and scheduling |
 | **AI** | Owner assistant (live answers from restaurant data, reads and creates PDFs, every chat saved), Smart Import (upload a menu, recipe, inventory, supplier, table, staff or PO document → reviewable draft → approve), customer menu assistant, website AI Guide |
 | **Brand** | Brand Kit (logo, colours, receipt style) applied to the menu, receipts, invoices and reports |
@@ -321,7 +390,14 @@ the only protection. **The AI never approves or pays anything.**
 
 ### Finance screens and reports
 
-- **Finance overview** (`/r/<slug>/finance`):
+- **Finance landing page** (`/r/<slug>/finance`): revenue, expenses,
+  operating profit and supplier payables for any date range, compared with the
+  previous period. It also has a tile for each Finance screen, a revenue vs
+  expenses chart and recent transactions (see [Module navigation](#module-navigation)).
+  Every Finance screen has the Finance sub-navigation bar: Overview, Ledger,
+  Expenses, Payables & Invoices, Cash & Day Close, Recipes & Food Cost,
+  Performance, Report History, Audit Log.
+- **Finance overview** (`/r/<slug>/finance/overview`):
   - Net sales, food cost, gross profit, operating expenses, operating profit and
     payments received, compared with the previous period.
   - Food cost % against the restaurant's target (editable; 30% by default).
@@ -344,7 +420,7 @@ period.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/finance-overview.jpg" alt="Finance overview"><br><b>Finance overview</b>: net sales, food cost, gross and operating profit, payments received, money owed, food cost % against target, what needs attention, month by month</td>
+    <td width="50%"><img src="docs/screenshots/finance-overview.jpg" alt="Finance overview"><br><b>Finance overview</b>: net sales, food cost, gross and operating profit, payments received, money owed, food cost % against target, what needs attention; the Finance sub-navigation bar sits above it</td>
     <td width="50%"><img src="docs/screenshots/ledger.jpg" alt="Ledger"><br><b>Ledger</b>: every money event with its business day and a link to its source; totals per category; corrections only, never edits</td>
   </tr>
 </table>
@@ -512,6 +588,7 @@ limits. Its data stays in the database.
 | `supabase/tenant-template/schema.sql` | Full schema applied to every new restaurant |
 | `supabase/tenant-migrations` | Numbered migrations rolled out to existing restaurants |
 | `docs/ai-studio` | System prompt and function declarations exported for Google AI Studio |
+| `docs/module-navigation` | Screenshots and a PDF walkthrough of the module navigation |
 
 ## Main routes
 
@@ -521,7 +598,9 @@ limits. Its data stays in the database.
 | `/onboarding/…` | Payment confirmation, database connection, provisioning status, set password |
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
-| `/r/<slug>/finance`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
+| `/r/<slug>/modules/<module>` | A module's landing page: `pos`, `kitchen`, `menu`, `inventory`, `suppliers`, `staff`, `analytics`, `ai`, `settings` |
+| `/r/<slug>/finance` | Finance landing page |
+| `/r/<slug>/finance/overview`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
 | `/r/<slug>` (multi-branch) | Owner panel overview: a card per branch and this month's comparison |
 | `/r/<slug>/branches` | Owner panel: create, manage (login, receipt details, rename, archive, delete) and open branches (Enterprise) |
 | `/r/<slug>/branches/compare` | Compare branches side by side for any period |
