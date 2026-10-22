@@ -12,7 +12,8 @@ import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 import { LayoutDashboard, type LucideIcon } from 'lucide-react';
-import { MODULES, moduleActivePaths, visibleTools } from '@/lib/modules';
+import { MODULES, moduleActivePaths, toolVisible, visibleTools } from '@/lib/modules';
+import { ModuleSubNav } from '@/components/module/ModuleSubNav';
 import { ModuleTrail } from '@/components/module/ModuleTrail';
 
 // [segment, label, permission key, ownerOnly, requiredFeature]. Items without a key always
@@ -148,6 +149,13 @@ export default async function PortalLayout({
         ],
       ];
 
+  // Module sub-navigation bars (Finance), each link filtered with the same gates as its screen.
+  const subNavs = MODULES.filter((m) => m.subnav?.length).map((m) => ({
+    label: m.label,
+    ownedPaths: moduleActivePaths(m).map(href),
+    items: m.subnav!.filter((s) => toolVisible(s, access)).map((s) => ({ key: s.key, title: s.title, href: href(s.path), shared: Boolean(s.shared) })),
+  }));
+
   return (
     <PortalProvider
       expectedUserId={user.id}
@@ -253,6 +261,9 @@ export default async function PortalLayout({
               </NavLink>
             ))}
           </nav>
+          {subNavs.map((s) => (
+            <ModuleSubNav key={s.label} slug={slug} label={s.label} ownedPaths={s.ownedPaths} items={s.items} />
+          ))}
           <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-10 bg-main">{children}</main>
         </div>
       </div>

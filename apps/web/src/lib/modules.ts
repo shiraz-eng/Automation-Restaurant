@@ -50,7 +50,15 @@ export type ModuleDef = {
   /** Landing path under /r/<slug>/. */
   landing: string;
   tools: ModuleToolDef[];
+  /**
+   * The module's own sub-navigation bar, shown above its screens (Finance).
+   * Entries whose screen another module owns are marked `shared`.
+   */
+  subnav?: ModuleSubNavDef[];
 };
+
+/** One sub-navigation link: the gate fields mean the same as on a tile. */
+export type ModuleSubNavDef = Pick<ModuleToolDef, 'key' | 'title' | 'path' | 'perm' | 'ownerOnly' | 'feature' | 'hideInBranch' | 'shared'>;
 
 export const MODULES: ModuleDef[] = [
   {
@@ -141,6 +149,17 @@ export const MODULES: ModuleDef[] = [
       { key: 'settings', title: 'Finance Settings', description: 'The currency used on bills, reports and exports.', path: 'settings/currency', icon: Settings, accent: 'slate', perm: 'settings.view', shared: true, ownerOnly: true },
       { key: 'billing', title: 'Subscription Billing', description: 'Your Automation Restaurant plan and payments.', path: 'billing', icon: CreditCard, accent: 'rose', perm: 'settings.view', shared: true, ownerOnly: true, hideInBranch: true },
     ],
+    subnav: [
+      { key: 'overview', title: 'Overview', path: 'finance/overview', perm: 'finance.view', feature: 'accounting.finance' },
+      { key: 'ledger', title: 'Ledger', path: 'finance/ledger', perm: 'finance.view', feature: 'accounting.finance' },
+      { key: 'expenses', title: 'Expenses', path: 'expenses', perm: 'finance.view', feature: 'accounting.finance' },
+      { key: 'payables', title: 'Payables & Invoices', path: 'purchasing', perm: 'purchases.view', feature: 'inventory.recipe_deduction', shared: true },
+      { key: 'close', title: 'Cash & Day Close', path: 'close', perm: 'finance.view', shared: true },
+      { key: 'recipes', title: 'Recipes & Food Cost', path: 'recipes', perm: 'menu.view', feature: 'inventory.recipe_deduction', shared: true },
+      { key: 'performance', title: 'Performance', path: '', perm: 'analytics.view', shared: true },
+      { key: 'reports', title: 'Report History', path: 'exports', perm: 'reports.view', feature: 'analytics.advanced', shared: true },
+      { key: 'audit', title: 'Audit Log', path: 'audit', perm: 'reports.view', shared: true },
+    ],
   },
   {
     key: 'staff',
@@ -211,7 +230,7 @@ export type ToolAccess = {
 };
 
 /** The sidebar's former canSee(), per tile. */
-export function toolVisible(tool: ModuleToolDef, a: ToolAccess): boolean {
+export function toolVisible(tool: ModuleSubNavDef, a: ToolAccess): boolean {
   // A branch's own manager runs its portals; billing and settings stay with the owner.
   const branchManagerMay = a.isBranchWorkspace && a.role === 'branch_manager' && tool.path === 'portals';
   if (tool.ownerOnly && a.role !== 'owner' && !branchManagerMay) return false;
