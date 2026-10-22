@@ -11,7 +11,6 @@ import { formatCents, formatDateTime } from '@/lib/format';
 import { resolveFinancePeriod, monthLabel, rangeLabel } from '@/lib/financePeriod';
 import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { FinancePeriodBar } from '@/components/FinancePeriodBar';
-import { ModuleBreadcrumb } from '@/components/module/ModuleLanding';
 import { LedgerAdjustmentForm } from './LedgerAdjustmentForm';
 
 export const dynamic = 'force-dynamic';
@@ -116,8 +115,7 @@ export default async function LedgerPage({
     <div className="space-y-5 max-w-6xl">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <ModuleBreadcrumb items={[{ label: 'Finance', href: `${base}/finance` }, { label: 'Ledger' }]} />
-          <h1 className="text-xl font-black mt-1">Ledger</h1>
+          <h1 className="text-xl font-black">Ledger</h1>
           <p className="text-muted text-xs mt-1 max-w-2xl">
             Every money event — sales, food cost, payments, expenses, supplier bills, stock, cash — recorded automatically when it
             happens. Entries are never edited or deleted; mistakes are corrected with a new, reasoned adjustment.

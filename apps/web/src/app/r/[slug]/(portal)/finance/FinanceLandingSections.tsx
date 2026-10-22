@@ -4,7 +4,7 @@ import { Banknote, ChartColumn, Clock, FileText, Receipt, RotateCcw, TrendingDow
 import { formatCents } from '@/lib/format';
 import { addDays, monthEnd, monthsInRange, rangeLabel, type ResolvedFinancePeriod } from '@/lib/financePeriod';
 import {
-  FOCUS_RING, ModuleKpiCard, ModuleKpiGrid, ModuleSkeleton, accentTile, percentChange, type ModuleAccent,
+  FOCUS_RING, ModuleKpiCard, ModuleKpiGrid, ModuleSkeleton, ModuleUnavailableKpi, accentTile, percentChange, type ModuleAccent,
 } from '@/components/module/ModuleLanding';
 import { RevenueExpenseChart, type RevenueExpenseBucket } from './RevenueExpenseChart';
 
@@ -110,22 +110,10 @@ export async function FinanceKpis({ client, range, access, base }: { client: Sup
               href={ledger('payable')}
             />
           ) : (
-            <UnavailableKpi label="Outstanding Payables" message={payableRes.error?.message ?? 'Not available'} />
+            <ModuleUnavailableKpi label="Outstanding Payables" message={payableRes.error?.message ?? 'Not available'} />
           ))}
       </ModuleKpiGrid>
       {now.events === 0 && <p className="text-xs text-muted">No ledger activity in {rangeLabel(range.from, range.to)} yet — figures will appear as orders, payments and expenses are recorded.</p>}
-    </div>
-  );
-}
-
-function UnavailableKpi({ label, message }: { label: string; message: string }) {
-  return (
-    <div className="flex h-full flex-col justify-center rounded-2xl border border-dashed border-border bg-surface p-4">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-body">Unavailable</p>
-      <p className="mt-0.5 truncate text-[11px] text-muted" title={message}>
-        {message}
-      </p>
     </div>
   );
 }

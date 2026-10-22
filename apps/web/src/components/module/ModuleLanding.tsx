@@ -118,6 +118,18 @@ export type ModuleTool = {
   accent: ModuleAccent;
 };
 
+/** Registry tiles (lib/modules) → linked tiles for one restaurant, with an optional query per tile. */
+export function toModuleTools(
+  defs: (Pick<ModuleTool, 'key' | 'title' | 'description' | 'icon' | 'accent'> & { path: string })[],
+  base: string,
+  query?: (tool: { key: string; path: string }) => string,
+): ModuleTool[] {
+  return defs.map((d) => {
+    const q = query?.(d) ?? '';
+    return { key: d.key, title: d.title, description: d.description, icon: d.icon, accent: d.accent, href: `${base}${d.path ? `/${d.path}` : ''}${q ? `?${q}` : ''}` };
+  });
+}
+
 export function ModuleToolGrid({ tools }: { tools: ModuleTool[] }) {
   return (
     <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
@@ -221,6 +233,19 @@ export function ModuleKpiCard({
     </Link>
   ) : (
     <div className={className}>{body}</div>
+  );
+}
+
+/** A KPI the viewer may see but that could not be loaded (never a made-up number). */
+export function ModuleUnavailableKpi({ label, message }: { label: string; message: string }) {
+  return (
+    <div className="flex h-full flex-col justify-center rounded-2xl border border-dashed border-border bg-surface p-4">
+      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-body">Unavailable</p>
+      <p className="mt-0.5 truncate text-[11px] text-muted" title={message}>
+        {message}
+      </p>
+    </div>
   );
 }
 

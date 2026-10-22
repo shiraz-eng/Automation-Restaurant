@@ -8,7 +8,6 @@ import { getTenantEntitlement } from '@/lib/entitlements';
 import { ExpensesManager, type ExpenseSupplier } from './ExpensesManager';
 import { EXPENSE_SELECT, type Expense } from './expenseShared';
 import { FinancePeriodBar } from '@/components/FinancePeriodBar';
-import { ModuleBreadcrumb } from '@/components/module/ModuleLanding';
 import { addDays, rangeLabel, resolveFinancePeriod, todayIn, zonedDayStart } from '@/lib/financePeriod';
 
 export const dynamic = 'force-dynamic';
@@ -106,8 +105,7 @@ export default async function ExpensesPage({
     <div className="space-y-6 max-w-5xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <ModuleBreadcrumb items={[{ label: 'Finance', href: `/r/${slug}/finance` }, { label: 'Expenses' }]} />
-          <h1 className="text-xl font-black mt-1">Finance & Profit Analytics</h1>
+          <h1 className="text-xl font-black">Finance & Profit Analytics</h1>
           <p className="text-muted text-xs mt-1">
             Track revenue, operating costs, gross margins, and net profit with live graphs, breakdown reports, and period sorting.
           </p>

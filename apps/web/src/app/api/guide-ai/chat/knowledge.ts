@@ -220,6 +220,7 @@ const STYLE = `
 `;
 
 const PAGE_TIPS: [RegExp, string][] = [
+  [/\/modules\//, "User is on a module's landing page (sidebar modules: POS & Orders, Kitchen, Menu, Inventory, Suppliers, Staff, Analytics, AI, Settings): KPI cards for the module and a tile for each of its screens."],
   [/\/pricing/, 'The visitor is on the Pricing page — help them choose a plan for their restaurant size.'],
   [/\/get-started|\/onboarding/, 'The visitor is in sign-up/onboarding — focus on the setup steps and the Supabase connection.'],
   [/\/portals/, 'User is on Portals (create station logins with exact permissions, live preview, reset passwords).'],

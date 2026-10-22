@@ -11,6 +11,9 @@ import { fetchPortalTheme } from '@/lib/theme';
 import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
+import { LayoutDashboard, type LucideIcon } from 'lucide-react';
+import { MODULES, moduleActivePaths, visibleTools } from '@/lib/modules';
+import { ModuleTrail } from '@/components/module/ModuleTrail';
 
 // [segment, label, permission key, ownerOnly, requiredFeature]. Items without a key always
 // show. The permission gate is additive to the role gate below —
@@ -45,82 +48,10 @@ const OWNER_PANEL_GROUPS: [string, NavItem[]][] = [
   ],
 ];
 
-const NAV_GROUPS: [string, NavItem[]][] = [
-  ['Main', [['', 'Dashboard', 'analytics.view']]],
-  [
-    'Operations',
-    [
-      ['exceptions', 'Attention', 'orders.view'],
-      ['approvals', 'Approvals', 'ai.approve_sensitive_action'],
-      ['live', 'Live ops', 'orders.view'],
-      ['checkout', 'Checkout', 'payments.view'],
-      ['close', 'Day close', 'finance.view'],
-      ['tables', 'Tables & QR', 'tables.view'],
-      ['orders', 'Orders', 'orders.view'],
-    ],
-  ],
-  [
-    'Kitchen',
-    [
-      ['kds', 'Kitchen Display', 'kitchen.view', false, 'kds.realtime'],
-      ['kds/history', 'KOT History', 'kitchen.view', false, 'kds.realtime'],
-    ],
-  ],
-  [
-    'Menu',
-    [
-      ['menu', 'Menu', 'menu.view'],
-      ['deals', 'Deals', 'deals.view'],
-      ['promotions', 'Promotions', 'menu.view'],
-      ['reviews', 'Reviews', 'reviews.view', false, 'staff.management'],
-      ['menu/availability', 'Availability History', 'availability.view'],
-      ['menu/priority', 'Priority Allocation', 'availability.view'],
-    ],
-  ],
-  ['Inventory', [['inventory', 'Inventory', 'stock.view', false, 'inventory.recipe_deduction']]],
-  ['Recipes & Food Cost', [['recipes', 'Recipes & Food Cost', 'menu.view', false, 'inventory.recipe_deduction']]],
-  [
-    'Suppliers & Purchasing',
-    [
-      ['suppliers', 'Suppliers', 'supplier.view', false, 'inventory.recipe_deduction'],
-      ['purchasing', 'Purchasing', 'purchases.view', false, 'inventory.recipe_deduction'],
-    ],
-  ],
-  // One module entry: the Finance landing page lists its tools (overview, ledger,
-  // expenses, payouts, tax, reports…) as tiles instead of a link per screen.
-  ['Finance', [['finance', 'Finance', 'finance.view', false, 'accounting.finance']]],
-  ['Marketing & Social', [['social', 'Social', 'social.view']]],
-  [
-    'Staff',
-    [
-      ['staff', 'Staff', 'staff.view', false, 'staff.management'],
-      ['scheduling', 'Shifts', 'attendance.view', false, 'staff.management'],
-      ['portals', 'Kiosk Portals', 'portals.view', true, 'portals.advanced'],
-    ],
-  ],
-  [
-    'Analytics',
-    [
-      ['audit', 'Audit log', 'reports.view'],
-      ['exports', 'Export History', 'reports.view', false, 'analytics.advanced'],
-    ],
-  ],
-  ['AI Intelligence', [['ai', 'Assistant', 'ai.view', false, 'analytics.advanced'], ['guide', 'AI Guide']]],
-  [
-    'Settings',
-    [
-      ['settings/theme', 'Brand Kit', 'settings.view', false, 'menu.branded'],
-      ['branches', 'Branches', 'branches.view', false, 'branches.multi'],
-      ['settings/currency', 'Currency', 'settings.view', true],
-      ['settings/tax', 'Tax', 'settings.view', true],
-      ['settings/refunds', 'Refund approvals', 'settings.view', true],
-      ['billing', 'Billing', 'settings.view', true],
-    ],
-  ],
-];
-
-// A module entry that stays highlighted on the module's own screens outside its segment.
-const ALSO_ACTIVE: Record<string, string[]> = { finance: ['expenses'] };
+// Everywhere else the sidebar lists modules, not screens: each opens its landing
+// page, whose tiles are the module's screens (lib/modules.ts). A module shows
+// when at least one of its screens would.
+type SideEntry = { key: string; label: string; href: string; icon?: LucideIcon; exact?: boolean; alsoActive?: string[]; feature?: FeatureKey };
 
 export default async function PortalLayout({
   children,
@@ -184,10 +115,38 @@ export default async function PortalLayout({
   const ownerPanelOnly = showSwitcher && role === 'owner';
   // A branch is billed on the main restaurant's plan, so no branch workspace shows Billing.
   const hiddenInBranch = new Set(['branches', 'billing']);
-  const visibleGroups = (ownerPanelOnly ? OWNER_PANEL_GROUPS : NAV_GROUPS).map(([group, items]) => [
-    group,
-    items.filter(([seg, , key, ownerOnly, feature]) => canSee(seg, key, ownerOnly, feature) && !(isBranchWorkspace && hiddenInBranch.has(seg))),
-  ] as [string, NavItem[]]).filter(([, items]) => items.length > 0);
+  const base = `/r/${slug}`;
+  const href = (seg: string) => `${base}${seg ? `/${seg}` : ''}`;
+  const access = { role, perms, isEntitled: ent.isEntitled, isBranchWorkspace };
+  const visibleGroups: [string | null, SideEntry[]][] = ownerPanelOnly
+    ? OWNER_PANEL_GROUPS.map(([group, items]) => [
+        group,
+        items
+          .filter(([seg, , key, ownerOnly, feature]) => canSee(seg, key, ownerOnly, feature) && !(isBranchWorkspace && hiddenInBranch.has(seg)))
+          .map(([seg, label, , , feature]) => ({ key: seg, label, href: href(seg), exact: seg === '', feature })),
+      ] as [string, SideEntry[]]).filter(([, items]) => items.length > 0)
+    : [
+        [
+          null,
+          [
+            ...(canSee('', 'analytics.view') ? [{ key: 'dashboard', label: 'Dashboard', href: href(''), icon: LayoutDashboard, exact: true }] : []),
+            ...MODULES.flatMap((m) => {
+              const tools = visibleTools(m, access);
+              if (tools.length === 0) return [];
+              // Locked (plan badge) only when every screen the viewer would see is locked.
+              const locked = tools.every((tool) => tool.feature && !ent.isEntitled(tool.feature));
+              return [{
+                key: m.key,
+                label: m.label,
+                href: href(m.landing),
+                icon: m.icon,
+                alsoActive: moduleActivePaths(m).map(href),
+                feature: locked ? tools[0].feature : undefined,
+              }];
+            }),
+          ],
+        ],
+      ];
 
   return (
     <PortalProvider
@@ -225,24 +184,19 @@ export default async function PortalLayout({
               </div>
             )}
           </div>
-          <nav className="flex-1 flex flex-col gap-4 px-3 pb-5">
+          <nav className="flex-1 flex flex-col gap-4 px-3 pb-5" aria-label="Main">
             {visibleGroups.map(([group, items]) => (
-              <div key={group}>
-                <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>
+              <div key={group ?? 'modules'}>
+                {group && <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
                 <div className="flex flex-col gap-0.5">
-                  {items.map(([seg, label, , , feature]) => {
-                    const isLocked = feature ? !ent.isEntitled(feature) : false;
-                    const rawBadge = isLocked && feature ? ent.requiredPlanName(feature) : null;
+                  {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, feature }) => {
+                    const rawBadge = feature && !ent.isEntitled(feature) ? ent.requiredPlanName(feature) : null;
                     const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
                     return (
-                      <NavLink
-                        key={seg}
-                        href={`/r/${slug}${seg ? `/${seg}` : ''}`}
-                        exact={seg === ''}
-                        alsoActive={ALSO_ACTIVE[seg]?.map((s) => `/r/${slug}/${s}`)}
-                      >
-                        <span className="flex items-center justify-between w-full">
-                          <span>{label}</span>
+                      <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive}>
+                        <span className="flex items-center gap-3 w-full">
+                          {Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />}
+                          <span className="flex-1 truncate">{label}</span>
                           {badge && (
                             <span className="text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
                               {badge}
@@ -272,7 +226,7 @@ export default async function PortalLayout({
               <div className="text-[11px] text-muted truncate">
                 {t.config.restaurantName} / {roleLabel(role)}
               </div>
-              <div className="font-bold text-body text-sm truncate">Command Center</div>
+              <ModuleTrail slug={slug} fallback="Command Center" />
             </div>
             <div className="flex items-center gap-3 shrink-0">
               <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-main px-3 py-1 text-[11px] font-semibold text-body">
@@ -288,7 +242,18 @@ export default async function PortalLayout({
               </div>
             </div>
           </header>
-          <main className="flex-1 min-w-0 p-6 md:p-10 bg-main">{children}</main>
+          {/* Phones: the sidebar is hidden, so the same entries scroll across under the top bar. */}
+          <nav aria-label="Main" className="md:hidden flex gap-1 overflow-x-auto no-scrollbar border-b border-border bg-surface px-4 py-2 text-sm">
+            {visibleGroups.flatMap(([, items]) => items).map(({ key, label, href: to, icon: Icon, exact, alsoActive }) => (
+              <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} revealWhenActive>
+                <span className="flex items-center gap-2 whitespace-nowrap">
+                  {Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden />}
+                  {label}
+                </span>
+              </NavLink>
+            ))}
+          </nav>
+          <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-10 bg-main">{children}</main>
         </div>
       </div>
       <PortalGuideAiWidget

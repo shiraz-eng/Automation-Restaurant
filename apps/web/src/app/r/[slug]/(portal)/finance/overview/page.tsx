@@ -10,7 +10,6 @@ import { SectionReportButtons } from '@/components/SectionReportButtons';
 import { formatCents } from '@/lib/format';
 import { resolveFinancePeriod, rangeLabel, monthsInRange, monthLabel, monthEnd, todayIn } from '@/lib/financePeriod';
 import { FinancePeriodBar } from '@/components/FinancePeriodBar';
-import { ModuleBreadcrumb } from '@/components/module/ModuleLanding';
 import { FoodCostTarget } from './FoodCostTarget';
 
 export const dynamic = 'force-dynamic';
@@ -144,8 +143,7 @@ export default async function FinanceOverviewPage({
     <div className="space-y-6 max-w-5xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <ModuleBreadcrumb items={[{ label: 'Finance', href: `${base}/finance` }, { label: 'Overview' }]} />
-          <h1 className="text-xl font-black mt-1">Finance overview</h1>
+          <h1 className="text-xl font-black">Finance overview</h1>
           <p className="text-muted text-xs mt-1">
             Profit, cash and what you owe — every figure comes from the financial ledger and links to the entries behind it.
           </p>
