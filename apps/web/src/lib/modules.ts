@@ -51,8 +51,8 @@ export type ModuleDef = {
   landing: string;
   tools: ModuleToolDef[];
   /**
-   * The module's own sub-navigation bar, shown above its screens (Finance).
-   * Entries whose screen another module owns are marked `shared`.
+   * A custom sub-navigation bar (Finance); other modules' bars list their
+   * screens (moduleSubNav). Entries whose screen another module owns are `shared`.
    */
   subnav?: ModuleSubNavDef[];
 };
@@ -251,4 +251,16 @@ export function visibleTools(m: ModuleDef, a: ToolAccess): ModuleToolDef[] {
  */
 export function moduleActivePaths(m: ModuleDef): string[] {
   return [m.landing, ...m.tools.filter((t) => !t.shared && t.path !== '').map((t) => t.path)];
+}
+
+/**
+ * A module's sub-navigation bar: its own `subnav` when it defines one
+ * (Finance), otherwise its screens in tile order. The dashboard ('') is never
+ * a module's own screen, so it counts as shared.
+ */
+export function moduleSubNav(m: ModuleDef): ModuleSubNavDef[] {
+  if (m.subnav) return m.subnav;
+  return m.tools.map(({ key, title, path, perm, ownerOnly, feature, hideInBranch, shared }) => ({
+    key, title, path, perm, ownerOnly, feature, hideInBranch, shared: Boolean(shared) || path === '',
+  }));
 }

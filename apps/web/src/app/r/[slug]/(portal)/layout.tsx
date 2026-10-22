@@ -12,7 +12,7 @@ import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 import { LayoutDashboard, type LucideIcon } from 'lucide-react';
-import { MODULES, moduleActivePaths, toolVisible, visibleTools } from '@/lib/modules';
+import { MODULES, moduleActivePaths, moduleSubNav, toolVisible, visibleTools } from '@/lib/modules';
 import { ModuleSubNav } from '@/components/module/ModuleSubNav';
 import { ModuleTrail } from '@/components/module/ModuleTrail';
 
@@ -149,12 +149,17 @@ export default async function PortalLayout({
         ],
       ];
 
-  // Module sub-navigation bars (Finance), each link filtered with the same gates as its screen.
-  const subNavs = MODULES.filter((m) => m.subnav?.length).map((m) => ({
-    label: m.label,
-    ownedPaths: moduleActivePaths(m).map(href),
-    items: m.subnav!.filter((s) => toolVisible(s, access)).map((s) => ({ key: s.key, title: s.title, href: href(s.path), shared: Boolean(s.shared) })),
-  }));
+  // Module sub-navigation bars (lib/modules moduleSubNav), each link filtered with the same
+  // gates as its screen. The owner panel keeps its own short sidebar and no bars.
+  const subNavs = ownerPanelOnly
+    ? []
+    : MODULES.map((m) => ({
+        key: m.key,
+        label: m.label,
+        landing: href(m.landing),
+        ownedPaths: moduleActivePaths(m).map(href),
+        items: moduleSubNav(m).filter((s) => toolVisible(s, access)).map((s) => ({ key: s.key, title: s.title, href: href(s.path) })),
+      })).filter((n) => n.items.length > 1);
 
   return (
     <PortalProvider
@@ -261,9 +266,7 @@ export default async function PortalLayout({
               </NavLink>
             ))}
           </nav>
-          {subNavs.map((s) => (
-            <ModuleSubNav key={s.label} slug={slug} label={s.label} ownedPaths={s.ownedPaths} items={s.items} />
-          ))}
+          <ModuleSubNav slug={slug} navs={subNavs} />
           <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-10 bg-main">{children}</main>
         </div>
       </div>
