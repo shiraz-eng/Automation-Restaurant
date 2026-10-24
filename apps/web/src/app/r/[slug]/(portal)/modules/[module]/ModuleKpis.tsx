@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   Activity, Ban, Banknote, CalendarClock, CircleCheck, ClipboardList, Coins, CreditCard, Flame, Megaphone, Package, PackageX,
-  Percent, ReceiptText, ScrollText, ShoppingBag, Star, Tag, Trash2, TrendingUp, Truck, Undo2, UserCheck, Users, UtensilsCrossed, type LucideIcon,
+  Percent, ReceiptText, ScrollText, Send, Share2, ShoppingBag, Star, Tag, Trash2, TrendingUp, Truck, Undo2, UserCheck, Users, UtensilsCrossed, type LucideIcon,
 } from 'lucide-react';
 import { formatCents } from '@/lib/format';
 import { addDays, rangeLabel, resolveFinancePeriod, todayIn, zonedDayStart } from '@/lib/financePeriod';
@@ -69,7 +69,7 @@ export function ModuleKpiSkeleton({ cards }: { cards: number }) {
 
 /** How many KPI cards each landing shows at most (for its loading skeleton); 0 = none. */
 export const KPI_CARDS: Record<ModuleKey, number> = {
-  pos: 4, kitchen: 4, menu: 4, inventory: 4, suppliers: 4, finance: 0, staff: 3, analytics: 4, ai: 0, settings: 4,
+  pos: 4, kitchen: 4, menu: 3, marketing: 4, inventory: 4, suppliers: 4, finance: 0, staff: 3, analytics: 4, ai: 0, settings: 4,
 };
 
 export async function ModuleKpis({ module, ctx }: { module: ModuleKey; ctx: KpiCtx }) {
@@ -143,16 +143,12 @@ const LOADERS: Partial<Record<ModuleKey, Loader>> = {
     ];
   },
 
-  // ── Menu: dishes, what the stock engine has taken off sale, live deals and promotions.
+  // ── Menu: dishes, what the stock engine has taken off sale, and live deals.
   async menu({ client, can, base }) {
-    const nowIso = new Date().toISOString();
-    const [items, off, deals, promos] = await Promise.all([
+    const [items, off, deals] = await Promise.all([
       can('menu.view') ? client.from('menu_items').select('is_available') : null,
       can('menu.view') ? client.from('product_availability').select('menu_item_id').eq('status', 'unavailable').limit(2000) : null,
       can('deals.view') ? client.from('deals').select('status, starts_at, ends_at') : null,
-      can('menu.view')
-        ? client.from('promotions').select('starts_at').eq('active', true).or(`ends_at.is.null,ends_at.gt.${nowIso}`).limit(2000)
-        : null,
     ]);
     const out: ReactNode[] = [];
     if (items) {
@@ -172,9 +168,35 @@ const LOADERS: Partial<Record<ModuleKey, Loader>> = {
       out.push(<Card key="deals" icon={Tag} accent="violet" label="Live Deals" value={live.toLocaleString()} error={deals.error}
         footnote={`${rows.length.toLocaleString()} ${rows.length === 1 ? 'deal' : 'deals'} in total`} href={`${base}/deals`} />);
     }
+    return out;
+  },
+
+  // ── Marketing: live promotions, the social posts queue, and the guest rating Reviews shows.
+  async marketing({ client, can, base }) {
+    const nowIso = new Date().toISOString();
+    const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const [promos, drafts, published, rating] = await Promise.all([
+      can('menu.view')
+        ? client.from('promotions').select('starts_at').eq('active', true).or(`ends_at.is.null,ends_at.gt.${nowIso}`).limit(2000)
+        : null,
+      can('social.view') ? client.from('social_posts').select('id', { count: 'exact', head: true }).eq('status', 'draft') : null,
+      can('social.view') ? client.from('social_posts').select('id', { count: 'exact', head: true }).eq('status', 'published').gte('published_at', since30) : null,
+      can('reviews.view') ? client.from('feedback').select('overall').gte('created_at', since30).limit(5000) : null,
+    ]);
+    const out: ReactNode[] = [];
     if (promos) {
       out.push(<Card key="promos" icon={Megaphone} accent="amber" label="Active Promotions" value={((promos.data ?? []) as { starts_at: string | null }[]).filter((p) => !p.starts_at || p.starts_at <= nowIso).length.toLocaleString()} error={promos.error}
         footnote="Switched on and in date" href={`${base}/promotions`} />);
+    }
+    if (drafts) out.push(<Card key="drafts" icon={Share2} accent="blue" label="Posts to Approve" value={count(drafts.count)} error={drafts.error}
+      footnote="Social drafts waiting for a decision" href={`${base}/social`} />);
+    if (published) out.push(<Card key="published" icon={Send} accent="emerald" label="Posts Published" value={count(published.count)} error={published.error}
+      footnote="Last 30 days" href={`${base}/social`} />);
+    if (rating) {
+      const rows = (rating.data ?? []) as { overall: number }[];
+      const avg = rows.length ? Math.round((rows.reduce((s, r) => s + n(r.overall), 0) / rows.length) * 10) / 10 : null;
+      out.push(<Card key="rating" icon={Star} accent="amber" label="Guest Rating" value={avg == null ? '—' : `${avg} / 5`} error={rating.error}
+        footnote={rows.length ? `${rows.length} review(s), last 30 days` : 'No reviews in the last 30 days'} href={`${base}/reviews`} />);
     }
     return out;
   },

@@ -187,7 +187,7 @@ There's no setup fee.
   {
     keys: ['How do the Critical/High/Medium/Low percentages decide availability?', 'How do the percentages work?', 'How does Priority Allocation work?'],
     answer: `When several dishes share a limited ingredient, **Priority Allocation** divides what can be made:
-1. Turn it **On** under **Menu → Priority Allocation**.
+1. Turn it **On** under **Inventory → Priority Allocation**.
 2. Give each priority level a share, e.g. **Critical 40 / High 30 / Medium 20 / Low 10**. The four must total 100%.
 3. Put dishes into levels. Dishes with no priority count as **Low**.
 

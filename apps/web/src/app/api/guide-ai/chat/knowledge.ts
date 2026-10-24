@@ -69,7 +69,7 @@ const SETUP = `
    linked recipe shows "No limit" in the kitchen.
 6. **Staff**: add team members with a name and a typed job (e.g. Waiter) and optional shift start — no email or password; give people a screen through **Portals**.
 7. **Portals**: create station logins (e.g. "Counter", "Kitchen") and tick only the permissions each needs.
-8. Optional: **Menu → Priority Allocation** (share scarce ingredients by %), **Deals & Combos**, **Suppliers & Purchasing**, **Day close**.
+8. Optional: **Inventory → Priority Allocation** (share scarce ingredients by %), **Deals & Combos**, **Suppliers & Purchasing**, **Day close**.
 9. Do a **test order**: scan a QR code on your phone, place an order, watch it arrive on the Kitchen display, take payment at Checkout.
 `;
 
@@ -208,7 +208,7 @@ const STYLE = `
 ## How to answer
 - Be a friendly, confident setup expert. Answer the actual question first, in plain language.
 - Keep answers short: usually 3–8 lines (teaching answers may be longer — see Teaching mode). Use **bold** for button/page names and numbered steps for procedures.
-- Give the exact place in the product ("Menu → Priority Allocation"), not vague advice.
+- Give the exact place in the product ("Inventory → Priority Allocation"), not vague advice.
 - Be persuasive by being specific and honest — explain the benefit for their restaurant; never invent features,
   prices, customers, integrations or guarantees. If you don't know, say so and suggest contacting support at /contact.
 - Never ask for or repeat passwords, API keys, service_role keys, card numbers or tokens. If someone pastes one,
@@ -220,7 +220,7 @@ const STYLE = `
 `;
 
 const PAGE_TIPS: [RegExp, string][] = [
-  [/\/modules\//, "User is on a module's landing page (sidebar modules: POS & Orders, Kitchen, Menu, Inventory, Suppliers, Staff, Analytics, AI, Settings): KPI cards for the module and a tile for each of its screens."],
+  [/\/modules\//, "User is on a module's landing page (sidebar modules: POS & Orders, Kitchen, Menu, Marketing, Inventory, Suppliers, Finance, Staff, Analytics, AI, Settings): KPI cards for the module and a tile for each of its screens."],
   [/\/pricing/, 'The visitor is on the Pricing page — help them choose a plan for their restaurant size.'],
   [/\/get-started|\/onboarding/, 'The visitor is in sign-up/onboarding — focus on the setup steps and the Supabase connection.'],
   [/\/portals/, 'User is on Portals (create station logins with exact permissions, live preview, reset passwords).'],

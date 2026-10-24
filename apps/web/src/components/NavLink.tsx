@@ -8,6 +8,7 @@ export function NavLink({
   href,
   exact,
   alsoActive,
+  notUnder,
   revealWhenActive,
   children,
 }: {
@@ -15,6 +16,8 @@ export function NavLink({
   exact?: boolean;
   /** Other paths (and their sub-paths) that belong to this entry, e.g. a module's screens outside its own segment. */
   alsoActive?: string[];
+  /** Sub-paths that belong to another entry (not active there). */
+  notUnder?: string[];
   /** In a horizontally scrolling bar: scroll the active entry into view. */
   revealWhenActive?: boolean;
   children: React.ReactNode;
@@ -22,7 +25,9 @@ export function NavLink({
   const pathname = usePathname();
   const ref = useRef<HTMLAnchorElement>(null);
   const under = (p: string) => pathname === p || pathname.startsWith(`${p}/`);
-  const active = exact ? pathname === href : under(href) || (alsoActive ?? []).some(under);
+  const active = exact
+    ? pathname === href
+    : (under(href) || (alsoActive ?? []).some(under)) && !(notUnder ?? []).some(under);
 
   useEffect(() => {
     if (revealWhenActive && active) ref.current?.scrollIntoView({ block: 'nearest', inline: 'center' });

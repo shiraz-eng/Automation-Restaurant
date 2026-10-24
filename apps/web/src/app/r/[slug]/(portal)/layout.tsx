@@ -12,7 +12,7 @@ import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 import { LayoutDashboard, type LucideIcon } from 'lucide-react';
-import { MODULES, moduleActivePaths, moduleSubNav, toolVisible, visibleTools } from '@/lib/modules';
+import { MODULES, moduleActivePaths, moduleNestedForeignPaths, moduleSubNav, toolVisible, visibleTools } from '@/lib/modules';
 import { ModuleSubNav } from '@/components/module/ModuleSubNav';
 import { ModuleTrail } from '@/components/module/ModuleTrail';
 
@@ -52,7 +52,7 @@ const OWNER_PANEL_GROUPS: [string, NavItem[]][] = [
 // Everywhere else the sidebar lists modules, not screens: each opens its landing
 // page, whose tiles are the module's screens (lib/modules.ts). A module shows
 // when at least one of its screens would.
-type SideEntry = { key: string; label: string; href: string; icon?: LucideIcon; exact?: boolean; alsoActive?: string[]; feature?: FeatureKey };
+type SideEntry = { key: string; label: string; href: string; icon?: LucideIcon; exact?: boolean; alsoActive?: string[]; notUnder?: string[]; feature?: FeatureKey };
 
 export default async function PortalLayout({
   children,
@@ -142,6 +142,7 @@ export default async function PortalLayout({
                 href: href(m.landing),
                 icon: m.icon,
                 alsoActive: moduleActivePaths(m).map(href),
+                notUnder: moduleNestedForeignPaths(m).map(href),
                 feature: locked ? tools[0].feature : undefined,
               }];
             }),
@@ -202,11 +203,11 @@ export default async function PortalLayout({
               <div key={group ?? 'modules'}>
                 {group && <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
                 <div className="flex flex-col gap-0.5">
-                  {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, feature }) => {
+                  {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder, feature }) => {
                     const rawBadge = feature && !ent.isEntitled(feature) ? ent.requiredPlanName(feature) : null;
                     const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
                     return (
-                      <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive}>
+                      <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} notUnder={notUnder}>
                         <span className="flex items-center gap-3 w-full">
                           {Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />}
                           <span className="flex-1 truncate">{label}</span>
@@ -257,8 +258,8 @@ export default async function PortalLayout({
           </header>
           {/* Phones: the sidebar is hidden, so the same entries scroll across under the top bar. */}
           <nav aria-label="Main" className="md:hidden flex gap-1 overflow-x-auto no-scrollbar border-b border-border bg-surface px-4 py-2 text-sm">
-            {visibleGroups.flatMap(([, items]) => items).map(({ key, label, href: to, icon: Icon, exact, alsoActive }) => (
-              <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} revealWhenActive>
+            {visibleGroups.flatMap(([, items]) => items).map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder }) => (
+              <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} notUnder={notUnder} revealWhenActive>
                 <span className="flex items-center gap-2 whitespace-nowrap">
                   {Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden />}
                   {label}

@@ -38,7 +38,7 @@ export type ModuleToolDef = {
   shared?: boolean;
 };
 
-export type ModuleKey = 'pos' | 'kitchen' | 'menu' | 'inventory' | 'suppliers' | 'finance' | 'staff' | 'analytics' | 'ai' | 'settings';
+export type ModuleKey = 'pos' | 'kitchen' | 'menu' | 'marketing' | 'inventory' | 'suppliers' | 'finance' | 'staff' | 'analytics' | 'ai' | 'settings';
 
 export type ModuleDef = {
   key: ModuleKey;
@@ -92,30 +92,40 @@ export const MODULES: ModuleDef[] = [
   {
     key: 'menu',
     label: 'Menu',
-    subtitle: 'Dishes, deals, promotions and what guests say about them.',
+    subtitle: 'Dishes, sizes, add-ons and combo deals.',
     icon: UtensilsCrossed,
     accent: 'fuchsia',
     landing: 'modules/menu',
     tools: [
       { key: 'menu', title: 'Menu Items', description: 'Dishes, sizes, add-ons, images and prices.', path: 'menu', icon: UtensilsCrossed, accent: 'fuchsia', perm: 'menu.view' },
       { key: 'deals', title: 'Deals & Combos', description: 'Bundles and combo meals with their own price and schedule.', path: 'deals', icon: Tag, accent: 'violet', perm: 'deals.view' },
+    ],
+  },
+  {
+    key: 'marketing',
+    label: 'Marketing',
+    subtitle: 'Promotions, social media and what guests say about you.',
+    icon: Megaphone,
+    accent: 'rose',
+    landing: 'modules/marketing',
+    tools: [
       { key: 'promotions', title: 'Promotions', description: 'Discount codes, automatic offers and how they perform.', path: 'promotions', icon: Megaphone, accent: 'rose', perm: 'menu.view' },
-      { key: 'reviews', title: 'Reviews', description: 'Ratings and comments guests leave after their meal.', path: 'reviews', icon: Star, accent: 'amber', perm: 'reviews.view', feature: 'staff.management' },
-      { key: 'availability', title: 'Availability History', description: 'When each dish went off and back on sale, and why.', path: 'menu/availability', icon: Hourglass, accent: 'teal', perm: 'availability.view' },
-      { key: 'priority', title: 'Priority Allocation', description: 'Which dishes get scarce ingredients first.', path: 'menu/priority', icon: Scale, accent: 'indigo', perm: 'availability.view' },
       { key: 'social', title: 'Social Media', description: 'Plan and publish posts about your dishes and offers.', path: 'social', icon: Share2, accent: 'blue', perm: 'social.view' },
+      { key: 'reviews', title: 'Reviews', description: 'Ratings and comments guests leave after their meal.', path: 'reviews', icon: Star, accent: 'amber', perm: 'reviews.view', feature: 'staff.management' },
     ],
   },
   {
     key: 'inventory',
     label: 'Inventory',
-    subtitle: 'Ingredient stock, recipes and the food cost behind every dish.',
+    subtitle: 'Ingredient stock, recipes, food cost and what is on sale.',
     icon: Package,
     accent: 'emerald',
     landing: 'modules/inventory',
     tools: [
       { key: 'stock', title: 'Stock', description: 'Ingredient levels, restocks, waste, counts and low-stock alerts.', path: 'inventory', icon: Package, accent: 'emerald', perm: 'stock.view', feature: 'inventory.recipe_deduction' },
       { key: 'recipes', title: 'Recipes & Food Cost', description: 'Link dishes to ingredients and see what each one costs.', path: 'recipes', icon: BookOpen, accent: 'teal', perm: 'menu.view', feature: 'inventory.recipe_deduction' },
+      { key: 'availability', title: 'Availability History', description: 'When each dish went off and back on sale, and why.', path: 'menu/availability', icon: Hourglass, accent: 'amber', perm: 'availability.view' },
+      { key: 'priority', title: 'Priority Allocation', description: 'Which dishes get scarce ingredients first.', path: 'menu/priority', icon: Scale, accent: 'indigo', perm: 'availability.view' },
     ],
   },
   {
@@ -251,6 +261,17 @@ export function visibleTools(m: ModuleDef, a: ToolAccess): ModuleToolDef[] {
  */
 export function moduleActivePaths(m: ModuleDef): string[] {
   return [m.landing, ...m.tools.filter((t) => !t.shared && t.path !== '').map((t) => t.path)];
+}
+
+/**
+ * Other modules' screens nested under one of this module's paths (Inventory's
+ * menu/availability under Menu's menu): the sidebar entry is not active there.
+ */
+export function moduleNestedForeignPaths(m: ModuleDef): string[] {
+  const own = moduleActivePaths(m);
+  return MODULES.filter((o) => o.key !== m.key)
+    .flatMap(moduleActivePaths)
+    .filter((p) => own.some((q) => p.startsWith(`${q}/`)));
 }
 
 /**

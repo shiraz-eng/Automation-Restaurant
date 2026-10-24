@@ -99,8 +99,10 @@ The restaurant portal is organised by **module** instead of listing every screen
 the sidebar:
 
 - **Module sidebar:** one entry per module, with an icon. The modules are
-  Dashboard, POS & Orders, Kitchen, Menu, Inventory, Suppliers, Finance, Staff,
-  Analytics, AI Intelligence and Settings. A module appears only when the user may
+  Dashboard, POS & Orders, Kitchen, Menu, Marketing, Inventory, Suppliers, Finance,
+  Staff, Analytics, AI Intelligence and Settings. Marketing holds Promotions, Social
+  Media and Reviews; Inventory holds Stock, Recipes & Food Cost, Availability History
+  and Priority Allocation. A module appears only when the user may
   open at least one of its screens, and it stays highlighted on all of them.
 - **Landing pages** (`/r/<slug>/modules/<module>`; Finance at `/r/<slug>/finance`):
   each one has KPI cards and a tile for each of the module's screens.
@@ -598,7 +600,7 @@ limits. Its data stays in the database.
 | `/onboarding/…` | Payment confirmation, database connection, provisioning status, set password |
 | `/r/<slug>/login` | Staff sign-in for one restaurant |
 | `/r/<slug>` | Owner dashboard and every portal page (orders, KDS, menu, recipes, inventory, purchasing, suppliers, finance, staff, AI, settings …) |
-| `/r/<slug>/modules/<module>` | A module's landing page: `pos`, `kitchen`, `menu`, `inventory`, `suppliers`, `staff`, `analytics`, `ai`, `settings` |
+| `/r/<slug>/modules/<module>` | A module's landing page: `pos`, `kitchen`, `menu`, `marketing`, `inventory`, `suppliers`, `staff`, `analytics`, `ai`, `settings` |
 | `/r/<slug>/finance` | Finance landing page |
 | `/r/<slug>/finance/overview`, `/r/<slug>/finance/ledger` | Finance overview and the ledger |
 | `/r/<slug>` (multi-branch) | Owner panel overview: a card per branch and this month's comparison |
