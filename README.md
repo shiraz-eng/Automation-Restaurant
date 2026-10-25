@@ -163,6 +163,32 @@ email is hidden. All screens are also in
 
 ---
 
+## Responsive design
+
+The website, the customer menu and every portal screen work on phones,
+tablets, laptops and large desktops.
+
+- **Tested widths:** 320, 375, 430, 768, 1024, 1280 and 1920 px.
+- **Routes checked:** 66 routes at every width, with no horizontal scrolling.
+  - The website.
+  - The customer menu.
+  - The owner panel.
+  - Every branch screen: POS, Kitchen, Menu, Marketing, Inventory, Suppliers,
+    Finance, Staff, AI and Settings.
+- **Phones:** the portal sidebar opens as a slide-in drawer from the top bar.
+  The drawer includes the workspace switcher, Change password and Sign out.
+- **Tables:** wide tables scroll sideways inside their own card.
+- **AI Guide:** the AI Guide button shrinks to an icon, so it doesn't cover
+  controls such as Checkout's payment button.
+
+![Responsive UI on phone, tablet and desktop](docs/screenshots/responsive-ui.jpg)
+
+<sub>Phone: website, customer menu, portal dashboard, navigation drawer and
+POS checkout. Tablet: website and Kitchen Display. Desktop: website, customer
+menu and Finance. Logos and personal data are blurred.</sub>
+
+---
+
 ## What it does
 
 | Area | Features |
