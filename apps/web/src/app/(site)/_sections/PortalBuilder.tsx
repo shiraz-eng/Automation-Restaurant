@@ -21,7 +21,7 @@ export function PortalBuilder() {
       title="Give every team member exactly what they need."
       subtitle="There's no fixed 'Kitchen Portal' or 'Finance Portal.' The Owner builds a portal from individual permissions, and each person gets a workspace scoped to exactly what they were given — nothing more."
     >
-      <div className="grid items-center gap-8 lg:grid-cols-[0.85fr_1.15fr] mb-14">
+      <div className="grid grid-cols-1 items-center gap-8 lg:grid-cols-[0.85fr_1.15fr] mb-14">
         <Reveal>
           <div className="rounded-2xl border border-border bg-main p-6 md:p-8">
             <FlowVertical
@@ -45,7 +45,7 @@ export function PortalBuilder() {
       <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted mb-6">
         Example portals an Owner could build
       </p>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {EXAMPLES.map((e, i) => (
           <Reveal key={e.role} delay={i * 60}>
             <div className="rounded-2xl border border-border bg-main p-5 h-full">

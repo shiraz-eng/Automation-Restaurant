@@ -224,19 +224,21 @@ function MyAttendance({ myMembershipId, canRequest }: { myMembershipId: string |
             {hours(s.worked_minutes)} worked{s.attendance_pct != null ? ` · ${s.attendance_pct}%` : ''}
           </p>
           {rows.length > 0 && (
-            <table className="w-full text-left text-xs mt-3 tabular-nums">
-              <tbody>
-                {rows.slice(0, 10).map((r) => (
-                  <tr key={r.id} className="border-b border-border/60 last:border-0">
-                    <td className="py-1.5">{r.business_date}</td>
-                    <td className="py-1.5">
-                      {time(r.clock_in)} – {time(r.clock_out)}
-                    </td>
-                    <td className="py-1.5 capitalize text-muted">{r.status?.replace('_', ' ') ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto mt-3">
+              <table className="w-full text-left text-xs tabular-nums">
+                <tbody>
+                  {rows.slice(0, 10).map((r) => (
+                    <tr key={r.id} className="border-b border-border/60 last:border-0">
+                      <td className="py-1.5">{r.business_date}</td>
+                      <td className="py-1.5">
+                        {time(r.clock_in)} – {time(r.clock_out)}
+                      </td>
+                      <td className="py-1.5 capitalize text-muted">{r.status?.replace('_', ' ') ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {canRequest && <p className="text-muted text-[11px] mt-2">Something wrong? Request a correction below.</p>}
         </>
@@ -444,7 +446,7 @@ function History({ staff, canExport }: { staff: StaffRow[]; canExport: boolean }
       {rows.length === 0 ? (
         <p className="p-3 text-muted text-xs">No attendance recorded in this range.</p>
       ) : (
-        <div className="max-h-[26rem] overflow-y-auto">
+        <div className="max-h-[26rem] overflow-auto">
           <table className="w-full text-left text-xs tabular-nums">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
@@ -568,7 +570,7 @@ function Corrections({
     <Card>
       <h3 className="font-bold text-sm">Attendance corrections</h3>
       {(canRequest || canCorrect) && (
-        <div className="mt-3 grid grid-cols-2 sm:grid-cols-6 gap-3 items-end">
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
           <Field label="Employee">
             <Select value={who} onChange={(e) => setWho(e.target.value)}>
               <option value="">Choose…</option>
@@ -591,7 +593,7 @@ function Corrections({
           <Field label="Reason">
             <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Forgot to clock out" />
           </Field>
-          <div className="flex gap-1.5">
+          <div className="col-span-2 sm:col-span-1 flex flex-wrap gap-1.5">
             {canCorrect && (
               <Button disabled={busy} onClick={() => submit(true)}>
                 Correct now

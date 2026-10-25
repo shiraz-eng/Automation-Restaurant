@@ -197,7 +197,7 @@ export function SuppliersManager({
       </Card>
       )}
 
-      <Card className="p-0 overflow-hidden">
+      <Card className="p-0 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>

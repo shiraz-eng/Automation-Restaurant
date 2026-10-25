@@ -149,7 +149,7 @@ export function AskAi({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask AI about your restaurant…"
-          className="flex-1 rounded border border-border bg-main px-3 py-2 text-xs outline-none focus:border-primary"
+          className="flex-1 min-w-0 rounded border border-border bg-main px-3 py-2 text-xs outline-none focus:border-primary"
         />
         <button
           type="submit"

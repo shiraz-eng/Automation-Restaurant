@@ -125,7 +125,7 @@ export function ExportHistoryPanel({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface overflow-hidden">
+    <div className="rounded-lg border border-border bg-surface overflow-x-auto">
       <table className="w-full text-left text-xs">
         <thead className="text-muted bg-main">
           <tr className="border-b border-border">

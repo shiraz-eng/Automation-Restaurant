@@ -33,7 +33,7 @@ export function HowItConnects() {
       title="An operating system, not a pile of tools"
       subtitle="Two examples of what happens behind a single action — nothing here is a separate app you have to keep in sync yourself."
     >
-      <div className="grid gap-10 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
         <Reveal>
           <div className="rounded-2xl border border-border bg-main p-6 md:p-8">
             <h3 className="font-display font-bold text-lg mb-6 text-center">When a customer orders</h3>

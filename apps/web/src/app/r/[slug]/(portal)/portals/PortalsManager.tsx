@@ -471,7 +471,7 @@ export function PortalsManager({
             </div>
 
 
-            <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr] items-start">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr] items-start">
               {/* ── 1. Permissions ── */}
               <div className="min-w-0">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -673,7 +673,7 @@ export function PortalsManager({
           </p>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {customPortals.map((p) => {
               return (
                 <Card key={p.id} className="flex flex-col">

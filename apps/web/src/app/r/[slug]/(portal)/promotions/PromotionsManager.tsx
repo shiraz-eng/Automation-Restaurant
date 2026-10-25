@@ -292,7 +292,7 @@ export function PromotionsManager({
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <div>
               <span className="block text-[11px] text-muted mb-1">Days (blank = every day)</span>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 {DOW_LABELS.map((label, d) => (
                   <button
                     key={d}
@@ -333,7 +333,7 @@ export function PromotionsManager({
       </Card>
       )}
 
-      <Card className="p-0 overflow-hidden">
+      <Card className="p-0 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>

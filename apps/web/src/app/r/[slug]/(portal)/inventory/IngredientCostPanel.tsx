@@ -80,7 +80,7 @@ export function IngredientCostPanel() {
       ) : shown.length === 0 ? (
         <p className="p-3 text-muted text-xs">No ingredients.</p>
       ) : (
-        <div className="max-h-[28rem] overflow-y-auto">
+        <div className="max-h-[28rem] overflow-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>

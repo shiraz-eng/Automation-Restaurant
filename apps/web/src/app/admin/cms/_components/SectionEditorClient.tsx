@@ -122,7 +122,7 @@ export function SectionEditorClient({ row, role, perms }: { row: SiteSectionRow;
   }
 
   return (
-    <div className="grid lg:grid-cols-2 gap-4 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       <div className="space-y-3">
         <AdminCard className="space-y-3">
           <div className="flex items-center justify-between">

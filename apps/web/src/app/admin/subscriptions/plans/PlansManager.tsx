@@ -140,7 +140,7 @@ function PlanEditor({ plan, onDone }: { plan: PlanDbRow; onDone: () => void }) {
         change needs a new Stripe Price object; paste its ID here.
       </p>
 
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <AdminField label="Users limit">
           <AdminInput value={draft.limits.users ?? ''} onChange={(e) => set('limits', { ...draft.limits, users: e.target.value })} />
         </AdminField>

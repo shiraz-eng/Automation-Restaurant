@@ -94,7 +94,7 @@ export function GetStartedForm({
     <form onSubmit={submit} className="space-y-6">
       <fieldset className="space-y-3">
         <legend className="font-bold text-sm mb-1">Restaurant information</legend>
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <L label="Restaurant name">
             <input required value={f.restaurant_name} onChange={set('restaurant_name')} className={inputCls} />
           </L>

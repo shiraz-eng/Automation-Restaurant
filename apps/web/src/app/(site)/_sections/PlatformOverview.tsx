@@ -37,7 +37,7 @@ export function PlatformOverview() {
       title="Everything your restaurant needs. Connected."
       subtitle="Every module below reads and writes the same restaurant data — an order in Operations is the same order Finance reconciles and Analytics reports on."
     >
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {MODULES.map((m, i) => (
           <Reveal key={m.title} delay={(i % 3) * 60}>
             <ModuleCard icon={m.icon} title={m.title} description={m.description} href={m.href} />

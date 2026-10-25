@@ -436,7 +436,7 @@ export function DealEditor({
         </ol>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_300px]">
         <div className="space-y-4 min-w-0">
           <Card>
             <div className="text-[10px] font-bold uppercase tracking-wide text-primary mb-3">
@@ -444,7 +444,7 @@ export function DealEditor({
             </div>
 
             {step === 0 && (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Deal name">
                   <Input value={draft.name} onChange={(e) => set('name', e.target.value)} placeholder="Family Feast" />
                 </Field>
@@ -722,7 +722,7 @@ export function DealEditor({
             )}
 
             {step === 2 && (
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <div className="text-xs font-bold">Pricing</div>
                   <dl className="text-xs space-y-1.5">
@@ -820,7 +820,7 @@ export function DealEditor({
             )}
 
             {step === 3 && (
-              <div className="grid gap-3 sm:grid-cols-3 max-w-xl">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 max-w-xl">
                 <Field label="Min quantity per order">
                   <Input type="number" min="1" value={draft.min_qty} onChange={(e) => set('min_qty', e.target.value)} />
                 </Field>
@@ -837,7 +837,7 @@ export function DealEditor({
             )}
 
             {step === 4 && (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs font-bold mb-1.5">Order types</div>
@@ -903,7 +903,7 @@ export function DealEditor({
 
             {step === 5 && (
               <div className="space-y-3 max-w-xl">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label="Start date">
                     <Input type="date" value={draft.start_date} onChange={(e) => set('start_date', e.target.value)} />
                   </Field>
@@ -935,7 +935,7 @@ export function DealEditor({
                     </div>
                   )}
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label="From (time)">
                     <Input type="time" value={draft.start_time} onChange={(e) => set('start_time', e.target.value)} />
                   </Field>
@@ -948,7 +948,7 @@ export function DealEditor({
             )}
 
             {step === 6 && (
-              <div className="grid gap-3 sm:grid-cols-2 max-w-xl">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 max-w-xl">
                 <Field label="Tagline">
                   <Input value={draft.tagline} onChange={(e) => set('tagline', e.target.value)} placeholder="Feed the whole family for less" />
                 </Field>
@@ -963,7 +963,7 @@ export function DealEditor({
             )}
 
             {step === 7 && (
-              <div className="grid gap-4 sm:grid-cols-2 text-xs">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
                 <dl className="space-y-1.5">
                   {[
                     ['Name', draft.name || '—'],

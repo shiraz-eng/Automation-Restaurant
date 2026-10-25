@@ -5,6 +5,7 @@ import { WorkspaceSwitcher } from '@/components/OwnerBranches';
 import { SignOutButton } from '@/components/SignOutButton';
 import { ChangePasswordControl } from '@/components/ChangePasswordControl';
 import { NavLink } from '@/components/NavLink';
+import { PortalMobileDrawer } from '@/components/PortalMobileDrawer';
 import { roleLabel } from '@/lib/portals';
 import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
@@ -162,6 +163,75 @@ export default async function PortalLayout({
         items: moduleSubNav(m).filter((s) => toolVisible(s, access)).map((s) => ({ key: s.key, title: s.title, href: href(s.path) })),
       })).filter((n) => n.items.length > 1);
 
+  // The sidebar: the desktop column and, on phones, the drawer opened from the top bar.
+  const sidebar = (
+    <>
+      <div className="p-5 pb-4 pr-12 md:pr-5">
+        {logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-9 max-w-[9rem] object-contain mb-3" />
+        )}
+        <div className="font-black text-base leading-tight text-body">{t.config.restaurantName}</div>
+        <div className="text-muted text-[11px] mt-0.5">
+          /{slug}
+          {t.config.tier ? ` · ${t.config.tier}` : ''}
+        </div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
+          {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
+        </div>
+        {showSwitcher && (
+          <div className="mt-3">
+            <WorkspaceSwitcher slug={slug} />
+          </div>
+        )}
+        {isBranchWorkspace && (
+          <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2 space-y-1">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch workspace · {t.config.branchCode}</div>
+            {role === 'owner' && (
+              <a href={`/r/${t.config.parentSlug}`} className="block text-xs font-semibold text-primary hover:underline">
+                ← Back to the owner panel
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+      <nav className="flex-1 flex flex-col gap-4 px-3 pb-5" aria-label="Main">
+        {visibleGroups.map(([group, items]) => (
+          <div key={group ?? 'modules'}>
+            {group && <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
+            <div className="flex flex-col gap-0.5">
+              {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder, feature }) => {
+                const rawBadge = feature && !ent.isEntitled(feature) ? ent.requiredPlanName(feature) : null;
+                const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
+                return (
+                  <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} notUnder={notUnder}>
+                    <span className="flex items-center gap-3 w-full">
+                      {Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />}
+                      <span className="flex-1 truncate">{label}</span>
+                      {badge && (
+                        <span className="text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                          {badge}
+                        </span>
+                      )}
+                    </span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+      <div className="p-4 border-t border-border text-xs text-muted space-y-2">
+        <div className="truncate" title={user.email ?? undefined}>
+          {user.email}
+        </div>
+        {/* In a branch only the owner changes passwords: branch logins are set from the owner panel. */}
+        {(!isBranchWorkspace || role === 'owner') && <ChangePasswordControl />}
+        <SignOutButton redirectTo={`/r/${slug}/login`} />
+      </div>
+    </>
+  );
+
   return (
     <PortalProvider
       expectedUserId={user.id}
@@ -169,74 +239,13 @@ export default async function PortalLayout({
     >
       <div className="min-h-screen flex bg-main">
         <aside className="hidden md:flex md:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
-          <div className="p-5 pb-4">
-            {logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-9 max-w-[9rem] object-contain mb-3" />
-            )}
-            <div className="font-black text-base leading-tight text-body">{t.config.restaurantName}</div>
-            <div className="text-muted text-[11px] mt-0.5">
-              /{slug}
-              {t.config.tier ? ` · ${t.config.tier}` : ''}
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
-              {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
-            </div>
-            {showSwitcher && (
-              <div className="mt-3">
-                <WorkspaceSwitcher slug={slug} />
-              </div>
-            )}
-            {isBranchWorkspace && (
-              <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2 space-y-1">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch workspace · {t.config.branchCode}</div>
-                {role === 'owner' && (
-                  <a href={`/r/${t.config.parentSlug}`} className="block text-xs font-semibold text-primary hover:underline">
-                    ← Back to the owner panel
-                  </a>
-                )}
-              </div>
-            )}
-          </div>
-          <nav className="flex-1 flex flex-col gap-4 px-3 pb-5" aria-label="Main">
-            {visibleGroups.map(([group, items]) => (
-              <div key={group ?? 'modules'}>
-                {group && <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
-                <div className="flex flex-col gap-0.5">
-                  {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder, feature }) => {
-                    const rawBadge = feature && !ent.isEntitled(feature) ? ent.requiredPlanName(feature) : null;
-                    const badge = rawBadge === 'Professional' ? 'Pro' : rawBadge;
-                    return (
-                      <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} notUnder={notUnder}>
-                        <span className="flex items-center gap-3 w-full">
-                          {Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />}
-                          <span className="flex-1 truncate">{label}</span>
-                          {badge && (
-                            <span className="text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                              {badge}
-                            </span>
-                          )}
-                        </span>
-                      </NavLink>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-          <div className="p-4 border-t border-border text-xs text-muted space-y-2">
-            <div className="truncate" title={user.email ?? undefined}>
-              {user.email}
-            </div>
-            {/* In a branch only the owner changes passwords: branch logins are set from the owner panel. */}
-            {(!isBranchWorkspace || role === 'owner') && <ChangePasswordControl />}
-            <SignOutButton redirectTo={`/r/${slug}/login`} />
-          </div>
+          {sidebar}
         </aside>
 
         <div className="flex-1 min-w-0 flex flex-col">
-          <header className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 md:px-10 h-16 shrink-0">
-            <div className="min-w-0">
+          <header className="flex items-center justify-between gap-3 sm:gap-4 border-b border-border bg-surface px-4 sm:px-6 md:px-10 h-16 shrink-0">
+            <PortalMobileDrawer title={`${t.config.restaurantName} menu`}>{sidebar}</PortalMobileDrawer>
+            <div className="min-w-0 flex-1">
               <div className="text-[11px] text-muted truncate">
                 {t.config.restaurantName} / {roleLabel(role)}
               </div>
@@ -268,7 +277,8 @@ export default async function PortalLayout({
             ))}
           </nav>
           <ModuleSubNav slug={slug} navs={subNavs} />
-          <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-10 bg-main">{children}</main>
+          {/* Phones: room at the bottom so the floating AI Guide button never hides the last controls. */}
+          <main className="flex-1 min-w-0 p-4 pb-24 sm:p-6 sm:pb-24 md:p-10 bg-main">{children}</main>
         </div>
       </div>
       <PortalGuideAiWidget

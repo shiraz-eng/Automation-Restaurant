@@ -453,7 +453,7 @@ export function DealsWorkspace({
             )}
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
             <Card>
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
                 <div>

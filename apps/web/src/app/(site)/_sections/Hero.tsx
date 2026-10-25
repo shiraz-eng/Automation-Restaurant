@@ -43,7 +43,7 @@ function HeroView({ content }: { content: HeroContent }) {
         style={{ background: 'radial-gradient(circle, rgb(var(--gold)) 0%, transparent 70%)' }}
       />
       <div className="relative mx-auto max-w-6xl px-5 md:px-8 pt-14 md:pt-20 pb-16 md:pb-24">
-        <div className="grid gap-10 lg:grid-cols-2 lg:gap-8 items-center">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-8 items-center">
           {/* Copy */}
           <div className="relative">
             <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/[0.07] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-gold">

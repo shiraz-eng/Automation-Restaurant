@@ -335,159 +335,161 @@ export function OrdersClient({
           {visible.length} of {orders.length}
         </span>
       </div>
-      <table className="w-full text-left text-xs">
-        <thead className="text-muted border-b border-border">
-          <tr>
-            {sortHeader('number', '#')}
-            <th className="p-3 font-semibold">Where</th>
-            {sortHeader('items', 'Items')}
-            {sortHeader('total', 'Total', true)}
-            {sortHeader('status', 'Status')}
-            {sortHeader('time', 'Time', true)}
-          </tr>
-        </thead>
-        <tbody>
-          {visible.length === 0 && (
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="text-muted border-b border-border">
             <tr>
-              <td colSpan={6} className="p-6 text-center text-muted">
-                No orders match these filters.
-              </td>
+              {sortHeader('number', '#')}
+              <th className="p-3 font-semibold">Where</th>
+              {sortHeader('items', 'Items')}
+              {sortHeader('total', 'Total', true)}
+              {sortHeader('status', 'Status')}
+              {sortHeader('time', 'Time', true)}
             </tr>
-          )}
-          {visible.map((o) => {
-            const isTerminal = o.status === 'paid' || o.status === 'void';
-            return (
-            <Fragment key={o.id}>
-              <tr
-                className="border-b border-border/60 hover:bg-main/50 cursor-pointer"
-                onClick={() => setExpanded(expanded === o.id ? null : o.id)}
-              >
-                <td className="p-3 font-mono font-bold">{o.order_number}</td>
-                <td className="p-3 text-muted">
-                  {o.table_label ?? o.channel.replace('_', ' ')}
-                  {o.customer_name ? ` · ${o.customer_name}` : ''}
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-muted">
+                  No orders match these filters.
                 </td>
-                <td className="p-3 text-muted">{o.order_lines?.length ?? 0}</td>
-                <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
-                <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                  {isTerminal ? (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
-                          o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
-                        }`}
-                      >
-                        {TERMINAL_LABEL[o.status] ?? o.status}
-                      </span>
-                      {canReopen && o.status === 'paid' && (
-                        <button
-                          onClick={() => reopen(o)}
-                          disabled={savingId === o.id}
-                          className="text-primary text-xs underline shrink-0 disabled:opacity-50"
-                        >
-                          reopen
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      {canUpdateStatus ? (
-                        <Select
-                          value={o.status}
-                          disabled={savingId === o.id}
-                          onChange={(e) => setStatus(o.id, e.target.value)}
-                        >
-                          {EDITABLE_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s.replace('_', ' ')}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
-                          {o.status.replace('_', ' ')}
-                        </span>
-                      )}
-                      {canReopen && o.status === 'served' && (
-                        <button
-                          onClick={() => reopen(o)}
-                          disabled={savingId === o.id}
-                          className="text-primary text-xs underline shrink-0 disabled:opacity-50"
-                        >
-                          reopen
-                        </button>
-                      )}
-                      {canCancel && (
-                        <button
-                          onClick={() => cancel(o)}
-                          disabled={savingId === o.id}
-                          className="text-danger text-xs underline shrink-0 disabled:opacity-50"
-                        >
-                          cancel
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </td>
-                <td className="p-3 text-right text-muted">{formatDateTime(o.created_at)}</td>
               </tr>
-              {expanded === o.id && (
-                <tr className="border-b border-border/60 bg-main/30">
-                  <td colSpan={6} className="p-3">
-                    <div className="space-y-1">
-                      {o.order_lines?.map((l, i) => (
-                        <div key={i} className="flex justify-between text-xs">
-                          <span>
-                            {l.qty}× {l.name_snapshot}{' '}
-                            <span className="text-muted">({l.kds_status})</span>
-                          </span>
-                          <span className="font-semibold">{formatCents(l.line_total_cents)}</span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between text-xs pt-1 border-t border-border mt-1 text-muted">
-                        <span>subtotal {formatCents(o.subtotal_cents)}</span>
-                        {o.discount_cents ? <span>discount -{formatCents(o.discount_cents)}</span> : null}
-                        <span>tax {formatCents(o.tax_cents)}</span>
-                        <span className="text-body font-bold">total {formatCents(o.total_cents)}</span>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border mt-2">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="primary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDownloadReceipt(o);
-                            }}
-                            className="text-xs py-1 px-2.5 h-auto"
+            )}
+            {visible.map((o) => {
+              const isTerminal = o.status === 'paid' || o.status === 'void';
+              return (
+              <Fragment key={o.id}>
+                <tr
+                  className="border-b border-border/60 hover:bg-main/50 cursor-pointer"
+                  onClick={() => setExpanded(expanded === o.id ? null : o.id)}
+                >
+                  <td className="p-3 font-mono font-bold">{o.order_number}</td>
+                  <td className="p-3 text-muted">
+                    {o.table_label ?? o.channel.replace('_', ' ')}
+                    {o.customer_name ? ` · ${o.customer_name}` : ''}
+                  </td>
+                  <td className="p-3 text-muted">{o.order_lines?.length ?? 0}</td>
+                  <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
+                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                    {isTerminal ? (
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
+                            o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+                          }`}
+                        >
+                          {TERMINAL_LABEL[o.status] ?? o.status}
+                        </span>
+                        {canReopen && o.status === 'paid' && (
+                          <button
+                            onClick={() => reopen(o)}
+                            disabled={savingId === o.id}
+                            className="text-primary text-xs underline shrink-0 disabled:opacity-50"
                           >
-                            📄 Download Receipt PDF
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDownloadKot(o);
-                            }}
-                            className="text-xs py-1 px-2.5 h-auto"
-                          >
-                            🍳 Print KOT
-                          </Button>
-                        </div>
-                        {o.paid_at && (
-                          <span className="text-[11px] text-muted">
-                            Paid at {formatDateTime(o.paid_at)}
-                          </span>
+                            reopen
+                          </button>
                         )}
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {canUpdateStatus ? (
+                          <Select
+                            value={o.status}
+                            disabled={savingId === o.id}
+                            onChange={(e) => setStatus(o.id, e.target.value)}
+                          >
+                            {EDITABLE_STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {s.replace('_', ' ')}
+                              </option>
+                            ))}
+                          </Select>
+                        ) : (
+                          <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
+                            {o.status.replace('_', ' ')}
+                          </span>
+                        )}
+                        {canReopen && o.status === 'served' && (
+                          <button
+                            onClick={() => reopen(o)}
+                            disabled={savingId === o.id}
+                            className="text-primary text-xs underline shrink-0 disabled:opacity-50"
+                          >
+                            reopen
+                          </button>
+                        )}
+                        {canCancel && (
+                          <button
+                            onClick={() => cancel(o)}
+                            disabled={savingId === o.id}
+                            className="text-danger text-xs underline shrink-0 disabled:opacity-50"
+                          >
+                            cancel
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
+                  <td className="p-3 text-right text-muted">{formatDateTime(o.created_at)}</td>
                 </tr>
-              )}
-            </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+                {expanded === o.id && (
+                  <tr className="border-b border-border/60 bg-main/30">
+                    <td colSpan={6} className="p-3">
+                      <div className="space-y-1">
+                        {o.order_lines?.map((l, i) => (
+                          <div key={i} className="flex justify-between text-xs">
+                            <span>
+                              {l.qty}× {l.name_snapshot}{' '}
+                              <span className="text-muted">({l.kds_status})</span>
+                            </span>
+                            <span className="font-semibold">{formatCents(l.line_total_cents)}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between text-xs pt-1 border-t border-border mt-1 text-muted">
+                          <span>subtotal {formatCents(o.subtotal_cents)}</span>
+                          {o.discount_cents ? <span>discount -{formatCents(o.discount_cents)}</span> : null}
+                          <span>tax {formatCents(o.tax_cents)}</span>
+                          <span className="text-body font-bold">total {formatCents(o.total_cents)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border mt-2">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="primary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadReceipt(o);
+                              }}
+                              className="text-xs py-1 px-2.5 h-auto"
+                            >
+                              📄 Download Receipt PDF
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadKot(o);
+                              }}
+                              className="text-xs py-1 px-2.5 h-auto"
+                            >
+                              🍳 Print KOT
+                            </Button>
+                          </div>
+                          {o.paid_at && (
+                            <span className="text-[11px] text-muted">
+                              Paid at {formatDateTime(o.paid_at)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

@@ -17,7 +17,7 @@ export default async function GetStartedPage({
   const price = priceCents == null ? null : priceCents / 100;
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-16 grid gap-10 lg:grid-cols-[1fr_320px]">
+    <div className="mx-auto max-w-5xl px-5 py-16 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_320px]">
       <div>
         <h1 className="text-2xl md:text-3xl font-black">Create your restaurant account</h1>
         <p className="text-muted text-sm mt-2 mb-8">

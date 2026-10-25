@@ -66,7 +66,7 @@ export function HeroFields({ content, onChange }: { content: HeroContent; onChan
           <AdminInput value={c.inventoryAlert.text} onChange={(e) => onChange({ ...c, inventoryAlert: { ...c.inventoryAlert, text: e.target.value } })} />
         </AdminField>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <AdminField label="AI card — title">
           <AdminInput value={c.aiRecommendation.title} onChange={(e) => onChange({ ...c, aiRecommendation: { ...c.aiRecommendation, title: e.target.value } })} />
         </AdminField>

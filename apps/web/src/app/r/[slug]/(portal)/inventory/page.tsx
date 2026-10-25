@@ -113,23 +113,25 @@ export default async function InventoryPage({
         {ledger.length === 0 ? (
           <p className="text-muted text-xs">Nothing yet.</p>
         ) : (
-          <table className="w-full text-left text-xs">
-            <tbody>
-              {ledger.map((l) => (
-                <tr key={l.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-2">{l.item_name}</td>
-                  <td className="py-2 text-muted">{l.reason.replace('_', ' ')}</td>
-                  <td
-                    className={`py-2 text-right font-mono ${Number(l.delta_qty) < 0 ? 'text-danger' : 'text-ok'}`}
-                  >
-                    {Number(l.delta_qty) > 0 ? '+' : ''}
-                    {l.delta_qty}
-                  </td>
-                  <td className="py-2 text-right text-muted">{formatDateTime(l.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <tbody>
+                {ledger.map((l) => (
+                  <tr key={l.id} className="border-b border-border/60 last:border-0">
+                    <td className="py-2">{l.item_name}</td>
+                    <td className="py-2 text-muted">{l.reason.replace('_', ' ')}</td>
+                    <td
+                      className={`py-2 text-right font-mono ${Number(l.delta_qty) < 0 ? 'text-danger' : 'text-ok'}`}
+                    >
+                      {Number(l.delta_qty) > 0 ? '+' : ''}
+                      {l.delta_qty}
+                    </td>
+                    <td className="py-2 text-right text-muted">{formatDateTime(l.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
       )}

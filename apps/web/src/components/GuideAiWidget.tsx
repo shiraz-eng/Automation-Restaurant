@@ -40,7 +40,7 @@ export function GuideAiWidget({
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end">
+    <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 flex flex-col items-end">
       {/* Expanded panel */}
       {isOpen && (
         <div className="mb-3 w-[92vw] max-w-[420px] h-[600px] max-h-[80vh] bg-surface transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 shadow-2xl rounded-2xl overflow-hidden border border-border">
@@ -62,12 +62,13 @@ export function GuideAiWidget({
       <button
         onClick={toggle}
         aria-label={isOpen ? 'Close AI Guide' : 'Open AI Guide'}
-        className="group relative flex items-center gap-2.5 rounded-full bg-ink px-4 py-3 text-ink-fg shadow-xl transition-all duration-200 hover:scale-105 active:scale-95 border border-white/10 hover:border-gold/50"
+        className="group relative flex items-center gap-2.5 rounded-full bg-ink p-2 sm:px-4 sm:py-3 text-ink-fg shadow-xl transition-all duration-200 hover:scale-105 active:scale-95 border border-white/10 hover:border-gold/50"
       >
         <span className="grid h-7 w-7 place-items-center rounded-full bg-gold text-ink font-bold shadow-sm transition-transform group-hover:rotate-6">
           {isOpen ? <X size={16} strokeWidth={2.5} /> : <ChefHat size={16} strokeWidth={2.4} />}
         </span>
-        <div className="flex flex-col text-left">
+        {/* Phones: icon only, so the launcher covers as little of the page as possible. */}
+        <div className="hidden sm:flex flex-col text-left">
           <span className="text-[12px] font-bold tracking-tight text-white flex items-center gap-1">
             AI Guide
             <Sparkles size={11} className="text-gold" />

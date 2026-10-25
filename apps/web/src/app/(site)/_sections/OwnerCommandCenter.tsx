@@ -19,7 +19,7 @@ export function OwnerCommandCenter() {
       title="See your entire restaurant at a glance."
       subtitle="One dashboard, built from the same live data every module writes to — not a summary someone has to assemble by hand."
     >
-      <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
         <Reveal>
           <BrowserFrame url="app.automationrestaurant.app/r/your-restaurant">
             <OverviewMockup />

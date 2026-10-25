@@ -93,7 +93,7 @@ export default async function AdminAuditLogsPage({
       ) : rows.length === 0 ? (
         <AdminCard>No activity recorded yet.</AdminCard>
       ) : (
-        <AdminCard className="p-0 overflow-hidden">
+        <AdminCard className="p-0 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-ink-muted border-b border-white/10">
               <tr>

@@ -101,7 +101,7 @@ export function CategoryManagerPanel({ categories, items, canEdit, onClose }: { 
                     </button>
                   </div>
                   <Input
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                     value={catNameDraft[c.id] ?? c.name}
                     disabled={!canEdit}
                     onChange={(e) => setCatNameDraft((s) => ({ ...s, [c.id]: e.target.value }))}

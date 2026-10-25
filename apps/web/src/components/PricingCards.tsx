@@ -24,7 +24,7 @@ export function PricingCards({ plans }: { plans: PlanRow[] }) {
         </button>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         {plans.map((p) => {
           const tier = p.tier;
           const priceCents = annual ? p.priceAnnualCents : p.priceMonthlyCents;

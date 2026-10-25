@@ -174,7 +174,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
           No dishes are tracked yet — a dish appears here once it has a recipe linked to inventory.
         </p>
       ) : (
-        <div className="max-h-[28rem] overflow-y-auto">
+        <div className="max-h-[28rem] overflow-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>

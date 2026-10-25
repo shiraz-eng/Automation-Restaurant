@@ -13,7 +13,7 @@ const HIGHLIGHTS = [
 export function CustomerExperience() {
   return (
     <Section id="customer" tone="surface" width="wide">
-      <div className="grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
         <Reveal>
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-black/5 text-black mb-5">
             <Receipt size={20} strokeWidth={2} />

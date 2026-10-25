@@ -722,36 +722,38 @@ export function PurchasingClient({
                       <span className="font-mono text-body">{formatCents(total)}</span>
                     </div>
                   </div>
-                  <table className="w-full text-left text-xs">
-                    <tbody>
-                      {o.purchase_order_lines.map((l) => {
-                        const outstanding = Number(l.qty) - Number(l.received_qty);
-                        return (
-                          <tr key={l.id} className="border-b border-border/50 last:border-0">
-                            <td className="px-4 py-2">{l.description}</td>
-                            <td className="px-4 py-2 text-right font-mono">
-                              {Number(l.qty)}
-                              {Number(l.received_qty) > 0 && Number(l.received_qty) < Number(l.qty) ? ` (${Number(l.received_qty)} in)` : ''}
-                              {Number(l.rejected_qty) > 0 && <span className="text-danger"> −{Number(l.rejected_qty)} rej.</span>}
-                            </td>
-                            <td className="px-4 py-2 text-right text-muted">{formatCents(l.unit_cost_cents)}</td>
-                            <td className="px-4 py-2 text-right font-mono">{formatCents(Math.round(Number(l.qty) * l.unit_cost_cents))}</td>
-                            <td className="px-4 py-2 text-right">
-                              {canReceive && ['sent', 'partial'].includes(o.status) && outstanding > 0 && (
-                                <button
-                                  onClick={() => receiveLine(l)}
-                                  disabled={busy}
-                                  className="text-primary underline decoration-dotted text-[11px]"
-                                >
-                                  receive
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <tbody>
+                        {o.purchase_order_lines.map((l) => {
+                          const outstanding = Number(l.qty) - Number(l.received_qty);
+                          return (
+                            <tr key={l.id} className="border-b border-border/50 last:border-0">
+                              <td className="px-4 py-2">{l.description}</td>
+                              <td className="px-4 py-2 text-right font-mono">
+                                {Number(l.qty)}
+                                {Number(l.received_qty) > 0 && Number(l.received_qty) < Number(l.qty) ? ` (${Number(l.received_qty)} in)` : ''}
+                                {Number(l.rejected_qty) > 0 && <span className="text-danger"> −{Number(l.rejected_qty)} rej.</span>}
+                              </td>
+                              <td className="px-4 py-2 text-right text-muted">{formatCents(l.unit_cost_cents)}</td>
+                              <td className="px-4 py-2 text-right font-mono">{formatCents(Math.round(Number(l.qty) * l.unit_cost_cents))}</td>
+                              <td className="px-4 py-2 text-right">
+                                {canReceive && ['sent', 'partial'].includes(o.status) && outstanding > 0 && (
+                                  <button
+                                    onClick={() => receiveLine(l)}
+                                    disabled={busy}
+                                    className="text-primary underline decoration-dotted text-[11px]"
+                                  >
+                                    receive
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                   <div className="flex items-center justify-between gap-2 p-3 bg-main/40">
                     <span className="text-[11px] text-muted">
                       {o.received_at ? `received ${formatDateTime(o.received_at)}` : `created ${formatDateTime(o.created_at)}`}
@@ -1114,7 +1116,7 @@ export function PurchasingClient({
             </Card>
           )}
           {creditNotes.length > 0 && (
-            <Card className="p-0 overflow-hidden">
+            <Card className="p-0 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>

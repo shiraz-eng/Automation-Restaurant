@@ -44,7 +44,7 @@ export function WorkflowFeature({
   return (
     <div id={id} className={`scroll-mt-20 ${tone === 'surface' ? 'bg-surface border-y border-border' : ''}`}>
       <div className="mx-auto max-w-6xl px-5 md:px-8 py-16 md:py-20">
-        <div className={`grid items-center gap-12 lg:grid-cols-2 ${reverse ? 'lg:[&>*:first-child]:order-2' : ''}`}>
+        <div className={`grid grid-cols-1 items-center gap-12 lg:grid-cols-2 ${reverse ? 'lg:[&>*:first-child]:order-2' : ''}`}>
           <Reveal>
             <div className="grid h-11 w-11 place-items-center rounded-xl bg-black/5 text-black mb-5">
               <Icon size={20} strokeWidth={2} />

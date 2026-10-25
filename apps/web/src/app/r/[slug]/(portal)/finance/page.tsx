@@ -92,7 +92,7 @@ export default async function FinancePage({
         <ModuleToolGrid tools={tools} />
       </ModuleSection>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <Suspense key={`chart:${rangeKey}`} fallback={<ModuleSkeleton className="h-[25rem]" />}>
           <RevenueExpenseSection client={t.client} range={range} access={access} />
         </Suspense>

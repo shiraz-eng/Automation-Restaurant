@@ -67,7 +67,7 @@ export function CustomerChats() {
           ) : chats.length === 0 ? (
             <p className="text-muted text-xs">No customer chats yet. They appear here once guests use the ✦ assistant on your menu.</p>
           ) : (
-            <div className="grid md:grid-cols-[minmax(0,14rem)_1fr] gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,14rem)_1fr] gap-3">
               <div className="space-y-2">
                 <input
                   value={filter}

@@ -303,24 +303,26 @@ export function DayCloseClient({
         {movements.length === 0 ? (
           <p className="text-muted text-xs mb-3">No pay-ins, pay-outs or bank drops recorded for this day.</p>
         ) : (
-          <table className="w-full text-left text-xs mb-3">
-            <tbody>
-              {movements.map((m) => (
-                <tr key={m.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{formatDateTime(m.created_at)}</td>
-                  <td className="py-1.5 pr-2 font-semibold">{KIND_LABEL[m.kind] ?? m.kind}</td>
-                  <td className="py-1.5 pr-2">
-                    {m.reason}
-                    {m.reference && <span className="text-muted"> · {m.reference}</span>}
-                  </td>
-                  <td className={`py-1.5 text-right font-mono ${m.signed_cents < 0 ? 'text-danger' : 'text-ok'}`}>
-                    {m.signed_cents > 0 ? '+' : ''}
-                    {formatCents(m.signed_cents)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto mb-3">
+            <table className="w-full text-left text-xs">
+              <tbody>
+                {movements.map((m) => (
+                  <tr key={m.id} className="border-b border-border/60 last:border-0">
+                    <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{formatDateTime(m.created_at)}</td>
+                    <td className="py-1.5 pr-2 font-semibold">{KIND_LABEL[m.kind] ?? m.kind}</td>
+                    <td className="py-1.5 pr-2">
+                      {m.reason}
+                      {m.reference && <span className="text-muted"> · {m.reference}</span>}
+                    </td>
+                    <td className={`py-1.5 text-right font-mono ${m.signed_cents < 0 ? 'text-danger' : 'text-ok'}`}>
+                      {m.signed_cents > 0 ? '+' : ''}
+                      {formatCents(m.signed_cents)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
         {canManageCash && !closed && !preview?.is_future && (
           <form onSubmit={addMovement} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
@@ -348,7 +350,7 @@ export function DayCloseClient({
         )}
       </Card>
 
-      <Card className="p-0 overflow-hidden">
+      <Card className="p-0 overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>

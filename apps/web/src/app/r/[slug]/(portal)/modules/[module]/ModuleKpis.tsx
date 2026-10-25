@@ -59,7 +59,7 @@ function Card(p: {
 
 export function ModuleKpiSkeleton({ cards }: { cards: number }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading figures">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading figures">
       {Array.from({ length: cards }, (_, i) => (
         <ModuleSkeleton key={i} className="h-[5.75rem]" />
       ))}

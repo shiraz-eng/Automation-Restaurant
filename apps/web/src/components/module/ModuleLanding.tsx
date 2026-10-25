@@ -132,7 +132,7 @@ export function toModuleTools(
 
 export function ModuleToolGrid({ tools }: { tools: ModuleTool[] }) {
   return (
-    <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 [&>*]:min-w-0">
       {tools.map((tool) => (
         <li key={tool.key}>
           <ModuleToolCard tool={tool} />
@@ -167,7 +167,7 @@ export function ModuleToolCard({ tool }: { tool: ModuleTool }) {
 }
 
 export function ModuleKpiGrid({ children }: { children: React.ReactNode }) {
-  return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">{children}</section>;
+  return <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">{children}</section>;
 }
 
 /**

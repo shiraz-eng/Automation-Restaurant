@@ -91,7 +91,7 @@ export function BillingAiChat({ slug, restaurantName }: { slug: string; restaura
             if (e.key === 'Enter' && input.trim() && !busy) send(input.trim());
           }}
           placeholder="Ask a billing question…"
-          className="flex-1"
+          className="flex-1 min-w-0"
         />
         <Button onClick={() => input.trim() && send(input.trim())} disabled={busy || !input.trim()}>
           Ask

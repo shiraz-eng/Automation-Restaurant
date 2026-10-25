@@ -33,7 +33,7 @@ function totals(rows: SummaryRow[] | null) {
 
 export function KpiSkeleton() {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading figures">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading figures">
       {[0, 1, 2, 3].map((i) => (
         <ModuleSkeleton key={i} className="h-[5.75rem]" />
       ))}

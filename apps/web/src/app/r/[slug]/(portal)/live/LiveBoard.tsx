@@ -107,7 +107,7 @@ export function LiveBoard({
         <StatCard label="Served today" value={servedToday} />
       </section>
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <h2 className="font-bold text-sm mb-3">Activity feed</h2>
           {orders.length === 0 ? (

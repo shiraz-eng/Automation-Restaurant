@@ -259,7 +259,7 @@ export function ReviewsManager({
                     onChange={(e) => setDrafts((d) => ({ ...d, [r.id]: e.target.value }))}
                     placeholder={r.response ? 'Update your reply…' : 'Write a reply…'}
                     rows={2}
-                    className="flex-1 rounded border border-border bg-surface px-2.5 py-1.5 text-xs outline-none focus:border-primary"
+                    className="flex-1 min-w-0 rounded border border-border bg-surface px-2.5 py-1.5 text-xs outline-none focus:border-primary"
                   />
                   <Button disabled={busyId === r.id || !(drafts[r.id] ?? '').trim()} onClick={() => respond(r)}>
                     {r.response ? 'Update' : 'Reply'}

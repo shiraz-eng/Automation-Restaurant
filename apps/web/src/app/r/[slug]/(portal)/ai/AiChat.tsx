@@ -575,7 +575,7 @@ export function AiChat({ slug }: { slug: string }) {
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
                   {m.pendingAction.name === 'add_inventory_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
-                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -601,7 +601,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'add_menu_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
-                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -623,7 +623,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'record_expenses' && Array.isArray((m.pendingAction.args as { expenses?: unknown[] })?.expenses) && (
-                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -645,7 +645,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'add_staff_members' && Array.isArray((m.pendingAction.args as { staff?: unknown[] })?.staff) && (
-                    <div className="mb-3 max-h-48 overflow-y-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -752,7 +752,7 @@ export function AiChat({ slug }: { slug: string }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={pendingFile ? `Ask about ${pendingFile.name}… (or just press Ask)` : 'Ask anything — or attach a PDF to read, summarise or extract…'}
-            className="flex-1 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
+            className="flex-1 min-w-0 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
           />
           <button
             type="submit"

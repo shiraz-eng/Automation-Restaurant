@@ -13,7 +13,7 @@ export function FlowVertical({ steps, tone = 'default' }: { steps: FlowStep[]; t
   return (
     <ol className="flex flex-col items-center">
       {steps.map((step, i) => (
-        <li key={step.label} className="flex flex-col items-center">
+        <li key={step.label} className="flex max-w-full flex-col items-center">
           <div
             className={`w-full min-w-[220px] max-w-sm rounded-2xl border px-5 py-3.5 text-center ${
               dark

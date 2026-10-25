@@ -148,7 +148,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div>
           <h3 className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">What needs attention</h3>
           {topAttention.length === 0 ? (

@@ -11,7 +11,7 @@ const STEPS = [
 export function HowItWorks() {
   return (
     <Section eyebrow="How it works" title="From sign-up to running service">
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {STEPS.map((s, i) => (
           <Reveal key={s.n} delay={i * 70}>
             <div>

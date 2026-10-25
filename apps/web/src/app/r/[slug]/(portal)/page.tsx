@@ -199,50 +199,52 @@ export default async function DashboardPage({
 
       <SalesTrend initialMonth={currentMonth} initialDays={(salesByDayRes.data as DayRow[] | null) ?? []} />
 
-      <div className="grid lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="lg:col-span-2 rounded-lg border border-border bg-surface p-5">
           <h2 className="font-bold mb-4">Recent orders</h2>
           {orders.length === 0 ? (
             <p className="text-muted text-xs">No orders yet.</p>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted">
-                <tr className="border-b border-border">
-                  <th className="pb-2 font-semibold">#</th>
-                  <th className="pb-2 font-semibold">Where</th>
-                  <th className="pb-2 font-semibold">Status</th>
-                  <th className="pb-2 font-semibold text-right">Total</th>
-                  <th className="pb-2 font-semibold text-right">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map(
-                  (o: {
-                    id: string;
-                    order_number: number;
-                    status: string;
-                    channel: string;
-                    table_label: string | null;
-                    total_cents: number;
-                    created_at: string;
-                  }) => (
-                    <tr key={o.id} className="border-b border-border/60 last:border-0">
-                      <td className="py-2 font-mono font-bold">{o.order_number}</td>
-                      <td className="py-2 text-muted">
-                        {o.table_label ?? o.channel.replace('_', ' ')}
-                      </td>
-                      <td className={`py-2 font-semibold ${STATUS_TONE[o.status] ?? 'text-body'}`}>
-                        {o.status.replace('_', ' ')}
-                      </td>
-                      <td className="py-2 text-right font-bold">{formatCents(o.total_cents)}</td>
-                      <td className="py-2 text-right text-muted">
-                        {formatDateTime(o.created_at)}
-                      </td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted">
+                  <tr className="border-b border-border">
+                    <th className="pb-2 font-semibold">#</th>
+                    <th className="pb-2 font-semibold">Where</th>
+                    <th className="pb-2 font-semibold">Status</th>
+                    <th className="pb-2 font-semibold text-right">Total</th>
+                    <th className="pb-2 font-semibold text-right">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map(
+                    (o: {
+                      id: string;
+                      order_number: number;
+                      status: string;
+                      channel: string;
+                      table_label: string | null;
+                      total_cents: number;
+                      created_at: string;
+                    }) => (
+                      <tr key={o.id} className="border-b border-border/60 last:border-0">
+                        <td className="py-2 font-mono font-bold">{o.order_number}</td>
+                        <td className="py-2 text-muted">
+                          {o.table_label ?? o.channel.replace('_', ' ')}
+                        </td>
+                        <td className={`py-2 font-semibold ${STATUS_TONE[o.status] ?? 'text-body'}`}>
+                          {o.status.replace('_', ' ')}
+                        </td>
+                        <td className="py-2 text-right font-bold">{formatCents(o.total_cents)}</td>
+                        <td className="py-2 text-right text-muted">
+                          {formatDateTime(o.created_at)}
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
@@ -276,43 +278,45 @@ export default async function DashboardPage({
           {inventory.length === 0 ? (
             <p className="text-muted text-xs">No inventory items.</p>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted">
-                <tr className="border-b border-border">
-                  <th className="pb-2 font-semibold">Item</th>
-                  <th className="pb-2 font-semibold text-right">On hand</th>
-                  <th className="pb-2 font-semibold text-right">Min</th>
-                  <th className="pb-2 font-semibold text-right">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inventory.map(
-                  (i: {
-                    id: string;
-                    name: string;
-                    unit: string;
-                    stock_qty: number;
-                    min_threshold: number;
-                  }) => {
-                    const low = Number(i.stock_qty) <= Number(i.min_threshold);
-                    return (
-                      <tr key={i.id} className="border-b border-border/60 last:border-0">
-                        <td className="py-2 font-semibold">{i.name}</td>
-                        <td className="py-2 text-right">
-                          {i.stock_qty} {i.unit}
-                        </td>
-                        <td className="py-2 text-right text-muted">{i.min_threshold}</td>
-                        <td
-                          className={`py-2 text-right font-semibold ${low ? 'text-danger' : 'text-ok'}`}
-                        >
-                          {low ? 'low' : 'ok'}
-                        </td>
-                      </tr>
-                    );
-                  },
-                )}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted">
+                  <tr className="border-b border-border">
+                    <th className="pb-2 font-semibold">Item</th>
+                    <th className="pb-2 font-semibold text-right">On hand</th>
+                    <th className="pb-2 font-semibold text-right">Min</th>
+                    <th className="pb-2 font-semibold text-right">State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventory.map(
+                    (i: {
+                      id: string;
+                      name: string;
+                      unit: string;
+                      stock_qty: number;
+                      min_threshold: number;
+                    }) => {
+                      const low = Number(i.stock_qty) <= Number(i.min_threshold);
+                      return (
+                        <tr key={i.id} className="border-b border-border/60 last:border-0">
+                          <td className="py-2 font-semibold">{i.name}</td>
+                          <td className="py-2 text-right">
+                            {i.stock_qty} {i.unit}
+                          </td>
+                          <td className="py-2 text-right text-muted">{i.min_threshold}</td>
+                          <td
+                            className={`py-2 text-right font-semibold ${low ? 'text-danger' : 'text-ok'}`}
+                          >
+                            {low ? 'low' : 'ok'}
+                          </td>
+                        </tr>
+                      );
+                    },
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       ) : (
@@ -348,26 +352,28 @@ export default async function DashboardPage({
           {portalActivity.length === 0 ? (
             <p className="text-muted text-xs">No portals created yet.</p>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted">
-                <tr className="border-b border-border">
-                  <th className="pb-2 font-semibold">Portal</th>
-                  <th className="pb-2 font-semibold">Status</th>
-                  <th className="pb-2 font-semibold">Last sign-in</th>
-                  <th className="pb-2 font-semibold">Last sign-out</th>
-                </tr>
-              </thead>
-              <tbody>
-                {portalActivity.map((p) => (
-                  <tr key={p.id} className="border-b border-border/60 last:border-0">
-                    <td className="py-2 font-semibold">{p.name}</td>
-                    <td className={`py-2 ${p.status === 'active' ? 'text-ok' : 'text-muted'}`}>{p.status}</td>
-                    <td className="py-2 text-muted">{p.last_login_at ? formatDateTime(p.last_login_at) : 'Never signed in'}</td>
-                    <td className="py-2 text-muted">{p.last_logout_at ? formatDateTime(p.last_logout_at) : '—'}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-muted">
+                  <tr className="border-b border-border">
+                    <th className="pb-2 font-semibold">Portal</th>
+                    <th className="pb-2 font-semibold">Status</th>
+                    <th className="pb-2 font-semibold">Last sign-in</th>
+                    <th className="pb-2 font-semibold">Last sign-out</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {portalActivity.map((p) => (
+                    <tr key={p.id} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 font-semibold">{p.name}</td>
+                      <td className={`py-2 ${p.status === 'active' ? 'text-ok' : 'text-muted'}`}>{p.status}</td>
+                      <td className="py-2 text-muted">{p.last_login_at ? formatDateTime(p.last_login_at) : 'Never signed in'}</td>
+                      <td className="py-2 text-muted">{p.last_logout_at ? formatDateTime(p.last_logout_at) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       )}

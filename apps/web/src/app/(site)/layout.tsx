@@ -64,7 +64,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 function SiteFooter() {
   return (
     <footer className="bg-ink text-ink-fg">
-      <div className="mx-auto max-w-6xl px-5 py-14 grid gap-10 sm:grid-cols-2 lg:grid-cols-6 text-sm">
+      <div className="mx-auto max-w-6xl px-5 py-14 grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-6 text-sm">
         <div className="lg:col-span-2">
           <div className="flex items-center gap-2 font-display font-semibold text-lg">
             <span className="grid h-7 w-7 place-items-center rounded-lg bg-gold text-ink">

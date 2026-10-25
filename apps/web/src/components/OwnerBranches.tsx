@@ -190,7 +190,7 @@ export function OwnerBranchesPanel({ slug }: { slug: string }) {
         </span>
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {showMain && (
           <div className="rounded-lg border border-primary/40 p-3 space-y-1.5 text-xs">
             <p className="font-bold text-sm">
@@ -422,7 +422,7 @@ function BranchReceiptPanel({ slug, b, supabase }: { slug: string; b: OwnerBranc
           {!saved?.address && !saved?.phone && (
             <p className="text-xs text-warn">This branch has no address or phone yet, so its receipts show none.</p>
           )}
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {RECEIPT_INPUTS.map(([k, label, ph]) => (
               <label key={k} className={`text-xs ${k === 'address' || k === 'receipt_footer_text' ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                 <span className="block text-muted mb-1">{label}</span>
@@ -721,7 +721,7 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
               Printed on this branch’s receipts and invoices. Only you can change them later (Manage → Receipt details); the branch
               manager prints with them but can’t edit them.
             </p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {RECEIPT_INPUTS.map(([k, label, ph]) => (
                 <label key={k} className={`text-xs ${k === 'address' || k === 'receipt_footer_text' ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                   <span className="block text-muted mb-1">{label}</span>

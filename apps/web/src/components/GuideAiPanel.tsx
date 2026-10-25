@@ -644,7 +644,7 @@ export function GuideAiPanel({
             }}
             placeholder={mode === 'portal' ? 'Ask how to set something up…' : 'Ask about setup, Supabase, plans…'}
             disabled={busy}
-            className="flex-1 resize-none bg-transparent py-1 text-[12.5px] outline-none disabled:opacity-60 placeholder:text-muted max-h-24"
+            className="flex-1 min-w-0 resize-none bg-transparent py-1 text-[12.5px] outline-none disabled:opacity-60 placeholder:text-muted max-h-24"
           />
           {busy ? (
             <button

@@ -908,55 +908,57 @@ export function ExpensesManager({
               <span>{downloadingPdf ? '⏳ Generating…' : '📄 Export P&L PDF'}</span>
             </Button>
           </div>
-          <table className="w-full text-left text-xs">
-            <thead className="text-muted border-b border-border bg-main/50">
-              <tr>
-                <th className="p-3 font-semibold">Financial Line</th>
-                <th className="p-3 font-semibold text-right">Amount</th>
-                <th className="p-3 font-semibold text-right">% of Net Sales</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-border/50">
-                <td className="p-3 font-semibold text-body">Operating Revenue (Net Sales)</td>
-                <td className="p-3 font-mono font-bold text-right">{formatCents(profit.net_sales_cents)}</td>
-                <td className="p-3 font-mono text-right text-muted">100.0%</td>
-              </tr>
-              <tr className="border-b border-border/50 bg-main/20">
-                <td className="p-3 pl-6 text-muted">Less: Cost of Goods Sold (Theoretical COGS)</td>
-                <td className="p-3 font-mono text-right text-muted">-{formatCents(profit.theoretical_cogs_cents)}</td>
-                <td className="p-3 font-mono text-right text-muted">
-                  -{profit.net_sales_cents > 0 ? ((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
-                </td>
-              </tr>
-              <tr className="border-b border-border/80 font-bold bg-ok/5">
-                <td className="p-3 text-ok">Gross Profit</td>
-                <td className="p-3 font-mono text-right text-ok">{formatCents(profit.gross_profit_cents)}</td>
-                <td className="p-3 font-mono text-right text-ok">{pct(profit.gross_margin_pct)}</td>
-              </tr>
-              {categoryTotals.map((c) => (
-                <tr key={c.category} className="border-b border-border/30">
-                  <td className="p-3 pl-6 text-muted">Less: {c.category}</td>
-                  <td className="p-3 font-mono text-right text-muted">-{formatCents(c.cents)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-muted border-b border-border bg-main/50">
+                <tr>
+                  <th className="p-3 font-semibold">Financial Line</th>
+                  <th className="p-3 font-semibold text-right">Amount</th>
+                  <th className="p-3 font-semibold text-right">% of Net Sales</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border/50">
+                  <td className="p-3 font-semibold text-body">Operating Revenue (Net Sales)</td>
+                  <td className="p-3 font-mono font-bold text-right">{formatCents(profit.net_sales_cents)}</td>
+                  <td className="p-3 font-mono text-right text-muted">100.0%</td>
+                </tr>
+                <tr className="border-b border-border/50 bg-main/20">
+                  <td className="p-3 pl-6 text-muted">Less: Cost of Goods Sold (Theoretical COGS)</td>
+                  <td className="p-3 font-mono text-right text-muted">-{formatCents(profit.theoretical_cogs_cents)}</td>
                   <td className="p-3 font-mono text-right text-muted">
-                    -{profit.net_sales_cents > 0 ? ((c.cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                    -{profit.net_sales_cents > 0 ? ((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
                   </td>
                 </tr>
-              ))}
-              <tr className="border-b border-border/80 font-bold bg-warn/5">
-                <td className="p-3 text-warn">Total Operating Expenses</td>
-                <td className="p-3 font-mono text-right text-warn">-{formatCents(profit.expenses_cents)}</td>
-                <td className="p-3 font-mono text-right text-warn">
-                  -{profit.net_sales_cents > 0 ? ((profit.expenses_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
-                </td>
-              </tr>
-              <tr className={`font-black text-sm ${profit.net_profit_cents >= 0 ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
-                <td className="p-4">Net Profit</td>
-                <td className="p-4 font-mono text-right">{formatCents(profit.net_profit_cents)}</td>
-                <td className="p-4 font-mono text-right">{pct(profit.net_profit_margin_pct)}</td>
-              </tr>
-            </tbody>
-          </table>
+                <tr className="border-b border-border/80 font-bold bg-ok/5">
+                  <td className="p-3 text-ok">Gross Profit</td>
+                  <td className="p-3 font-mono text-right text-ok">{formatCents(profit.gross_profit_cents)}</td>
+                  <td className="p-3 font-mono text-right text-ok">{pct(profit.gross_margin_pct)}</td>
+                </tr>
+                {categoryTotals.map((c) => (
+                  <tr key={c.category} className="border-b border-border/30">
+                    <td className="p-3 pl-6 text-muted">Less: {c.category}</td>
+                    <td className="p-3 font-mono text-right text-muted">-{formatCents(c.cents)}</td>
+                    <td className="p-3 font-mono text-right text-muted">
+                      -{profit.net_sales_cents > 0 ? ((c.cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-b border-border/80 font-bold bg-warn/5">
+                  <td className="p-3 text-warn">Total Operating Expenses</td>
+                  <td className="p-3 font-mono text-right text-warn">-{formatCents(profit.expenses_cents)}</td>
+                  <td className="p-3 font-mono text-right text-warn">
+                    -{profit.net_sales_cents > 0 ? ((profit.expenses_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
+                  </td>
+                </tr>
+                <tr className={`font-black text-sm ${profit.net_profit_cents >= 0 ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
+                  <td className="p-4">Net Profit</td>
+                  <td className="p-4 font-mono text-right">{formatCents(profit.net_profit_cents)}</td>
+                  <td className="p-4 font-mono text-right">{pct(profit.net_profit_margin_pct)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -1149,7 +1151,7 @@ export function ExpensesManager({
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <h2 className="font-bold text-sm">All Recorded Expenses</h2>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 text-xs">
             <span className="text-muted">Sort:</span>
             <select
               id="expense-sort"

@@ -52,7 +52,7 @@ export function AiIntelligence() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {LAYERS.map((l, i) => (
             <Reveal key={l.title} delay={(i % 3) * 60}>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 h-full hover:bg-white/[0.05] transition-colors">
