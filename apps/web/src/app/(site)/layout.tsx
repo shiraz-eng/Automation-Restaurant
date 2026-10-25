@@ -21,7 +21,7 @@ const NAV: [string, string][] = [
 
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`${fraunces.variable} ${manrope.variable} font-body min-h-screen flex flex-col bg-main text-body`}>
+    <div id="site-root" className={`${fraunces.variable} ${manrope.variable} font-body min-h-screen flex flex-col bg-main text-body`}>
       <header className="sticky top-0 z-40 bg-ink/90 backdrop-blur-md text-ink-fg relative">
         <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
         <div className="mx-auto max-w-6xl px-5 h-16 flex items-center justify-between">
