@@ -55,7 +55,7 @@ export function DealCard({
         <p className="text-muted text-[11.5px] leading-snug mt-0.5 line-clamp-2">{componentSummary}</p>
 
         <div className="flex items-center justify-between gap-2 mt-2.5">
-          <span className="flex items-baseline gap-1.5">
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
             <span className="font-black text-sm text-primary">
               {hasOptions ? `from ${formatCents(deal.price_cents)}` : formatCents(deal.price_cents)}
             </span>
