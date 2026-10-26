@@ -239,7 +239,7 @@ export function TrackClient({
           return (
             <li key={s.key} className="flex items-center gap-3">
               <span
-                className={`w-5 h-5 rounded-full grid place-items-center text-[10px] font-black ${
+                className={`w-5 h-5 rounded-full grid place-items-center text-[0.625rem] font-black ${
                   done
                     ? 'bg-ok text-white'
                     : active
@@ -315,7 +315,7 @@ export function TrackClient({
                 <Stars value={rating} onChange={setRating} />
               </div>
               <div className="space-y-2 pt-1 border-t border-border">
-                <p className="text-[11px] text-muted">Anything specific? (optional)</p>
+                <p className="text-[0.6875rem] text-muted">Anything specific? (optional)</p>
                 {CATEGORIES.map((c) => (
                   <div key={c.key} className="flex items-center justify-between">
                     <span className="text-xs">{c.label}</span>

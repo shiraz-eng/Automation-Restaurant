@@ -159,7 +159,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 border-b border-border">
         <div>
           <h3 className="font-bold text-sm">Food availability</h3>
-          <p className="text-muted text-[11px]">
+          <p className="text-muted text-[0.6875rem]">
             Portions the kitchen can make right now, from inventory and priority allocation. Updates live.
           </p>
         </div>
@@ -174,7 +174,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
           No dishes are tracked yet — a dish appears here once it has a recipe linked to inventory.
         </p>
       ) : (
-        <div className="max-h-[28rem] overflow-auto">
+        <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
@@ -193,9 +193,9 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
                     <td className="p-2.5">
                       <div className="font-semibold">{name(r)}</div>
                       {r.reason ? (
-                        <div className="text-muted text-[11px]">{r.reason}</div>
+                        <div className="text-muted text-[0.6875rem]">{r.reason}</div>
                       ) : r.producible_qty == null ? (
-                        <div className="text-muted text-[11px]">No recipe linked to inventory — not limited by stock</div>
+                        <div className="text-muted text-[0.6875rem]">No recipe linked to inventory — not limited by stock</div>
                       ) : null}
                     </td>
                     <td className="p-2.5 text-right font-mono tabular-nums text-sm font-bold">
@@ -203,7 +203,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
                     </td>
                     <td className="p-2.5">
                       <span className={`font-semibold ${STATUS[r.status].tone}`}>{STATUS[r.status].label}</span>
-                      {!sale && <div className="text-[10px] text-danger font-bold uppercase">off sale</div>}
+                      {!sale && <div className="text-[0.625rem] text-danger font-bold uppercase">off sale</div>}
                     </td>
                     {(canManage || canWaste) && (
                       <td className="p-2.5">

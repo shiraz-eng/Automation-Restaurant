@@ -107,7 +107,7 @@ export function TablesManager({
                 href={r.url}
                 target="_blank"
                 rel="noreferrer"
-                className="block mt-2 text-[10px] text-primary font-mono break-all"
+                className="block mt-2 text-[0.625rem] text-primary font-mono break-all"
               >
                 {r.url}
               </a>

@@ -252,7 +252,7 @@ export function MenuImportPanel({
             .
           </div>
           {issues.length > 0 && (
-            <div className="rounded border border-danger/40 bg-danger/10 p-2 text-[11px] text-danger space-y-0.5">
+            <div className="rounded border border-danger/40 bg-danger/10 p-2 text-[0.6875rem] text-danger space-y-0.5">
               <div className="font-bold">Action required</div>
               {issues.map((iss, i) => (
                 <div key={i}>{iss.message}</div>
@@ -264,7 +264,7 @@ export function MenuImportPanel({
               <div key={ci}>
                 <div className="text-xs font-bold flex items-center gap-1.5 mb-1">
                   {cat.name}
-                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[cat.status]}`}>{cat.status}</span>
+                  <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[cat.status]}`}>{cat.status}</span>
                 </div>
                 <div className="space-y-1 pl-3">
                   {cat.items.map((item, ii) => {
@@ -282,9 +282,9 @@ export function MenuImportPanel({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-semibold">{item.name}</span>
-                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[item.status]}`}>{item.status}</span>
+                            <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[item.status]}`}>{item.status}</span>
                           </div>
-                          <div className="text-[11px] text-muted">
+                          <div className="text-[0.6875rem] text-muted">
                             {item.variants.map((v, vi) => (
                               <span key={vi} className="mr-2">
                                 {v.name}:{' '}
@@ -302,7 +302,7 @@ export function MenuImportPanel({
                             ))}
                           </div>
                           {item.modifier_groups.length > 0 && (
-                            <div className="text-[11px] text-muted">
+                            <div className="text-[0.6875rem] text-muted">
                               {item.modifier_groups.map((g) => `${g.name}: ${g.modifiers.map((m) => m.name).join(', ')}`).join(' · ')}
                             </div>
                           )}
@@ -310,12 +310,12 @@ export function MenuImportPanel({
                             const suggestion = recipes.find((r) => normName(r.name) === normName(item.name));
                             return (
                               <div className="flex flex-wrap items-center gap-2 mt-1">
-                                <span className="text-[11px] text-muted">Recipe:</span>
+                                <span className="text-[0.6875rem] text-muted">Recipe:</span>
                                 <select
                                   value={recipeLinks[key] ?? ''}
                                   disabled={stage === 'applying'}
                                   onChange={(e) => setRecipeLinks((m) => ({ ...m, [key]: e.target.value }))}
-                                  className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+                                  className="rounded border border-border bg-surface px-2 py-1 text-[0.6875rem]"
                                 >
                                   <option value="">No recipe</option>
                                   {recipes.map((r) => (
@@ -330,7 +330,7 @@ export function MenuImportPanel({
                                   <button
                                     type="button"
                                     onClick={() => setRecipeLinks((m) => ({ ...m, [key]: suggestion.id }))}
-                                    className="text-primary text-[11px] underline"
+                                    className="text-primary text-[0.6875rem] underline"
                                   >
                                     Use “{suggestion.name}”
                                   </button>

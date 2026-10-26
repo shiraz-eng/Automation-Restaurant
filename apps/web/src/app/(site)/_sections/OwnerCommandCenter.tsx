@@ -32,7 +32,7 @@ export function OwnerCommandCenter() {
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-black/5 text-black">
                   <p.icon size={16} strokeWidth={2} />
                 </span>
-                <span className="text-[15px] text-body pt-1.5">{p.text}</span>
+                <span className="text-[0.9375rem] text-body pt-1.5">{p.text}</span>
               </li>
             ))}
           </ul>

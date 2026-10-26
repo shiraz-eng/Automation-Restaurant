@@ -117,7 +117,7 @@ export function PayClient({ intent }: { intent: string | null }) {
   return (
     <div className="min-h-screen grid place-items-center px-6 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-4 rounded-md bg-warn/15 text-warn text-[11px] font-semibold px-3 py-1.5 text-center">
+        <div className="mb-4 rounded-md bg-warn/15 text-warn text-[0.6875rem] font-semibold px-3 py-1.5 text-center">
           TEST MODE — no real charge. Card 4242 4242 4242 4242 is pre-filled.
         </div>
 
@@ -180,7 +180,7 @@ export function PayClient({ intent }: { intent: string | null }) {
             </button>
           </form>
         </div>
-        <p className="text-[11px] text-muted mt-3 text-center">
+        <p className="text-[0.6875rem] text-muted mt-3 text-center">
           Card details are validated for format only and are never stored by Automation Restaurant.
         </p>
       </div>

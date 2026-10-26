@@ -38,7 +38,7 @@ export default async function AdminCmsIndexPage() {
                 <div>
                   <div className="font-semibold text-sm flex items-center gap-2">
                     {s.slug}
-                    <span className="text-[10px] font-mono text-ink-muted">{s.section_type}</span>
+                    <span className="text-[0.625rem] font-mono text-ink-muted">{s.section_type}</span>
                   </div>
                   <div className="text-ink-muted text-xs">{s.is_active ? 'Published' : 'Unpublished'}</div>
                 </div>

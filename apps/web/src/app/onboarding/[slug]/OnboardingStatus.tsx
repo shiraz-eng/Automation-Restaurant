@@ -90,7 +90,7 @@ export function OnboardingStatus({ slug }: { slug: string }) {
               <li>Pick or create <span className="font-semibold">your</span> organization</li>
               <li>Approve access — we create the project for you</li>
             </ol>
-            <p className="text-[11px] text-muted mt-2">
+            <p className="text-[0.6875rem] text-muted mt-2">
               The database is created in the organization you choose here, and it&rsquo;s billed
               to that account (free tier is plenty for one restaurant).
             </p>
@@ -120,7 +120,7 @@ export function OnboardingStatus({ slug }: { slug: string }) {
                 : 'Our team has been alerted. Please contact support with your restaurant name.'}
             </p>
             {error && (
-              <p className="text-danger text-[11px] mt-3 font-mono break-all">{error}</p>
+              <p className="text-danger text-[0.6875rem] mt-3 font-mono break-all">{error}</p>
             )}
             <div className="mt-6 flex gap-2">
               {connectUrl && (

@@ -147,7 +147,7 @@ export function FaqCopyFields({ content, onChange }: { content: { eyebrow: strin
       <AdminField label="Title">
         <AdminInput value={content.title} onChange={(e) => onChange({ ...content, title: e.target.value })} />
       </AdminField>
-      <p className="text-[11px] text-ink-muted">The FAQ questions themselves are managed separately under CMS &rarr; FAQ.</p>
+      <p className="text-[0.6875rem] text-ink-muted">The FAQ questions themselves are managed separately under CMS &rarr; FAQ.</p>
     </>
   );
 }

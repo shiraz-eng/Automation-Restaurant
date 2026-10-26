@@ -55,7 +55,7 @@ export function Markdown({ text }: { text: string }) {
               <thead>
                 <tr>
                   {head.map((c, j) => (
-                    <th key={j} className="border border-border px-2 py-1 text-left font-semibold">
+                    <th key={j} className="border border-border px-2 py-1 text-start font-semibold">
                       {inline(c)}
                     </th>
                   ))}
@@ -91,7 +91,7 @@ export function Markdown({ text }: { text: string }) {
       }
       const List = ordered ? 'ol' : 'ul';
       blocks.push(
-        <List key={key++} className={`${ordered ? 'list-decimal' : 'list-disc'} pl-5 space-y-0.5`}>
+        <List key={key++} className={`${ordered ? 'list-decimal' : 'list-disc'} ps-5 space-y-0.5`}>
           {items.map((it, j) => (
             <li key={j} style={it.depth ? { marginLeft: `${it.depth}rem` } : undefined}>
               {inline(it.text)}

@@ -14,11 +14,13 @@ export async function streamAiChat(
   headers: Record<string, string>,
   body: Record<string, unknown>,
   on: { status?: (label: string) => void; delta?: (text: string) => void },
+  signal?: AbortSignal,
 ): Promise<AiStreamResult> {
   let res: Response;
   try {
-    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }) });
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...body, stream: true }), signal });
   } catch {
+    if (signal?.aborted) return { ok: false, code: 'aborted', error: 'Stopped.' };
     return { ok: false, error: 'Network error — check your connection and try again.' };
   }
   if (!res.ok || !res.body) {
@@ -58,6 +60,7 @@ export async function streamAiChat(
       }
     }
   } catch {
+    if (signal?.aborted) return { ok: false, code: 'aborted', error: 'Stopped.' };
     return { ok: false, error: 'The connection dropped before the answer finished — please try again.' };
   }
   return { ok: false, error: 'The connection closed before the answer finished — please try again.' };

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { formatCents } from '@/lib/format';
 
@@ -66,7 +67,7 @@ function DrillButton({ label, value, onClick }: { label: string; value: string; 
     >
       <span className="flex items-center gap-1.5">
         {label}
-        <span className="text-muted text-[10px] opacity-0 group-hover:opacity-100">drill in →</span>
+        <span className="text-muted text-[0.625rem] opacity-0 group-hover:opacity-100">drill in →</span>
       </span>
       <span className="font-mono">{value}</span>
     </button>
@@ -101,8 +102,11 @@ export function ProfitDrilldownModal({
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Profit breakdown — ${periodLabel}`} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
@@ -130,7 +134,7 @@ export function ProfitDrilldownModal({
             <div className="border-t border-border mt-1 pt-1">
               <Row label="= Net Profit" value={formatCents(profit.net_profit_cents)} bold />
             </div>
-            <p className="text-muted text-[11px] mt-2">
+            <p className="text-muted text-[0.6875rem] mt-2">
               Labor/payroll isn&apos;t tracked as its own cost — it&apos;s only reflected in Net Profit if it was
               entered as an expense record. Click a line above to see what it&apos;s made of.
             </p>
@@ -156,7 +160,7 @@ export function ProfitDrilldownModal({
             <div className="border-t border-border mt-1 pt-1">
               <Row label="= Net Sales" value={formatCents(profit.net_sales_cents)} bold />
             </div>
-            <p className="text-muted text-[11px] mt-2">
+            <p className="text-muted text-[0.6875rem] mt-2">
               Discounts and refunds come from each order&apos;s own recorded values, not reconstructed from
               today&apos;s menu.
             </p>
@@ -233,7 +237,7 @@ function ExpensesLevel({ to, totalCents, timeZone }: { to: Date; totalCents: num
             <div key={i} className="flex items-center justify-between p-2">
               <div className="min-w-0">
                 <div className="font-semibold">{r.category}</div>
-                <div className="text-muted text-[11px] truncate">{r.description || '—'} · {r.expense_date}</div>
+                <div className="text-muted text-[0.6875rem] truncate">{r.description || '—'} · {r.expense_date}</div>
               </div>
               <div className="font-mono shrink-0 ml-2">{formatCents(r.amount_cents)}</div>
             </div>
@@ -286,7 +290,7 @@ function CogsLevel({
     <div className="text-xs space-y-2">
       <Row label="Total COGS (theoretical)" value={formatCents(totalCents)} bold />
       {missing > 0 && (
-        <p className="text-warn text-[11px]">{missing} item(s) below have no recipe configured — their cost shows as $0.00, understating the true total.</p>
+        <p className="text-warn text-[0.6875rem]">{missing} item(s) below have no recipe configured — their cost shows as $0.00, understating the true total.</p>
       )}
       {sorted.length === 0 ? (
         <p className="text-muted">No à la carte sales in this period.</p>
@@ -301,16 +305,16 @@ function CogsLevel({
               <div className="min-w-0">
                 <div className="font-semibold flex items-center gap-1.5">
                   {r.name}
-                  {!r.cogs_known && <span className="text-warn text-[10px]">no recipe</span>}
+                  {!r.cogs_known && <span className="text-warn text-[0.625rem]">no recipe</span>}
                 </div>
-                <div className="text-muted text-[11px]">{r.qty_sold} sold · {formatCents(r.revenue_cents)} revenue{r.food_cost_pct != null ? ` · ${r.food_cost_pct}% food cost` : ''}</div>
+                <div className="text-muted text-[0.6875rem]">{r.qty_sold} sold · {formatCents(r.revenue_cents)} revenue{r.food_cost_pct != null ? ` · ${r.food_cost_pct}% food cost` : ''}</div>
               </div>
               <div className="font-mono shrink-0 ml-2 font-bold">{formatCents(r.cogs_cents)}</div>
             </button>
           ))}
         </div>
       )}
-      <p className="text-muted text-[11px]">Click an item to see its recipe&apos;s ingredient cost.</p>
+      <p className="text-muted text-[0.6875rem]">Click an item to see its recipe&apos;s ingredient cost.</p>
     </div>
   );
 }
@@ -399,7 +403,7 @@ export function ItemLevel({ menuItemId, variantId }: { menuItemId: string; varia
           <div key={i} className="flex items-center justify-between p-2">
             <div>
               <div className="font-semibold">{ing.name}</div>
-              <div className="text-muted text-[11px]">
+              <div className="text-muted text-[0.6875rem]">
                 {ing.qty_base}{ing.unit} @ {formatCents(ing.unit_cost_cents)}/{ing.unit}
               </div>
             </div>
@@ -408,7 +412,7 @@ export function ItemLevel({ menuItemId, variantId }: { menuItemId: string; varia
         ))}
       </div>
       <Row label="Recipe cost per unit" value={formatCents(total)} bold />
-      <p className="text-muted text-[11px]">
+      <p className="text-muted text-[0.6875rem]">
         This is the CURRENT recipe and ingredient costs — historical orders used whatever recipe/cost was active
         when they were placed, which may differ from this if either has changed since.
       </p>
@@ -450,8 +454,11 @@ export type OrderProfitRow = {
 export function OrderDrilldownModal({ order, onClose }: { order: OrderProfitRow; onClose: () => void }) {
   const [item, setItem] = useState<{ menuItemId: string; variantId: string; name: string } | null>(null);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Order #${order.order_number} breakdown`} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
@@ -485,7 +492,7 @@ export function OrderDrilldownModal({ order, onClose }: { order: OrderProfitRow;
               </div>
             </div>
             {order.cogs_lines_missing > 0 && (
-              <p className="text-warn text-[11px]">
+              <p className="text-warn text-[0.6875rem]">
                 {order.cogs_lines_missing} line(s) on this order have no recipe configured — COGS understates the true cost.
               </p>
             )}
@@ -501,18 +508,18 @@ export function OrderDrilldownModal({ order, onClose }: { order: OrderProfitRow;
                     >
                       <div>
                         <div className="font-semibold">{l.name_snapshot}</div>
-                        <div className="text-muted text-[11px]">
+                        <div className="text-muted text-[0.6875rem]">
                           {l.qty}× · {formatCents(l.line_total_cents)}
                           {l.recipe_cost_cents == null ? ' · no recipe' : ` · COGS ${formatCents(l.recipe_cost_cents)}`}
                         </div>
                       </div>
-                      <span className="text-muted text-[10px]">drill in →</span>
+                      <span className="text-muted text-[0.625rem]">drill in →</span>
                     </button>
                   ) : (
                     <div key={i} className="flex items-center justify-between p-2 text-muted">
                       <div>
                         <div className="font-semibold text-body">{l.name_snapshot}</div>
-                        <div className="text-[11px]">{l.qty}× · {formatCents(l.line_total_cents)} · deal component</div>
+                        <div className="text-[0.6875rem]">{l.qty}× · {formatCents(l.line_total_cents)} · deal component</div>
                       </div>
                     </div>
                   ),
@@ -553,8 +560,11 @@ export function DealDrilldownModal({ period, deals, onClose }: { period: string;
   const [selected, setSelected] = useState<DealProfitRow | null>(null);
   const sorted = deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Deals — ${period}`} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         className="max-w-lg w-full max-h-[85vh] overflow-y-auto rounded-lg border border-border bg-surface p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
@@ -585,9 +595,9 @@ export function DealDrilldownModal({ period, deals, onClose }: { period: string;
                 <div className="min-w-0">
                   <div className="font-semibold flex items-center gap-1.5">
                     {d.name}
-                    {!d.cogs_known && <span className="text-warn text-[10px]">no recipe</span>}
+                    {!d.cogs_known && <span className="text-warn text-[0.625rem]">no recipe</span>}
                   </div>
-                  <div className="text-muted text-[11px]">
+                  <div className="text-muted text-[0.6875rem]">
                     {d.qty_sold} sold · {formatCents(d.revenue_cents)} revenue
                     {d.contribution_margin_pct != null ? ` · ${d.contribution_margin_pct}% margin` : ''}
                   </div>
@@ -616,7 +626,7 @@ export function DealDrilldownModal({ period, deals, onClose }: { period: string;
               <Row label="Margin" value={selected.contribution_margin_pct != null ? `${selected.contribution_margin_pct}%` : 'N/A'} indent />
             </div>
             {!selected.cogs_known && (
-              <p className="text-warn text-[11px] pt-1">
+              <p className="text-warn text-[0.6875rem] pt-1">
                 One or more components have no recipe configured — COGS understates the true cost.
               </p>
             )}

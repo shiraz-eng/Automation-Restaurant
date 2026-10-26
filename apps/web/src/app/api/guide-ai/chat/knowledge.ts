@@ -34,6 +34,17 @@ Why owners pick it (use these honestly, never exaggerate):
 - **Deals & combos** with schedules, days/time windows, channels, per-order limits and usage limits, all enforced at checkout.
 - **AI built in.** Smart Import reads a menu photo/PDF, inventory list, recipes, suppliers or staff sheet and
   drafts them for approval; the operations assistant answers questions about sales, stock and costs.
+- **Any language, by voice too.** Type or speak to the AI Guide and the Assistant in English, Urdu, Roman Urdu,
+  Hindi, Arabic and more; answers come back in the same language, or in the one chosen with the **文A / Auto**
+  button (Language & voice). Tap the microphone to talk; the words go into the box to check before sending.
+  **Listen** reads an answer aloud (Pause / Stop / Replay) when the device has a voice for that language.
+  In the portal the AI Guide has a **Your restaurant data** tab that answers from live data with the person's own
+  permissions; anything that changes data is only proposed, with Confirm / Cancel.
+- **Settings → AI & Voice** (needs settings permission): per module (POS, Kitchen, Inventory, Finance, …) choose the
+  AI provider and model the server can really use, the answer and listening languages, auto-detect, and whether
+  voice input and spoken answers are offered. It never changes what anyone may see or do.
+- **Accessibility button** (♿ in every header): text size up to 150%, high contrast, reduce motion, underline
+  links, wider text spacing and larger touch targets — saved on that device for every page.
 
 ## Plans (the live Pricing page is the source of truth — point there for exact current prices)
 - **Starter** — $49/mo ($39/mo billed annually). Up to 5 users, 20 tables, 1 branch. POS & orders, QR table ordering, tables & floor, basic reports.

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { usePortalSupabase } from '@/components/PortalProvider';
@@ -68,8 +69,11 @@ export function CategoryManagerPanel({ categories, items, canEdit, onClose }: { 
     router.refresh();
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Categories" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border border-border bg-surface p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-black text-sm">Categories</h2>
@@ -87,14 +91,14 @@ export function CategoryManagerPanel({ categories, items, canEdit, onClose }: { 
               return (
                 <div key={c.id} className="flex items-center gap-2">
                   <div className="flex flex-col">
-                    <button type="button" disabled={busy || i === 0} onClick={() => moveCategory(i, -1)} className="text-muted text-[10px] leading-none disabled:opacity-30" aria-label="Move up">
+                    <button type="button" disabled={busy || i === 0} onClick={() => moveCategory(i, -1)} className="text-muted text-[0.625rem] leading-none disabled:opacity-30" aria-label="Move up">
                       ▲
                     </button>
                     <button
                       type="button"
                       disabled={busy || i === sortedCategories.length - 1}
                       onClick={() => moveCategory(i, 1)}
-                      className="text-muted text-[10px] leading-none disabled:opacity-30"
+                      className="text-muted text-[0.625rem] leading-none disabled:opacity-30"
                       aria-label="Move down"
                     >
                       ▼
@@ -107,7 +111,7 @@ export function CategoryManagerPanel({ categories, items, canEdit, onClose }: { 
                     onChange={(e) => setCatNameDraft((s) => ({ ...s, [c.id]: e.target.value }))}
                     onBlur={() => renameCategory(c.id, c.name)}
                   />
-                  <span className="text-muted text-[11px] w-16 shrink-0">
+                  <span className="text-muted text-[0.6875rem] w-16 shrink-0">
                     {itemCount} item{itemCount === 1 ? '' : 's'}
                   </span>
                   {canEdit && (

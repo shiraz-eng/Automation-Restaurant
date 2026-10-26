@@ -39,7 +39,7 @@ export function ProductTable({
 
   return (
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
       <table className="w-full text-left text-xs border-collapse">
         <thead>
           <tr className="border-b border-border text-muted">
@@ -84,9 +84,9 @@ export function ProductTable({
                     <div className="min-w-0">
                       <div className="font-bold text-sm truncate">{it.name}</div>
                       {it.description ? (
-                        <div className="text-muted text-[11px] truncate max-w-[220px]">{it.description}</div>
+                        <div className="text-muted text-[0.6875rem] truncate max-w-[220px]">{it.description}</div>
                       ) : (
-                        <div className="text-muted/60 text-[11px] italic">No description</div>
+                        <div className="text-muted/60 text-[0.6875rem] italic">No description</div>
                       )}
                     </div>
                   </div>
@@ -98,7 +98,7 @@ export function ProductTable({
                 <td className="p-3">
                   <StatusPill status={status} />
                   {(status === 'low_stock' || status === 'out_of_stock') && computed?.reason && (
-                    <div className="text-muted text-[10px] mt-1 max-w-[140px] truncate" title={computed.reason}>
+                    <div className="text-muted text-[0.625rem] mt-1 max-w-[140px] truncate" title={computed.reason}>
                       {computed.reason}
                     </div>
                   )}

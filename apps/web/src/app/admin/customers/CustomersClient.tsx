@@ -51,7 +51,7 @@ export function CustomersClient({ customers }: { customers: CustomerAccount[] })
                 {name}
               </div>
             ))}
-            <p className="text-ink-muted text-[11px] pt-2">Open a restaurant from the Restaurants directory for subscription actions and invoices.</p>
+            <p className="text-ink-muted text-[0.6875rem] pt-2">Open a restaurant from the Restaurants directory for subscription actions and invoices.</p>
           </div>
         )}
       </Drawer>

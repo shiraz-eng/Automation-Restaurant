@@ -343,7 +343,7 @@ export function SupplierInvoiceImportPanel({
             </Labeled>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left">
               <thead className="text-muted">
                 <tr>
@@ -361,7 +361,7 @@ export function SupplierInvoiceImportPanel({
                     <td className="py-1 pr-2">
                       <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={field} />
                       {l.notes.map((n) => (
-                        <p key={n} className="text-[10px] text-warn mt-0.5">
+                        <p key={n} className="text-[0.625rem] text-warn mt-0.5">
                           {n}
                         </p>
                       ))}
@@ -480,7 +480,7 @@ const field = 'w-full rounded border border-border bg-surface px-2 py-1.5 text-x
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-muted text-[10px] font-semibold">{label}</span>
+      <span className="text-muted text-[0.625rem] font-semibold">{label}</span>
       <div className="mt-0.5">{children}</div>
     </label>
   );

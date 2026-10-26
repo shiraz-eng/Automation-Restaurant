@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { detectLanguage, languageInstruction, normalizeLanguageChoice, aiLanguage } from '@automation-restaurant/shared';
 import { buildSystemPrompt, fallbackAnswer } from './knowledge';
 import { instantAnswer, closestAnswer } from './instantAnswers';
 
@@ -39,6 +40,8 @@ const chatSchema = z.object({
       restaurantName: z.string().max(120).optional(),
       planTier: z.string().max(40).optional(),
       subscriptionStatus: z.string().max(40).optional(),
+      /** The answer language chosen on this device ('auto' = the language of the question). */
+      language: z.string().max(12).optional(),
     })
     .optional(),
 });
@@ -87,11 +90,15 @@ export async function POST(req: Request) {
   const { context } = parsed.data;
   const messages = parsed.data.messages.slice(-MAX_TURNS);
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+  // The answer's language: the viewer's choice, or the language they wrote in.
+  const langChoice = normalizeLanguageChoice(context?.language);
+  const answerLang = langChoice === 'auto' ? (detectLanguage(lastUser)?.code ?? 'en') : langChoice;
   const headers = {
     'Content-Type': 'text/plain; charset=utf-8',
     'Cache-Control': 'no-store, no-transform',
     'X-Accel-Buffering': 'no',
     'X-Guide-Actions': encodeURIComponent(JSON.stringify(actionsFor(lastUser, context))),
+    'X-Guide-Lang': answerLang,
   };
 
   const encoder = new TextEncoder();
@@ -104,8 +111,9 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(t));
       };
       // Recommended questions (and their follow-up chips) have pre-written
-      // answers: shown instantly, no AI round trip.
-      const instant = instantAnswer(lastUser);
+      // answers: shown instantly, no AI round trip. They are in English, so
+      // an answer wanted in another language always goes to the model.
+      const instant = answerLang === 'en' ? instantAnswer(lastUser) : null;
       if (instant) {
         push(instant);
         controller.close();
@@ -115,7 +123,7 @@ export async function POST(req: Request) {
         if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
         const body = (thinking: boolean) =>
           JSON.stringify({
-            systemInstruction: { parts: [{ text: buildSystemPrompt(context) }] },
+            systemInstruction: { parts: [{ text: `${buildSystemPrompt(context)}\n${languageInstruction(langChoice, lastUser)}\nWrite the [[SUGGEST]] questions in the same language as your answer.` }] },
             contents: messages.map((m) => ({
               role: m.role === 'assistant' ? 'model' : 'user',
               parts: [{ text: m.content }],
@@ -196,10 +204,13 @@ export async function POST(req: Request) {
         // of failing — but only if nothing has been streamed yet.
         if (!sentAny) {
           const close = closestAnswer(lastUser);
+          // The built-in answers are English only — say so rather than pretend.
+          const note = answerLang !== 'en' ? `(The AI is unavailable right now, so this built-in answer is in English, not ${aiLanguage(answerLang)?.name ?? 'your language'}.)\n\n` : '';
           push(
-            close
-              ? `Quick answer while the AI is busy:\n\n${close}`
-              : fallbackAnswer(lastUser, context),
+            note +
+              (close
+                ? `Quick answer while the AI is busy:\n\n${close}`
+                : fallbackAnswer(lastUser, context)),
           );
         }
       } finally {

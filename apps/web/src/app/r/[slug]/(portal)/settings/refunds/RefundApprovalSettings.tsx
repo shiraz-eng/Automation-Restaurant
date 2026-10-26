@@ -52,7 +52,7 @@ export function RefundApprovalSettings({
   return (
     <Card>
       <h2 className="font-bold text-sm mb-1">Refund approval threshold</h2>
-      <p className="text-muted text-[11px] mb-4">
+      <p className="text-muted text-[0.6875rem] mb-4">
         Refunds at or under this amount can be processed by anyone with the Refund permission. Anything over it
         additionally requires the Approve Refund permission (owner/manager have it by default) — enforced by
         refund_payment() itself, so this can never be worked around from the Checkout screen.
@@ -102,8 +102,8 @@ export function RefundApprovalSettings({
           </>
         )}
       </div>
-      {saved && <p className="text-ok text-[11px] mt-2">Saved.</p>}
-      <p className="text-muted text-[11px] mt-3">
+      {saved && <p className="text-ok text-[0.6875rem] mt-2">Saved.</p>}
+      <p className="text-muted text-[0.6875rem] mt-3">
         {maxRefundWithoutApprovalCents != null
           ? `Currently: refunds over ${formatCents(maxRefundWithoutApprovalCents)} need approval.`
           : 'Currently: no limit — any refund amount is allowed with just the Refund permission.'}

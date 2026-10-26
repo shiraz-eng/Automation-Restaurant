@@ -185,9 +185,9 @@ export default async function FinanceOverviewPage({
         )}
         {canCogs && (
           <div className="rounded-lg border border-border bg-surface p-3">
-            <p className="text-[11px] text-muted">Food cost %</p>
+            <p className="text-[0.6875rem] text-muted">Food cost %</p>
             <p className={`text-lg font-black ${foodPct != null && foodPct > targetPct ? 'text-danger' : 'text-ok'}`}>{foodPct == null ? '—' : `${foodPct}%`}</p>
-            <p className="text-[11px] text-muted">target {targetPct}%</p>
+            <p className="text-[0.6875rem] text-muted">target {targetPct}%</p>
           </div>
         )}
       </section>
@@ -228,7 +228,7 @@ export default async function FinanceOverviewPage({
       {monthly.length > 1 && (
         <section>
           <h2 className="font-bold text-sm mb-2">Month by month</h2>
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
@@ -262,7 +262,7 @@ export default async function FinanceOverviewPage({
               </tbody>
             </table>
           </div>
-          <p className="mt-1 text-[11px] text-muted">Newest month first. Click a month to open it.</p>
+          <p className="mt-1 text-[0.6875rem] text-muted">Newest month first. Click a month to open it.</p>
         </section>
       )}
 
@@ -272,7 +272,7 @@ export default async function FinanceOverviewPage({
           {aging.length === 0 ? (
             <p className="text-xs text-muted">Nothing owed to suppliers.</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>
@@ -326,7 +326,7 @@ export default async function FinanceOverviewPage({
           {watch.length === 0 ? (
             <p className="text-xs text-muted">Every costed dish is within the {targetPct}% target and no recipe cost has risen in the last 30 days.</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
+            <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>
@@ -360,7 +360,7 @@ export default async function FinanceOverviewPage({
         </section>
       )}
 
-      <p className="text-[11px] text-muted">
+      <p className="text-[0.6875rem] text-muted">
         Operating profit here = net sales − food cost − approved expenses dated in this period. (Restaurant Performance on the dashboard
         subtracts every expense up to the period end, as chosen earlier, so the two can differ.)
       </p>
@@ -376,16 +376,16 @@ function Kpi({
   const delta = prev != null && prev !== 0 ? Math.round(((cents - prev) / Math.abs(prev)) * 1000) / 10 : null;
   const better = delta == null ? null : invert ? delta < 0 : delta > 0;
   const body = (
-    <div className="rounded-lg border border-border bg-surface p-3 h-full hover:border-primary/60">
-      <p className="text-[11px] text-muted">{label}</p>
-      <p className={`text-lg font-black font-mono ${tone === 'bad' ? 'text-danger' : tone === 'good' ? 'text-ok' : ''}`}>{formatCents(cents)}</p>
-      <p className="text-[11px] text-muted">
+    <div className="min-w-0 rounded-lg border border-border bg-surface p-3 h-full hover:border-primary/60">
+      <p className="text-[0.6875rem] text-muted">{label}</p>
+      <p className={`text-lg font-black font-mono leading-tight [overflow-wrap:anywhere] ${tone === 'bad' ? 'text-danger' : tone === 'good' ? 'text-ok' : ''}`}>{formatCents(cents)}</p>
+      <p className="text-[0.6875rem] text-muted">
         {delta != null && <span className={better ? 'text-ok' : 'text-danger'}>{delta > 0 ? '▲' : delta < 0 ? '▼' : '●'} {Math.abs(delta)}% </span>}
         {sub ?? (prev != null ? `prev ${formatCents(prev)}` : '')}
       </p>
     </div>
   );
-  return href ? <Link href={href}>{body}</Link> : body;
+  return href ? <Link href={href} className="block min-w-0">{body}</Link> : body;
 }
 
 function Money({ c, warn, bold }: { c: number; warn?: boolean; bold?: boolean }) {

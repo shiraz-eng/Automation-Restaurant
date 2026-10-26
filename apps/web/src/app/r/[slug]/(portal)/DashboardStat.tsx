@@ -33,9 +33,9 @@ export function DashboardStat({
 
   const body = (
     <>
-      <div className="text-muted text-[11px] font-semibold uppercase tracking-wide">{label}</div>
-      <div className={`mt-2 text-2xl font-black ${valueCls}`}>{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-muted">{hint}</div>}
+      <div className="text-muted text-[0.6875rem] font-semibold uppercase tracking-wide">{label}</div>
+      <div className={`mt-2 text-2xl font-black leading-tight [overflow-wrap:anywhere] ${valueCls}`}>{value}</div>
+      {hint && <div className="mt-1 text-[0.6875rem] text-muted">{hint}</div>}
     </>
   );
 

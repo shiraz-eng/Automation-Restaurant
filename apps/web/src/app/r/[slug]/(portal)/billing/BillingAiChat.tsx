@@ -62,7 +62,7 @@ export function BillingAiChat({ slug, restaurantName }: { slug: string; restaura
             <button
               key={s}
               onClick={() => send(s)}
-              className="rounded-full border border-border px-2.5 py-1 text-[11px] hover:border-primary"
+              className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] hover:border-primary"
             >
               {s}
             </button>

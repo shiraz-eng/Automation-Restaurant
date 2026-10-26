@@ -33,7 +33,7 @@ export function PlanUpgradePaywall({
         </div>
 
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-main border border-border text-[11px] font-bold text-muted uppercase tracking-wider">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-main border border-border text-[0.6875rem] font-bold text-muted uppercase tracking-wider">
             <span>Plan Requirement</span>
             <span>•</span>
             <span className="text-primary font-bold">{requiredPlan} Plan</span>
@@ -43,7 +43,7 @@ export function PlanUpgradePaywall({
         </div>
 
         <div className="p-4 rounded-xl bg-main/50 border border-border/60 text-left text-xs space-y-2.5 max-w-md mx-auto">
-          <div className="font-bold text-body text-[11px] uppercase tracking-wide text-muted">
+          <div className="font-bold text-body text-[0.6875rem] uppercase tracking-wide text-muted">
             Included with {requiredPlan}:
           </div>
           {featureKey === 'kds.realtime' && (
@@ -117,7 +117,7 @@ export function PlanUpgradePaywall({
           </a>
         </div>
 
-        <p className="text-[11px] text-muted">
+        <p className="text-[0.6875rem] text-muted">
           Your current plan is <strong className="capitalize text-body">{currentTier || 'Starter'}</strong>. Upgrades apply immediately with no service interruption.
         </p>
       </Card>

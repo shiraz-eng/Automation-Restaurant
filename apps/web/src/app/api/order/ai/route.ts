@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { currencyInfo, formatMoney } from '@automation-restaurant/shared';
+import { currencyInfo, formatMoney, languageInstruction } from '@automation-restaurant/shared';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -549,7 +549,9 @@ MENU:
 ${menuText || '(no items listed)'}
 
 ACTIVE DEALS:
-${dealsText || '(no active deals)'}`;
+${dealsText || '(no active deals)'}
+
+${languageInstruction('auto', lastUser)}`;
 
     const contents = messages.slice(-10).map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',

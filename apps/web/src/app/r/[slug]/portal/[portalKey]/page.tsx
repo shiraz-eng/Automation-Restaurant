@@ -678,7 +678,7 @@ export default async function PortalHome({
                 <a
                   key={s.id}
                   href={`#${s.id}`}
-                  className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold hover:border-primary hover:text-primary"
+                  className="rounded-full border border-border px-3 py-1 text-[0.6875rem] font-semibold hover:border-primary hover:text-primary"
                 >
                   {s.label}
                 </a>
@@ -879,7 +879,7 @@ export default async function PortalHome({
                 {stockLedger.length === 0 ? (
                   <p className="text-muted text-xs">Nothing yet.</p>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                     <table className="w-full text-left text-xs">
                       <tbody>
                         {stockLedger.map((l) => (

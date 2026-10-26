@@ -49,7 +49,7 @@ function DayTooltip({ active, payload }: TooltipProps<number, string>) {
   const d = payload[0].payload as { date: string; row: DayRow };
   const aov = d.row.orders_count > 0 ? Math.round(d.row.net_sales_cents / d.row.orders_count) : 0;
   return (
-    <div className="rounded border border-border bg-surface px-3 py-2 text-[11px] shadow-lg space-y-0.5">
+    <div className="rounded border border-border bg-surface px-3 py-2 text-[0.6875rem] shadow-lg space-y-0.5">
       <p className="font-bold text-body mb-1">{d.date}</p>
       <p className="text-muted">
         Gross <span className="font-mono text-body">{formatCents(d.row.gross_sales_cents)}</span>
@@ -75,7 +75,7 @@ function HourTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload || !payload[0]) return null;
   const h = payload[0].payload as { hour: string; net_sales_cents: number; orders_count: number };
   return (
-    <div className="rounded border border-border bg-surface px-3 py-2 text-[11px] shadow-lg">
+    <div className="rounded border border-border bg-surface px-3 py-2 text-[0.6875rem] shadow-lg">
       <p className="font-bold text-body">{h.hour}</p>
       <p className="text-muted">
         Net <span className="font-mono text-body">{formatCents(h.net_sales_cents)}</span> · {h.orders_count} orders
@@ -182,6 +182,7 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
         <h2 className="font-bold">Sales trend</h2>
         <input
           type="month"
+          aria-label="Month"
           value={month}
           onChange={(e) => {
             setMonth(e.target.value);
@@ -240,12 +241,13 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
         </div>
       )}
 
-      <div className="mt-4 flex items-center gap-2">
-        <label className="text-[11px] text-muted font-semibold">Day</label>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <label htmlFor="sales-trend-day" className="text-[0.6875rem] text-muted font-semibold">Day</label>
         <select
+          id="sales-trend-day"
           value={selectedDay ?? ''}
           onChange={(e) => (e.target.value ? selectDay(e.target.value) : clearDay())}
-          className="rounded border border-border bg-main px-2 py-1 text-xs outline-none focus:border-primary"
+          className="min-w-0 max-w-full rounded border border-border bg-main px-2 py-1 text-xs outline-none focus:border-primary"
         >
           <option value="">— pick a day —</option>
           {days
@@ -312,7 +314,7 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
               {!dayOrders || dayOrders.length === 0 ? (
                 <p className="text-muted text-xs">No orders this day.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                   <table className="w-full text-left text-xs">
                     <tbody>
                       {dayOrders.map((o) => (

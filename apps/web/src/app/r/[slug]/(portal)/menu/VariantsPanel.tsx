@@ -249,7 +249,7 @@ export function VariantsPanel({
         ) : shown.length === 0 ? (
           <p className="p-3 text-muted text-xs">No variants.</p>
         ) : (
-          <div className="max-h-[28rem] overflow-auto">
+          <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <thead className="text-muted border-b border-border sticky top-0 bg-surface">
                 <tr>
@@ -301,7 +301,7 @@ export function VariantsPanel({
                               return (
                                 <span className="whitespace-nowrap">
                                   <span className="font-semibold">{own.name}</span>
-                                  <button onClick={() => unlink(own, r.menu_item_id, r.id)} disabled={busy} className="text-danger text-[11px] underline ml-2">
+                                  <button onClick={() => unlink(own, r.menu_item_id, r.id)} disabled={busy} className="text-danger text-[0.6875rem] underline ml-2">
                                     Unlink
                                   </button>
                                 </span>
@@ -315,7 +315,7 @@ export function VariantsPanel({
                                 value=""
                                 disabled={busy}
                                 onChange={(e) => linkTo(e.target.value, r.menu_item_id, r.id)}
-                                className="text-[11px] py-1"
+                                className="text-[0.6875rem] py-1"
                                 aria-label={`Link a recipe to ${r.name}`}
                               >
                                 <option value="">{fallback}</option>

@@ -72,7 +72,7 @@ export function LevelAllocationEditor({ initial, canManage }: { initial: LevelAl
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
       <h2 className="font-bold text-sm">Share of limited stock by priority</h2>
-      <p className="text-muted text-[11px] mt-1 max-w-2xl">
+      <p className="text-muted text-[0.6875rem] mt-1 max-w-2xl">
         When dishes share an ingredient that&rsquo;s running short, each level gets this share of what can actually be
         made. A share a level can&rsquo;t use — its dishes are stopped by another ingredient — is passed on to the
         other levels, so nothing sits unused. Stock is never reserved or moved.
@@ -86,7 +86,7 @@ export function LevelAllocationEditor({ initial, canManage }: { initial: LevelAl
             <div key={r.priority_level} className={`rounded-md border p-2.5 ${r.is_active ? 'border-border' : 'border-border/50 opacity-60'}`}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold">{label}</span>
-                <label className="flex items-center gap-1 text-[10px] text-muted">
+                <label className="flex items-center gap-1 text-[0.625rem] text-muted">
                   <input
                     type="checkbox"
                     checked={r.is_active}
@@ -120,7 +120,7 @@ export function LevelAllocationEditor({ initial, canManage }: { initial: LevelAl
           Total: {Number.isFinite(total) ? total : '—'}%
         </span>
         {!totalOk && (
-          <span className="text-[11px] text-danger">
+          <span className="text-[0.6875rem] text-danger">
             {invalid ? 'Each level needs a number from 0 to 100.' : `Must total exactly 100% (${total > 100 ? `${Math.round((total - 100) * 100) / 100} over` : `${Math.round((100 - total) * 100) / 100} short`}).`}
           </span>
         )}
@@ -129,10 +129,10 @@ export function LevelAllocationEditor({ initial, canManage }: { initial: LevelAl
             {busy ? 'Saving…' : 'Save shares'}
           </Button>
         )}
-        {saved && !dirty && <span className="text-[11px] text-ok">Saved — availability recalculated.</span>}
+        {saved && !dirty && <span className="text-[0.6875rem] text-ok">Saved — availability recalculated.</span>}
       </div>
       {rows.some((r) => !r.is_active) && (
-        <p className="text-[11px] text-muted mt-2">
+        <p className="text-[0.6875rem] text-muted mt-2">
           An inactive level&rsquo;s share goes to the active levels; its dishes only get what&rsquo;s left over.
         </p>
       )}

@@ -133,7 +133,7 @@ export function AskAi({
   return (
     <div className="rounded-lg border border-border bg-surface p-5">
       <h3 className="font-bold text-sm mb-1">Ask AI about your restaurant</h3>
-      <p className="text-muted text-[11px] mb-3">
+      <p className="text-muted text-[0.6875rem] mb-3">
         Reads live data with your permissions — it can&apos;t change anything from here. Naming a period (&quot;this
         month&quot;, &quot;yesterday&quot;…) syncs the charts above to match.
       </p>
@@ -165,7 +165,7 @@ export function AskAi({
             key={s}
             onClick={() => ask(s)}
             disabled={busy}
-            className="text-[10px] px-2 py-1 rounded-full border border-border text-muted hover:text-body hover:border-primary transition-colors"
+            className="text-[0.625rem] px-2 py-1 rounded-full border border-border text-muted hover:text-body hover:border-primary transition-colors"
           >
             {s}
           </button>
@@ -181,7 +181,7 @@ export function AskAi({
       {reply && (
         <div className="rounded border border-border bg-main p-3 text-xs leading-relaxed">
           <Markdown text={reply} />
-          {tools.length > 0 && <p className="text-muted text-[10px] mt-2 not-italic">· {tools.join(' · ')}</p>}
+          {tools.length > 0 && <p className="text-muted text-[0.625rem] mt-2 not-italic">· {tools.join(' · ')}</p>}
         </div>
       )}
       {profitCard && (
@@ -195,15 +195,15 @@ export function AskAi({
           </div>
           <div className="flex items-center gap-4 mt-1">
             <div>
-              <div className="text-[10px] text-muted">Net sales</div>
+              <div className="text-[0.625rem] text-muted">Net sales</div>
               <div className="font-mono font-bold text-sm">{formatCents(profitCard.net_sales_cents)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-muted">Gross profit</div>
+              <div className="text-[0.625rem] text-muted">Gross profit</div>
               <div className="font-mono font-bold text-sm">{formatCents(profitCard.gross_profit_cents)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-muted">Net profit</div>
+              <div className="text-[0.625rem] text-muted">Net profit</div>
               <div className={`font-mono font-bold text-sm ${profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
                 {formatCents(profitCard.net_profit_cents)}
               </div>
@@ -223,15 +223,15 @@ export function AskAi({
           </div>
           <div className="flex items-center gap-4 mt-1">
             <div>
-              <div className="text-[10px] text-muted">Net sales</div>
+              <div className="text-[0.625rem] text-muted">Net sales</div>
               <div className="font-mono font-bold text-sm">{formatCents(orderCard.net_sales_cents)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-muted">COGS</div>
+              <div className="text-[0.625rem] text-muted">COGS</div>
               <div className="font-mono font-bold text-sm">{formatCents(orderCard.cogs_cents)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-muted">Contribution</div>
+              <div className="text-[0.625rem] text-muted">Contribution</div>
               <div className={`font-mono font-bold text-sm ${orderCard.contribution_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
                 {formatCents(orderCard.contribution_cents)}
               </div>
@@ -248,7 +248,7 @@ export function AskAi({
             <span className="text-muted font-semibold">{dealCard.period} · {dealCard.deals.length} deal(s)</span>
             <span className="text-primary font-semibold">View breakdown →</span>
           </div>
-          <div className="text-[11px] text-muted mt-1">
+          <div className="text-[0.6875rem] text-muted mt-1">
             Top: {dealCard.deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents)[0]?.name}
           </div>
         </button>

@@ -1,17 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 
 /**
- * Phones and small tablets: the portal sidebar (navigation, workspace
+ * Phones and tablets (below 1024px, so POS and Kitchen get the full width): the portal sidebar (navigation, workspace
  * switcher, account and sign-out) in a slide-in drawer opened from the top bar.
  * The desktop sidebar renders the same content from the layout.
  */
 export function PortalMobileDrawer({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const panelRef = useRef<HTMLElement>(null);
+  // Focus moves into the drawer, Tab stays inside, Escape closes, focus returns to the Menu button.
+  useDialogFocus(panelRef, open, () => setOpen(false));
 
   useEffect(() => setOpen(false), [pathname]);
 
@@ -19,16 +23,13 @@ export function PortalMobileDrawer({ title, children }: { title: string; childre
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener('keydown', onKey);
     };
   }, [open]);
 
   return (
-    <div className="md:hidden">
+    <div className="lg:hidden">
       <button
         type="button"
         aria-label="Open menu"
@@ -47,6 +48,7 @@ export function PortalMobileDrawer({ title, children }: { title: string; childre
           onClick={() => setOpen(false)}
         />
         <aside
+          ref={panelRef}
           id="portal-drawer"
           role="dialog"
           aria-modal="true"

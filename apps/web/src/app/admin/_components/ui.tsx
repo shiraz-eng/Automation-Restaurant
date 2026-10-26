@@ -12,9 +12,11 @@ import type { ComponentProps } from 'react';
  * drop-in replacements, not a different API to learn.
  */
 
-export function AdminCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+export function AdminCard({ children, className = '', ...rest }: React.ComponentProps<'div'>) {
   return (
-    <div className={`rounded-xl border border-white/10 bg-ink/60 p-5 ${className}`}>{children}</div>
+    <div {...rest} className={`rounded-xl border border-white/10 bg-ink/60 p-5 ${className}`}>
+      {children}
+    </div>
   );
 }
 
@@ -35,7 +37,7 @@ export function AdminButton({
 export function AdminField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-ink-muted text-[11px] font-semibold">{label}</span>
+      <span className="text-ink-muted text-[0.6875rem] font-semibold">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   );
@@ -94,5 +96,5 @@ const STATUS_TONES: Record<string, string> = {
 
 export function AdminBadge({ status }: { status: string }) {
   const tone = STATUS_TONES[status] ?? 'text-ink-muted bg-white/5';
-  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tone}`}>{status.replace('_', ' ')}</span>;
+  return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide ${tone}`}>{status.replace('_', ' ')}</span>;
 }

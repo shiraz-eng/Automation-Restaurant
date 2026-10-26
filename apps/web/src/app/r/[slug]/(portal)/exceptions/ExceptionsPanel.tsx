@@ -142,10 +142,10 @@ export function ExceptionsPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wide">{item.severity}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-muted">· {item.category}</span>
+                      <span className="text-[0.625rem] font-bold uppercase tracking-wide">{item.severity}</span>
+                      <span className="text-[0.625rem] uppercase tracking-wide text-muted">· {item.category}</span>
                       {item.state && (
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                        <span className="text-[0.625rem] font-bold uppercase tracking-wide text-muted">
                           · {STATE_LABEL[item.state.status]}
                           {item.state.actor_email ? ` by ${item.state.actor_email}` : ''}
                         </span>
@@ -166,21 +166,21 @@ export function ExceptionsPanel({
                   <button
                     onClick={() => setState(item, 'acknowledged')}
                     disabled={busy || item.state?.status === 'acknowledged'}
-                    className="text-[11px] font-semibold rounded border border-border px-2 py-1 disabled:opacity-40"
+                    className="text-[0.6875rem] font-semibold rounded border border-border px-2 py-1 disabled:opacity-40"
                   >
                     Acknowledge
                   </button>
                   <button
                     onClick={() => setState(item, 'resolved')}
                     disabled={busy || item.state?.status === 'resolved'}
-                    className="text-[11px] font-semibold rounded border border-ok text-ok px-2 py-1 disabled:opacity-40"
+                    className="text-[0.6875rem] font-semibold rounded border border-ok text-ok px-2 py-1 disabled:opacity-40"
                   >
                     Mark resolved
                   </button>
                   <button
                     onClick={() => setState(item, 'ignored')}
                     disabled={busy || item.state?.status === 'ignored'}
-                    className="text-[11px] font-semibold rounded border border-border text-muted px-2 py-1 disabled:opacity-40"
+                    className="text-[0.6875rem] font-semibold rounded border border-border text-muted px-2 py-1 disabled:opacity-40"
                   >
                     Ignore
                   </button>

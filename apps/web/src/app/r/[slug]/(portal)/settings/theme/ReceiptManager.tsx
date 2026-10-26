@@ -225,7 +225,7 @@ export function ReceiptManager({
     <div className="space-y-6">
       <Card className="space-y-3">
         <h2 className="font-bold text-sm">Restaurant contact details</h2>
-        <p className="text-muted text-[11px]">Used by the receipt&rsquo;s &ldquo;Restaurant information&rdquo; section below.</p>
+        <p className="text-muted text-[0.6875rem]">Used by the receipt&rsquo;s &ldquo;Restaurant information&rdquo; section below.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Address">
             <Input value={contact.address ?? ''} disabled={!canEdit} onChange={(e) => setContact((c) => ({ ...c, address: e.target.value }))} placeholder="123 Main Street, Karachi" />
@@ -248,7 +248,7 @@ export function ReceiptManager({
       {legacyTemplateHtml && (
         <Card className="border-warn/40 bg-warn/5">
           <h2 className="font-bold text-sm mb-1">Custom HTML template active</h2>
-          <p className="text-muted text-[11px] mb-3">
+          <p className="text-muted text-[0.6875rem] mb-3">
             An older custom HTML receipt template is set (from Policies). It still takes priority when printing —
             the layout below is already used for the PDF download. Clear it to let this layout apply to printing too.
           </p>
@@ -264,7 +264,7 @@ export function ReceiptManager({
         <h2 className="font-bold text-sm">Receipt style</h2>
         <div className="flex flex-wrap items-center gap-6">
           <div>
-            <span className="text-[11px] font-semibold text-muted block mb-1">Thermal width</span>
+            <span className="text-[0.6875rem] font-semibold text-muted block mb-1">Thermal width</span>
             <div className="flex gap-1.5">
               {(['58mm', '80mm'] as const).map((w) => (
                 <Button key={w} variant={config.width === w ? 'primary' : 'ghost'} disabled={!canEdit} onClick={() => setConfig((c) => ({ ...c, width: w }))}>
@@ -274,7 +274,7 @@ export function ReceiptManager({
             </div>
           </div>
           <div>
-            <span className="text-[11px] font-semibold text-muted block mb-1">Divider style</span>
+            <span className="text-[0.6875rem] font-semibold text-muted block mb-1">Divider style</span>
             <Select value={config.dividerStyle} disabled={!canEdit} onChange={(e) => setConfig((c) => ({ ...c, dividerStyle: e.target.value as DividerStyle }))}>
               {DIVIDERS.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -288,7 +288,7 @@ export function ReceiptManager({
 
       <Card className="space-y-3">
         <h2 className="font-bold text-sm mb-1">Sections</h2>
-        <p className="text-muted text-[11px] mb-2">Only checked sections appear, in this order. Use the arrows to reorder.</p>
+        <p className="text-muted text-[0.6875rem] mb-2">Only checked sections appear, in this order. Use the arrows to reorder.</p>
 
         <div className="space-y-2">
           {enabled.map((id, i) => (
@@ -305,7 +305,7 @@ export function ReceiptManager({
               </div>
 
               {id === 'header' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-2 text-[0.6875rem]">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.header.showLogo} disabled={!canEdit} onChange={(e) => patch('header', { showLogo: e.target.checked })} />
                     Show logo
@@ -335,7 +335,7 @@ export function ReceiptManager({
               )}
 
               {id === 'restaurant_info' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showAddress', 'showPhone', 'showEmail', 'showWebsite', 'showTaxId'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.restaurantInfo[k]} disabled={!canEdit} onChange={(e) => patch('restaurantInfo', { [k]: e.target.checked })} />
@@ -346,7 +346,7 @@ export function ReceiptManager({
               )}
 
               {id === 'order_info' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showOrderNumber', 'showDate', 'showTime', 'showTable', 'showCustomer', 'showOrderType'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.orderInfo[k]} disabled={!canEdit} onChange={(e) => patch('orderInfo', { [k]: e.target.checked })} />
@@ -357,7 +357,7 @@ export function ReceiptManager({
               )}
 
               {id === 'items' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showVariant', 'showModifiers', 'showNotes'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.items[k]} disabled={!canEdit} onChange={(e) => patch('items', { [k]: e.target.checked })} />
@@ -368,13 +368,13 @@ export function ReceiptManager({
               )}
 
               {id === 'discount' && (
-                <div className="mt-2 pl-6 flex items-center gap-3 text-[11px]">
+                <div className="mt-2 pl-6 flex items-center gap-3 text-[0.6875rem]">
                   <Input value={config.discount.label} disabled={!canEdit} onChange={(e) => patch('discount', { label: e.target.value })} placeholder="Label (e.g. Discount)" />
                 </div>
               )}
 
               {id === 'totals' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px] items-center">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem] items-center">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.totals.showSubtotal} disabled={!canEdit} onChange={(e) => patch('totals', { showSubtotal: e.target.checked })} />
                     Subtotal
@@ -392,7 +392,7 @@ export function ReceiptManager({
               )}
 
               {id === 'payment' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showMethod', 'showAmountPaid', 'showChange', 'showReference'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.payment[k]} disabled={!canEdit} onChange={(e) => patch('payment', { [k]: e.target.checked })} />
@@ -403,7 +403,7 @@ export function ReceiptManager({
               )}
 
               {id === 'order_status' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[11px]">
+                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.orderStatus.showStatus} disabled={!canEdit} onChange={(e) => patch('orderStatus', { showStatus: e.target.checked })} />
                     Order status
@@ -424,18 +424,18 @@ export function ReceiptManager({
                         disabled={!canEdit}
                         onChange={(e) => updateText(t.id, { text: e.target.value })}
                         rows={2}
-                        className="w-full rounded border border-border bg-surface px-2 py-1 text-[11px] outline-none focus:border-primary"
+                        className="w-full rounded border border-border bg-surface px-2 py-1 text-[0.6875rem] outline-none focus:border-primary"
                         placeholder="Thank you for visiting!"
                       />
                       <div className="flex items-center gap-2">
-                        <Select value={t.align} disabled={!canEdit} onChange={(e) => updateText(t.id, { align: e.target.value as Align })} className="text-[11px]">
+                        <Select value={t.align} disabled={!canEdit} onChange={(e) => updateText(t.id, { align: e.target.value as Align })} className="text-[0.6875rem]">
                           {ALIGNS.map((a) => (
                             <option key={a} value={a}>
                               {a}
                             </option>
                           ))}
                         </Select>
-                        <label className="flex items-center gap-1 text-[11px]">
+                        <label className="flex items-center gap-1 text-[0.6875rem]">
                           <input type="checkbox" checked={t.bold} disabled={!canEdit} onChange={(e) => updateText(t.id, { bold: e.target.checked })} />
                           Bold
                         </label>
@@ -445,18 +445,18 @@ export function ReceiptManager({
                         <button type="button" disabled={!canEdit || i === config.customText.length - 1} onClick={() => moveText(t.id, 1)} className="text-muted disabled:opacity-30 px-1 text-xs">
                           ↓
                         </button>
-                        <button type="button" disabled={!canEdit} onClick={() => removeText(t.id)} className="text-danger text-[11px] font-semibold ml-auto">
+                        <button type="button" disabled={!canEdit} onClick={() => removeText(t.id)} className="text-danger text-[0.6875rem] font-semibold ml-auto">
                           Remove
                         </button>
                       </div>
                     </div>
                   ))}
                   {canEdit && (
-                    <button type="button" onClick={addText} className="text-primary text-[11px] font-semibold">
+                    <button type="button" onClick={addText} className="text-primary text-[0.6875rem] font-semibold">
                       + Add text block
                     </button>
                   )}
-                  <p className="text-muted text-[10px]">
+                  <p className="text-muted text-[0.625rem]">
                     Variables: {RECEIPT_VARIABLES.map((v) => `{${v}}`).join(' ')}
                   </p>
                 </div>
@@ -467,7 +467,7 @@ export function ReceiptManager({
 
         {disabled.length > 0 && (
           <div className="pt-2 border-t border-border">
-            <p className="text-muted text-[11px] font-semibold mb-1.5">Not shown</p>
+            <p className="text-muted text-[0.6875rem] font-semibold mb-1.5">Not shown</p>
             <div className="flex flex-wrap gap-1.5">
               {disabled.map((id) => (
                 <button
@@ -475,7 +475,7 @@ export function ReceiptManager({
                   type="button"
                   disabled={!canEdit}
                   onClick={() => toggleSection(id, true)}
-                  className="rounded-full border border-border px-2.5 py-1 text-[11px] hover:border-primary hover:text-primary"
+                  className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem] hover:border-primary hover:text-primary"
                 >
                   + {sectionLabel(id)}
                 </button>
@@ -487,7 +487,7 @@ export function ReceiptManager({
 
       <Card>
         <h2 className="font-bold text-sm mb-1">Preview</h2>
-        <p className="text-muted text-[11px] mb-3">
+        <p className="text-muted text-[0.6875rem] mb-3">
           {previewOrder ? 'Using this restaurant’s most recent order.' : 'No orders yet — showing sample data.'}
         </p>
         <div className="rounded-lg border border-border bg-surface p-3 flex justify-center">
@@ -501,7 +501,7 @@ export function ReceiptManager({
           <Button disabled={busy} onClick={save}>
             {busy ? 'Saving…' : 'Save receipt template'}
           </Button>
-          {saved && <p className="text-ok text-[11px]">Saved — every new receipt now uses this template.</p>}
+          {saved && <p className="text-ok text-[0.6875rem]">Saved — every new receipt now uses this template.</p>}
         </div>
       )}
     </div>
@@ -513,7 +513,7 @@ export function ReceiptManager({
 function ReceiptPreview({ blocks, width }: { blocks: ReceiptBlock[]; width: '58mm' | '80mm' }) {
   return (
     <div
-      className="bg-white text-[#111] font-mono text-[11px] p-3 shadow-sm"
+      className="bg-white text-[#111] font-mono text-[0.6875rem] p-3 shadow-sm"
       style={{ width: width === '58mm' ? 200 : 280 }}
     >
       {blocks.map((b, i) => {
@@ -537,7 +537,7 @@ function ReceiptPreview({ blocks, width }: { blocks: ReceiptBlock[]; width: '58m
             return (
               <div
                 key={i}
-                className={`${b.bold ? 'font-bold' : ''} ${b.size === 'lg' ? 'text-[13px]' : b.size === 'sm' ? 'text-[10px]' : ''} ${b.muted ? 'text-gray-500' : ''}`}
+                className={`${b.bold ? 'font-bold' : ''} ${b.size === 'lg' ? 'text-[0.8125rem]' : b.size === 'sm' ? 'text-[0.625rem]' : ''} ${b.muted ? 'text-gray-500' : ''}`}
                 style={{ textAlign: b.align }}
               >
                 {b.text}
@@ -573,7 +573,7 @@ function ReceiptPreview({ blocks, width }: { blocks: ReceiptBlock[]; width: '58m
                   <span>{b.total}</span>
                 </div>
                 {b.sub.map((s, j) => (
-                  <div key={j} className="pl-3 text-[10px] text-gray-600">
+                  <div key={j} className="pl-3 text-[0.625rem] text-gray-600">
                     {s}
                   </div>
                 ))}

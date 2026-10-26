@@ -156,7 +156,7 @@ export default async function LedgerPage({
           >
             <p className="text-muted">{CATEGORY_LABEL[r.category] ?? r.category}</p>
             <p className="font-bold font-mono">{formatCents(Number(r.net_cents))}</p>
-            <p className="text-[10px] text-muted">
+            <p className="text-[0.625rem] text-muted">
               +{formatCents(Number(r.increase_cents))} / −{formatCents(Number(r.decrease_cents))} · {Number(r.events)}
             </p>
           </Link>
@@ -185,7 +185,7 @@ export default async function LedgerPage({
         {events.length === 0 ? (
           <p className="text-xs text-muted">No ledger entries in this period.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
@@ -247,7 +247,7 @@ export default async function LedgerPage({
             </table>
           </div>
         )}
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-[0.6875rem] text-muted">
           Info-only entries (cash counts, day closes, purchase orders) carry no sign and do not change any balance.
         </p>
       </section>

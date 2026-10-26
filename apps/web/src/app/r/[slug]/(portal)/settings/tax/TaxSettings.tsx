@@ -55,7 +55,7 @@ export function TaxSettings({
   return (
     <Card>
       <h2 className="font-bold text-sm mb-1">Tax</h2>
-      <p className="text-muted text-[11px] mb-4">
+      <p className="text-muted text-[0.6875rem] mb-4">
         Added on top of menu prices, after discounts, at the checkout, the QR menu and online orders. Changing it only
         affects new orders — orders already placed keep their tax.
       </p>
@@ -86,8 +86,8 @@ export function TaxSettings({
           </Button>
         )}
       </div>
-      {saved && <p className="text-ok text-[11px] mt-2">Saved.</p>}
-      <p className="text-muted text-[11px] mt-3">Currently: {current} The name printed on receipts is set in Receipt settings.</p>
+      {saved && <p className="text-ok text-[0.6875rem] mt-2">Saved.</p>}
+      <p className="text-muted text-[0.6875rem] mt-3">Currently: {current} The name printed on receipts is set in Receipt settings.</p>
     </Card>
   );
 }

@@ -232,7 +232,7 @@ export function BillingActions({
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-sm">{p.name}</span>
                     {isCurrent && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary text-primary-fg">
+                      <span className="text-[0.625rem] font-bold px-2 py-0.5 rounded-full bg-primary text-primary-fg">
                         Active
                       </span>
                     )}
@@ -241,8 +241,8 @@ export function BillingActions({
                     <span className="text-xl font-black">{price}</span>
                     <span className="text-xs text-muted">{p.period}</span>
                   </div>
-                  <p className="text-[11px] text-muted mb-3">{p.blurb}</p>
-                  <ul className="space-y-1.5 text-[11px] border-t border-border pt-3 mb-4">
+                  <p className="text-[0.6875rem] text-muted mb-3">{p.blurb}</p>
+                  <ul className="space-y-1.5 text-[0.6875rem] border-t border-border pt-3 mb-4">
                     {p.features.map((feat) => (
                       <li key={feat} className="flex items-center gap-1.5">
                         <span className="text-ok font-bold">✓</span>

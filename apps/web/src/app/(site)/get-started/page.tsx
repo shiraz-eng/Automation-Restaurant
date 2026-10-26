@@ -47,7 +47,7 @@ export default async function GetStartedPage({
             {price === null ? '—' : cycle === 'annual' ? `$${price * 12}` : `$${price}`}
           </span>
         </div>
-        <p className="text-[11px] text-muted mt-3">
+        <p className="text-[0.6875rem] text-muted mt-3">
           Taxes calculated at checkout where applicable. Payment is processed by a secure
           third-party provider; card details are not stored by Automation Restaurant.
         </p>

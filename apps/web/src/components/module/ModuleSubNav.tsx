@@ -91,7 +91,7 @@ export function ModuleSubNav({ slug, navs }: { slug: string; navs: SubNav[] }) {
         <Link
           href={nav.landing}
           onClick={() => remember(null)}
-          className="shrink-0 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted/80 hover:text-body focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-body"
+          className="shrink-0 py-2.5 text-[0.625rem] font-bold uppercase tracking-wider text-muted/80 hover:text-body focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-body"
         >
           {nav.label}
         </Link>
@@ -109,7 +109,7 @@ export function ModuleSubNav({ slug, navs }: { slug: string; navs: SubNav[] }) {
                   href={item.href}
                   aria-current={isActive ? 'page' : undefined}
                   onClick={() => remember(foreign ? { nav: nav.key, href: item.href } : null)}
-                  className={`relative block whitespace-nowrap px-3 py-2.5 text-[13px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-body ${
+                  className={`relative block whitespace-nowrap px-3 py-2.5 text-[0.8125rem] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-body ${
                     isActive
                       ? 'font-semibold text-body after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary'
                       : 'text-muted hover:text-body'

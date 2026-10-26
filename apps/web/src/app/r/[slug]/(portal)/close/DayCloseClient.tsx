@@ -213,7 +213,7 @@ export function DayCloseClient({
           </Field>
           {preview && (
             <span
-              className={`mb-2 rounded px-2 py-1 text-[11px] font-bold uppercase ${closed ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn'}`}
+              className={`mb-2 rounded px-2 py-1 text-[0.6875rem] font-bold uppercase ${closed ? 'bg-ok/15 text-ok' : 'bg-warn/15 text-warn'}`}
             >
               {closed ? 'Closed · locked' : preview.is_future ? 'Not reached yet' : 'Open'}
             </span>
@@ -292,7 +292,7 @@ export function DayCloseClient({
             </Button>
           </div>
         )}
-        <p className="mt-3 text-[11px] text-muted">
+        <p className="mt-3 text-[0.6875rem] text-muted">
           Closing locks the day: its sales can&apos;t be voided or repriced and no expense, cash count or movement can be added to
           it. Refunds stay possible and count on the day they&apos;re given. Reopening needs a reason and is logged.
         </p>
@@ -303,7 +303,7 @@ export function DayCloseClient({
         {movements.length === 0 ? (
           <p className="text-muted text-xs mb-3">No pay-ins, pay-outs or bank drops recorded for this day.</p>
         ) : (
-          <div className="overflow-x-auto mb-3">
+          <div className="overflow-x-auto mb-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <tbody>
                 {movements.map((m) => (
@@ -350,7 +350,7 @@ export function DayCloseClient({
         )}
       </Card>
 
-      <Card className="p-0 overflow-x-auto">
+      <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>

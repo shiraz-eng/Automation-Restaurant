@@ -47,7 +47,7 @@ export function ExpenseCalculator({ profit, periodLabel }: { profit: ProfitRow; 
   return (
     <Card>
       <h2 className="font-bold text-sm mb-1">Profit impact calculator</h2>
-      <p className="text-muted text-[11px] mb-4">
+      <p className="text-muted text-[0.6875rem] mb-4">
         Model a hypothetical change against {periodLabel}&apos;s real numbers — nothing here is saved.
       </p>
 

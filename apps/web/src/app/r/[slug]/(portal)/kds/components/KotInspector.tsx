@@ -93,7 +93,7 @@ export function KotInspector({
 
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         <section>
-          <h3 className="text-[10px] font-bold uppercase tracking-wide text-muted mb-2">KOT #{kot.order_number} Details</h3>
+          <h3 className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-2">KOT #{kot.order_number} Details</h3>
           <ol className="space-y-2 border-l border-border pl-3">
             <li className="text-xs">
               <span className="font-semibold">Order received</span>
@@ -113,7 +113,7 @@ export function KotInspector({
         </section>
 
         <section>
-          <h3 className="text-[10px] font-bold uppercase tracking-wide text-muted mb-2">This KOT Connects To</h3>
+          <h3 className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-2">This KOT Connects To</h3>
           <div className="rounded border border-border p-2.5 text-xs space-y-1">
             <div className="flex justify-between">
               <span className="text-muted">Order</span>
@@ -143,14 +143,14 @@ export function KotInspector({
 
         <section>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[10px] font-bold uppercase tracking-wide text-muted">
+            <h3 className="text-[0.625rem] font-bold uppercase tracking-wide text-muted">
               Ordered Items ({kot.order_lines.reduce((s, l) => s + l.qty, 0)})
             </h3>
             {onPrint && (
               <button
                 type="button"
                 onClick={onPrint}
-                className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
+                className="text-[0.6875rem] font-semibold text-primary hover:underline flex items-center gap-1"
                 aria-label="Print KOT Ticket"
               >
                 <Printer size={12} /> Print Ticket
@@ -165,7 +165,7 @@ export function KotInspector({
                     {l.qty} × {l.name_snapshot}
                   </span>
                   <span
-                    className={`text-[10px] font-bold uppercase shrink-0 px-1.5 py-0.5 rounded border ${
+                    className={`text-[0.625rem] font-bold uppercase shrink-0 px-1.5 py-0.5 rounded border ${
                       l.kds_status === 'ready' || l.kds_status === 'served'
                         ? 'bg-ok/10 text-ok border-ok/30'
                         : l.kds_status === 'preparing'
@@ -177,17 +177,17 @@ export function KotInspector({
                   </span>
                 </div>
                 {l.variant_name_snapshot && (
-                  <div className="text-muted text-[11px] mt-0.5 font-medium uppercase">
+                  <div className="text-muted text-[0.6875rem] mt-0.5 font-medium uppercase">
                     {l.variant_name_snapshot}
                   </div>
                 )}
                 {l.modifiers && l.modifiers.length > 0 && (
-                  <div className="text-muted text-[11px] mt-0.5">
+                  <div className="text-muted text-[0.6875rem] mt-0.5">
                     {l.modifiers.map((m) => m.name).join(', ')}
                   </div>
                 )}
                 {l.customer_note && (
-                  <div className="flex items-center gap-1 text-warn text-[11px] font-semibold mt-1">
+                  <div className="flex items-center gap-1 text-warn text-[0.6875rem] font-semibold mt-1">
                     <AlertTriangle size={11} /> {l.customer_note}
                   </div>
                 )}
@@ -202,7 +202,7 @@ export function KotInspector({
         </section>
 
         <section>
-          <h3 className="text-[10px] font-bold uppercase tracking-wide text-muted mb-2">Ingredients This Order Consumes</h3>
+          <h3 className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-2">Ingredients This Order Consumes</h3>
           {ingredientTotals.size > 0 ? (
             <div className="space-y-1">
               {[...ingredientTotals.entries()].map(([name, v]) => (

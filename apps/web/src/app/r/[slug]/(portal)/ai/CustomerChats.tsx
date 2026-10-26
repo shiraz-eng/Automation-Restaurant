@@ -55,7 +55,7 @@ export function CustomerChats() {
       <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-4 py-3 text-left">
         <span>
           <span className="font-bold text-sm">Customer chats</span>
-          <span className="block text-muted text-[11px]">What guests asked the ordering assistant on your online menu</span>
+          <span className="block text-muted text-[0.6875rem]">What guests asked the ordering assistant on your online menu</span>
         </span>
         <span className="text-muted text-xs">{open ? 'Hide ▴' : 'Show ▾'}</span>
       </button>
@@ -84,7 +84,7 @@ export function CustomerChats() {
                       className={`block w-full text-left px-2.5 py-2 border-b border-border/60 last:border-0 ${selected === c.id ? 'bg-primary/10' : 'hover:bg-main'}`}
                     >
                       <div className="text-xs font-semibold truncate">{c.title}</div>
-                      <div className="text-[10px] text-muted">
+                      <div className="text-[0.625rem] text-muted">
                         {when(c.updated_at)} · {c.message_count} messages
                       </div>
                     </button>
@@ -106,7 +106,7 @@ export function CustomerChats() {
                       >
                         {m.role === 'user' ? m.content : <Markdown text={m.content} />}
                       </div>
-                      <div className="text-[10px] text-muted mt-0.5">
+                      <div className="text-[0.625rem] text-muted mt-0.5">
                         {m.role === 'user' ? 'Guest' : 'Assistant'} · {when(m.created_at)}
                       </div>
                     </div>

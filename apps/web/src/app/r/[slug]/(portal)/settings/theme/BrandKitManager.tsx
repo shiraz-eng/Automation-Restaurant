@@ -113,7 +113,7 @@ export function BrandKitManager({
             className="h-8 w-14 rounded border border-border bg-surface"
           />
           {resettable && raw && canEdit && (
-            <button type="button" onClick={() => setToken(key, '')} className="text-primary text-[11px] font-semibold">
+            <button type="button" onClick={() => setToken(key, '')} className="text-primary text-[0.6875rem] font-semibold">
               Reset
             </button>
           )}
@@ -178,7 +178,7 @@ export function BrandKitManager({
       )}
       <Card>
         <h2 className="font-bold text-sm mb-1">Logo</h2>
-        <p className="text-muted text-[11px] mb-4">
+        <p className="text-muted text-[0.6875rem] mb-4">
           Used in the portal sidebar, printed receipts, invoices, and PDF reports.
         </p>
         {logoError && <div className="rounded border border-danger/40 bg-danger/10 text-danger p-2.5 text-xs mb-3">{logoError}</div>}
@@ -187,7 +187,7 @@ export function BrandKitManager({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={currentLogoUrl} alt="Logo" className="h-14 max-w-[140px] object-contain border border-border rounded bg-surface p-1" />
           ) : (
-            <div className="h-14 w-28 rounded border border-dashed border-border grid place-items-center text-muted text-[10px]">
+            <div className="h-14 w-28 rounded border border-dashed border-border grid place-items-center text-muted text-[0.625rem]">
               No logo
             </div>
           )}
@@ -219,7 +219,7 @@ export function BrandKitManager({
 
       <Card>
         <h2 className="font-bold text-sm mb-1">Portal identity</h2>
-        <p className="text-muted text-[11px] mb-3">
+        <p className="text-muted text-[0.6875rem] mb-3">
           The browser tab title for every page in this restaurant&rsquo;s portal — sub-pages show
           as &ldquo;Page — {title.trim() || restaurantName}&rdquo;. The logo above is also used as the browser tab
           icon (favicon).
@@ -247,13 +247,13 @@ export function BrandKitManager({
               }`}
             >
               <span className="block w-full h-8 rounded mb-2" style={{ background: `rgb(${tokens.primary})` }} />
-              <span className="text-[11px] font-semibold">{name}</span>
+              <span className="text-[0.6875rem] font-semibold">{name}</span>
             </button>
           ))}
           {theme.preset === 'Custom' && (
             <div className="rounded-lg border border-primary p-3">
               <span className="block w-full h-8 rounded mb-2" style={{ background: `rgb(${theme.tokens.primary || DEFAULT_PRIMARY})` }} />
-              <span className="text-[11px] font-semibold">Custom</span>
+              <span className="text-[0.6875rem] font-semibold">Custom</span>
             </div>
           )}
         </div>
@@ -274,7 +274,7 @@ export function BrandKitManager({
         </label>
         {colorField('primary-fg', 'Text on primary')}
         <div className="border-t border-border pt-3 space-y-3">
-          <p className="text-muted text-[11px]">
+          <p className="text-muted text-[0.6875rem]">
             Optional — leave as default to keep automatic light/dark switching for these.
           </p>
           {colorField('bg-main', 'Page background', true)}
@@ -335,7 +335,7 @@ export function BrandKitManager({
           <Button disabled={busy} onClick={saveAll}>
             {busy ? 'Saving…' : 'Save Brand Kit'}
           </Button>
-          {saved && <p className="text-ok text-[11px]">Saved — now live for every user and guest.</p>}
+          {saved && <p className="text-ok text-[0.6875rem]">Saved — now live for every user and guest.</p>}
         </div>
       )}
     </div>

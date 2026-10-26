@@ -227,7 +227,7 @@ function PieTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload || !payload[0]) return null;
   const p = payload[0];
   return (
-    <div className="rounded border border-border bg-surface px-3 py-1.5 text-[11px] shadow-lg">
+    <div className="rounded border border-border bg-surface px-3 py-1.5 text-[0.6875rem] shadow-lg">
       <span className="font-bold text-body">{p.name}</span>
       <span className="text-muted ml-2 font-mono">{formatCents(Number(p.value) * 100)}</span>
     </div>
@@ -237,10 +237,10 @@ function PieTooltip({ active, payload }: TooltipProps<number, string>) {
 function Delta({ curr, prev }: { curr: number; prev: number }) {
   if (prev === 0) return null;
   const pct = Math.round(((curr - prev) / prev) * 1000) / 10;
-  if (pct === 0) return <span className="text-muted text-[11px]">flat vs previous period</span>;
+  if (pct === 0) return <span className="text-muted text-[0.6875rem]">flat vs previous period</span>;
   const up = pct > 0;
   return (
-    <span className={`text-[11px] font-semibold ${up ? 'text-ok' : 'text-danger'}`}>
+    <span className={`text-[0.6875rem] font-semibold ${up ? 'text-ok' : 'text-danger'}`}>
       {up ? '↑' : '↓'} {Math.abs(pct)}% <span className="text-muted font-normal">vs previous period</span>
     </span>
   );
@@ -253,7 +253,7 @@ function Kpi({ label, value, delta, tone, onClick }: { label: string; value: str
       onClick={onClick}
       className={`rounded-lg border border-border bg-surface p-4 text-left w-full ${onClick ? 'hover:border-primary/50 cursor-pointer' : ''}`}
     >
-      <div className="text-muted text-[11px] font-semibold flex items-center gap-1">
+      <div className="text-muted text-[0.6875rem] font-semibold flex items-center gap-1">
         {label}
         {onClick && <span className="text-primary">↴</span>}
       </div>
@@ -729,7 +729,7 @@ export function PerformancePanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-bold">Restaurant performance</h2>
-          <p className="text-muted text-[11px] mt-0.5 flex items-center gap-1.5">
+          <p className="text-muted text-[0.6875rem] mt-0.5 flex items-center gap-1.5">
             {(() => {
               const r = resolveRange(period, customRange, tz);
               return rangeCaption(r.from, r.to, tz);
@@ -749,7 +749,7 @@ export function PerformancePanel({
                   onCustomRangeChange(null);
                   onPeriodChange(p.key);
                 }}
-                className={`shrink-0 whitespace-nowrap px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+                className={`shrink-0 whitespace-nowrap px-2.5 py-1 rounded text-[0.6875rem] font-semibold transition-colors ${
                   !customRange && period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
                 }`}
               >
@@ -761,7 +761,7 @@ export function PerformancePanel({
                 setCustomDraft(customRange ?? { from: '', to: '' });
                 setCustomOpen((v) => !v);
               }}
-              className={`shrink-0 whitespace-nowrap px-2.5 py-1 rounded text-[11px] font-semibold transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-2.5 py-1 rounded text-[0.6875rem] font-semibold transition-colors ${
                 customRange ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
               }`}
             >
@@ -771,7 +771,7 @@ export function PerformancePanel({
           <button
             onClick={handleGenerateReport}
             disabled={loading}
-            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[0.6875rem] font-semibold disabled:opacity-50"
           >
             Generate Report
           </button>
@@ -779,14 +779,14 @@ export function PerformancePanel({
             <button
               onClick={handleExportExcel}
               disabled={loading || exporting}
-              className="bg-main px-3 py-1.5 text-[11px] font-semibold text-body hover:border-primary disabled:opacity-50"
+              className="bg-main px-3 py-1.5 text-[0.6875rem] font-semibold text-body hover:border-primary disabled:opacity-50"
             >
               {exporting ? 'Exporting…' : selectedSheets ? `Export Excel (${selectedSheets.size})` : 'Export Excel'}
             </button>
             <button
               onClick={() => setSheetPickerOpen((v) => !v)}
               title="Choose which sheets to export"
-              className={`px-2 py-1.5 text-[11px] border-l border-border ${sheetPickerOpen || selectedSheets ? 'bg-primary/10 text-primary' : 'bg-main text-muted hover:text-body'}`}
+              className={`px-2 py-1.5 text-[0.6875rem] border-l border-border ${sheetPickerOpen || selectedSheets ? 'bg-primary/10 text-primary' : 'bg-main text-muted hover:text-body'}`}
             >
               ▾
             </button>
@@ -797,10 +797,10 @@ export function PerformancePanel({
       {sheetPickerOpen && (
         <div className="rounded-lg border border-border bg-main p-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-muted">
+            <span className="text-[0.6875rem] font-semibold text-muted">
               Export sheets — Executive Summary &amp; Profit Summary always included
             </span>
-            <button onClick={() => setSelectedSheets(null)} className="text-[11px] text-primary hover:underline">
+            <button onClick={() => setSelectedSheets(null)} className="text-[0.6875rem] text-primary hover:underline">
               Select all
             </button>
           </div>
@@ -808,7 +808,7 @@ export function PerformancePanel({
             {EXCEL_OPTIONAL_SHEETS.map((name) => {
               const checked = selectedSheets ? selectedSheets.has(name) : true;
               return (
-                <label key={name} className="flex items-center gap-1.5 text-[11px] text-body">
+                <label key={name} className="flex items-center gap-1.5 text-[0.6875rem] text-body">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -831,7 +831,7 @@ export function PerformancePanel({
 
       {customOpen && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-main p-3">
-          <label className="text-[11px] text-muted flex flex-col gap-1">
+          <label className="text-[0.6875rem] text-muted flex flex-col gap-1">
             From
             <input
               type="date"
@@ -841,7 +841,7 @@ export function PerformancePanel({
               className="rounded border border-border bg-surface px-2 py-1 text-xs"
             />
           </label>
-          <label className="text-[11px] text-muted flex flex-col gap-1">
+          <label className="text-[0.6875rem] text-muted flex flex-col gap-1">
             To
             <input
               type="date"
@@ -858,7 +858,7 @@ export function PerformancePanel({
               setCustomOpen(false);
             }}
             disabled={!customDraft.from || !customDraft.to}
-            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
+            className="rounded-lg bg-primary text-primary-fg px-3 py-1.5 text-[0.6875rem] font-semibold disabled:opacity-50"
           >
             Apply
           </button>
@@ -869,7 +869,7 @@ export function PerformancePanel({
                 setCustomDraft({ from: '', to: '' });
                 setCustomOpen(false);
               }}
-              className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold text-muted hover:text-body"
+              className="rounded-lg border border-border px-3 py-1.5 text-[0.6875rem] font-semibold text-muted hover:text-body"
             >
               Clear
             </button>
@@ -903,7 +903,7 @@ export function PerformancePanel({
                 <>
                   {sales && prevSales && <Delta curr={sales.net_sales_cents} prev={prevSales.net_sales_cents} />}
                   {taxInfo && (
-                    <span className="block text-[11px] text-muted">
+                    <span className="block text-[0.6875rem] text-muted">
                       + {formatCents(taxInfo.tax_cents)} tax = <span className="font-semibold text-body">{formatCents(taxInfo.sales_incl_tax_cents)}</span> with tax
                     </span>
                   )}
@@ -915,7 +915,7 @@ export function PerformancePanel({
             <Kpi
               label="Customer rating"
               value={feedback?.avg_overall != null ? `★ ${feedback.avg_overall.toFixed(1)}` : '—'}
-              delta={feedback ? <span className="text-muted text-[11px]">{feedback.responses} response{feedback.responses === 1 ? '' : 's'}</span> : undefined}
+              delta={feedback ? <span className="text-muted text-[0.6875rem]">{feedback.responses} response{feedback.responses === 1 ? '' : 's'}</span> : undefined}
             />
           </div>
 
@@ -942,7 +942,7 @@ export function PerformancePanel({
             </div>
           )}
           {canSeeProfit && profit && (
-            <div className="rounded-lg border border-border bg-surface p-4 text-[11px] text-muted flex flex-wrap gap-x-6 gap-y-1">
+            <div className="rounded-lg border border-border bg-surface p-4 text-[0.6875rem] text-muted flex flex-wrap gap-x-6 gap-y-1">
               <span>Gross sales <span className="font-semibold text-body">{formatCents(profit.gross_sales_cents)}</span></span>
               <span>Discounts <span className="font-semibold text-body">-{formatCents(profit.discount_cents)}</span></span>
               <span>Refunds <span className="font-semibold text-body">-{formatCents(profit.refunded_cents)}</span></span>
@@ -1012,7 +1012,7 @@ export function PerformancePanel({
                   <button
                     key={s}
                     onClick={() => setTopSort(s)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold ${topSort === s ? 'bg-primary text-primary-fg' : 'text-muted'}`}
+                    className={`px-2 py-0.5 rounded text-[0.625rem] font-semibold ${topSort === s ? 'bg-primary text-primary-fg' : 'text-muted'}`}
                   >
                     {s === 'revenue_cents' ? 'Revenue' : 'Units'}
                   </button>
@@ -1043,7 +1043,7 @@ export function PerformancePanel({
             <div className="flex items-baseline justify-between mb-3">
               <h3 className="font-bold text-sm">Deals &amp; combos</h3>
               {dealRows.length > 0 && (
-                <span className="text-[11px] text-muted">
+                <span className="text-[0.6875rem] text-muted">
                   {formatCents(dealRows.reduce((s, d) => s + d.revenue_cents, 0))} from{' '}
                   {dealRows.reduce((s, d) => s + d.qty_sold, 0)} sold
                 </span>
@@ -1052,7 +1052,7 @@ export function PerformancePanel({
             {dealRows.length === 0 ? (
               <p className="text-muted text-xs">No deals sold in this period.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                 <table className="w-full text-left text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
@@ -1098,7 +1098,7 @@ export function PerformancePanel({
                 <p className="text-muted text-xs">No active staff.</p>
               ) : (
                 <>
-                  <div className="flex gap-4 text-xs mb-3">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs mb-3">
                     <span className="text-ok font-bold">{attCounts.present} present</span>
                     <span className="text-warn font-bold">{attCounts.late} late</span>
                     <span className="text-danger font-bold">{attCounts.absent} absent</span>
@@ -1141,7 +1141,7 @@ export function PerformancePanel({
                       </span>
                     </div>
                   ))}
-                  <p className="text-muted text-[11px] pt-1">{feedback.responses} response{feedback.responses === 1 ? '' : 's'} this period.</p>
+                  <p className="text-muted text-[0.6875rem] pt-1">{feedback.responses} response{feedback.responses === 1 ? '' : 's'} this period.</p>
                 </div>
               )}
             </div>

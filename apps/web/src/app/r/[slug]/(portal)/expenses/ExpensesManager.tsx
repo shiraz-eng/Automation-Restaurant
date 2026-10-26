@@ -707,9 +707,10 @@ export function ExpensesManager({
                 Visual trajectory of Net Sales, Operating Expenses, and Net Profit across {periodLabel}.
               </p>
             </div>
-            <div className="flex items-center gap-1.5 p-1 rounded-lg bg-main border border-border text-xs">
+            <div className="flex max-w-full flex-wrap items-center gap-1.5 p-1 rounded-lg bg-main border border-border text-xs" role="group" aria-label="Chart view">
               <button
                 onClick={() => setChartMode('daily')}
+                aria-pressed={chartMode === 'daily'}
                 className={`px-2.5 py-1 rounded font-semibold transition-colors ${
                   chartMode === 'daily' ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
                 }`}
@@ -718,6 +719,7 @@ export function ExpensesManager({
               </button>
               <button
                 onClick={() => setChartMode('cumulative')}
+                aria-pressed={chartMode === 'cumulative'}
                 className={`px-2.5 py-1 rounded font-semibold transition-colors ${
                   chartMode === 'cumulative' ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
                 }`}
@@ -908,7 +910,7 @@ export function ExpensesManager({
               <span>{downloadingPdf ? '⏳ Generating…' : '📄 Export P&L PDF'}</span>
             </Button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <thead className="text-muted border-b border-border bg-main/50">
                 <tr>
@@ -967,7 +969,7 @@ export function ExpensesManager({
         <Card className="p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="font-bold text-xs">Expense Breakdown by Category ({formatCents(totalExpensesCents)})</h2>
-            <span className="text-[11px] text-muted">Click a category to filter table below</span>
+            <span className="text-[0.6875rem] text-muted">Click a category to filter table below</span>
           </div>
           <div className="w-full h-3 rounded-full bg-main overflow-hidden flex">
             {categoryTotals.map((c) => (
@@ -998,7 +1000,7 @@ export function ExpensesManager({
                 />
                 <span>{c.category}:</span>
                 <span className="font-mono font-medium">{formatCents(c.cents)}</span>
-                <span className="text-[10px] text-muted">({c.pct}%)</span>
+                <span className="text-[0.625rem] text-muted">({c.pct}%)</span>
               </button>
             ))}
           </div>
@@ -1035,7 +1037,7 @@ export function ExpensesManager({
       {canWrite && (
         <Card>
           <h2 className="font-bold mb-1 text-sm">{editId ? 'Edit expense' : 'Add expense'}</h2>
-          <p className="text-[11px] text-muted mb-3">
+          <p className="text-[0.6875rem] text-muted mb-3">
             An expense counts toward profit once it is approved. Save a draft to finish later, or submit it for approval.
           </p>
           <form
@@ -1081,7 +1083,7 @@ export function ExpensesManager({
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
                 onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
-                className="block w-full text-[11px] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+                className="block w-full text-[0.6875rem] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
               />
             </Field>
             <div className="flex flex-wrap gap-2 sm:col-span-4">
@@ -1119,7 +1121,7 @@ export function ExpensesManager({
           <h2 className="font-bold text-sm mb-1">
             Mark paid · {payFor.category} {formatCents(payFor.amount_cents)}
           </h2>
-          <p className="text-[11px] text-muted mb-3">{payFor.description ?? payFor.vendor ?? payFor.expense_date}</p>
+          <p className="text-[0.6875rem] text-muted mb-3">{payFor.description ?? payFor.vendor ?? payFor.expense_date}</p>
           <form onSubmit={confirmPay} className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
             <Field label="Paid by">
               <Select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
@@ -1194,7 +1196,7 @@ export function ExpensesManager({
         </div>
 
         <Card className="p-0 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
@@ -1228,7 +1230,7 @@ export function ExpensesManager({
                             {monthLabel(ym)} <span className="font-normal text-muted">· {mt.count} expense{mt.count === 1 ? '' : 's'}</span>
                           </td>
                           <td className="p-2.5 text-right font-mono font-bold">{formatCents(mt.postedCents)}</td>
-                          <td className="p-2.5 text-[10px] text-muted">approved / paid{mt.cents !== mt.postedCents ? ` · ${formatCents(mt.cents)} incl. pending` : ''}</td>
+                          <td className="p-2.5 text-[0.625rem] text-muted">approved / paid{mt.cents !== mt.postedCents ? ` · ${formatCents(mt.cents)} incl. pending` : ''}</td>
                         </tr>
                       )}
                       <tr className="border-b border-border/60 last:border-0 align-top">
@@ -1236,9 +1238,9 @@ export function ExpensesManager({
                         <td className="p-3 font-semibold">{ex.category}</td>
                         <td className="p-3 text-muted">
                           {ex.description ?? '—'}
-                          {ex.vendor && <span className="text-[10px] ml-1.5">· {ex.vendor}</span>}
+                          {ex.vendor && <span className="text-[0.625rem] ml-1.5">· {ex.vendor}</span>}
                           {ex.supplier_id && (
-                            <span className="text-primary text-[10px] font-semibold ml-1.5">
+                            <span className="text-primary text-[0.625rem] font-semibold ml-1.5">
                               · {suppliers.find((s) => s.id === ex.supplier_id)?.name ?? 'supplier'}
                             </span>
                           )}
@@ -1246,26 +1248,26 @@ export function ExpensesManager({
                             <button
                               type="button"
                               onClick={() => void openReceipt(ex.attachment_path!)}
-                              className="ml-1.5 text-[10px] font-semibold text-primary underline"
+                              className="ml-1.5 text-[0.625rem] font-semibold text-primary underline"
                             >
                               receipt
                             </button>
                           )}
                           {st === 'rejected' && ex.rejection_reason && (
-                            <div className="text-[10px] text-danger mt-0.5">Rejected: {ex.rejection_reason}</div>
+                            <div className="text-[0.625rem] text-danger mt-0.5">Rejected: {ex.rejection_reason}</div>
                           )}
                           {st === 'void' && ex.void_reason && (
-                            <div className="text-[10px] mt-0.5">Voided: {ex.void_reason}</div>
+                            <div className="text-[0.625rem] mt-0.5">Voided: {ex.void_reason}</div>
                           )}
                           {st === 'paid' && ex.payment_method && (
-                            <div className="text-[10px] mt-0.5">
+                            <div className="text-[0.625rem] mt-0.5">
                               Paid by {PAYMENT_METHODS.find((m) => m.value === ex.payment_method)?.label ?? ex.payment_method}
                               {ex.payment_reference ? ` · ref ${ex.payment_reference}` : ''}
                             </div>
                           )}
                         </td>
                         <td className="p-3 whitespace-nowrap">
-                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_TONE[st]}`}>{STATUS_LABEL[st]}</span>
+                          <span className={`rounded px-1.5 py-0.5 text-[0.625rem] font-bold ${STATUS_TONE[st]}`}>{STATUS_LABEL[st]}</span>
                         </td>
                         <td className={`p-3 text-right font-mono ${isPostedExpense(ex) ? '' : 'text-muted'}`}>
                           {formatCents(ex.amount_cents)}
@@ -1304,7 +1306,7 @@ export function ExpensesManager({
                             </Button>
                           )}
                           {canWrite && st !== 'void' && !ex.attachment_path && (
-                            <label className="inline-block cursor-pointer text-[11px] font-semibold text-primary px-1.5">
+                            <label className="inline-block cursor-pointer text-[0.6875rem] font-semibold text-primary px-1.5">
                               Attach receipt
                               <input
                                 type="file"

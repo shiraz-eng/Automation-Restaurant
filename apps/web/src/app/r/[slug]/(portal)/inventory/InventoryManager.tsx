@@ -364,15 +364,15 @@ export function InventoryManager({
 
       {canManageAutomation && (
         <Card className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="font-bold text-sm">AI Management — low-stock supplier email</h2>
-            <p className="text-[11px] text-muted mt-0.5">
+            <p className="text-[0.6875rem] text-muted mt-0.5">
               When an ingredient falls to or below its minimum and has a preferred supplier set below,
               automatically email that supplier a reorder request. Never sends twice for the same low-stock spell,
               and stops once stock recovers.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="ghost"
               disabled={sweepBusy}
@@ -395,7 +395,7 @@ export function InventoryManager({
       {canAddItem && (
       <Card>
         <h2 className="font-bold mb-3 text-sm">Add ingredient</h2>
-        <p className="text-[11px] text-muted mb-3">
+        <p className="text-[0.6875rem] text-muted mb-3">
           Enter this ingredient&apos;s <b>base unit</b> — the smallest amount recipes measure in (e.g. &ldquo;g&rdquo;
           for grams, &ldquo;ml&rdquo;, or &ldquo;piece&rdquo;). Stock and recipe quantities are always in this unit.
         </p>
@@ -423,7 +423,7 @@ export function InventoryManager({
       )}
 
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -468,10 +468,11 @@ export function InventoryManager({
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <Select
+                            aria-label={`Preferred supplier for ${it.name}`}
                             value={preferredBySupplierItem[it.id]?.supplierId ?? ''}
                             onChange={(e) => setPreferredSupplier(it, e.target.value as string)}
                             disabled={busyId === it.id}
-                            className="text-[11px]"
+                            className="text-[0.6875rem]"
                           >
                             <option value="">— none —</option>
                             {suppliers.map((s) => (
@@ -481,7 +482,7 @@ export function InventoryManager({
                               </option>
                             ))}
                           </Select>
-                          <label className="flex items-center gap-1 text-[10px] text-muted whitespace-nowrap" title="Include this ingredient in the automatic low-stock reorder email">
+                          <label className="flex items-center gap-1 text-[0.625rem] text-muted whitespace-nowrap" title="Include this ingredient in the automatic low-stock reorder email">
                             <input
                               type="checkbox"
                               checked={it.auto_reorder_email}

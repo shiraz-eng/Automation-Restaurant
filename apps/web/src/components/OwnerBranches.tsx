@@ -112,7 +112,7 @@ export function WorkspaceSwitcher({ slug }: { slug: string }) {
   if (!data) return null;
   return (
     <div className="space-y-1">
-      <label className="block text-[10px] font-bold uppercase tracking-wide text-muted" htmlFor="workspace-switch">
+      <label className="block text-[0.625rem] font-bold uppercase tracking-wide text-muted" htmlFor="workspace-switch">
         Workspace
       </label>
       <select
@@ -141,7 +141,7 @@ export function WorkspaceSwitcher({ slug }: { slug: string }) {
         ))}
         <option value="__manage">{ready.length ? 'Manage branches…' : '+ Add a branch…'}</option>
       </select>
-      {error && <p className="text-[10px] text-danger">{error}</p>}
+      {error && <p className="text-[0.625rem] text-danger">{error}</p>}
     </div>
   );
 }
@@ -208,7 +208,7 @@ export function OwnerBranchesPanel({ slug }: { slug: string }) {
               {isReady(b) && (
                 <button
                   type="button"
-                  className="text-[11px] font-semibold text-primary hover:underline"
+                  className="text-[0.6875rem] font-semibold text-primary hover:underline"
                   onClick={() => openBranch(supabase, slug, b).catch((e) => setError((e as Error).message))}
                 >
                   Open →
@@ -219,7 +219,7 @@ export function OwnerBranchesPanel({ slug }: { slug: string }) {
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-muted">
+      <p className="text-[0.6875rem] text-muted">
         Each restaurant’s figures come from its own database; nothing is merged or counted twice.
       </p>
     </section>
@@ -305,7 +305,7 @@ function BranchLoginPanel({ slug, b, supabase }: { slug: string; b: OwnerBranch;
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold">Branch login</h3>
-      <p className="text-[11px] text-muted max-w-xl">
+      <p className="text-[0.6875rem] text-muted max-w-xl">
         The branch manager signs in at the address below. They run this branch — orders, kitchen, menu, stock, suppliers, finance, staff
         and portals — but never see billing, restaurant settings or other branches.
       </p>
@@ -410,7 +410,7 @@ function BranchReceiptPanel({ slug, b, supabase }: { slug: string; b: OwnerBranc
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold">Receipt details</h3>
-      <p className="text-[11px] text-muted max-w-xl">
+      <p className="text-[0.6875rem] text-muted max-w-xl">
         Printed on this branch’s receipts and invoices only — every branch has its own address and phone. The receipt layout came from
         the main restaurant; change it in the branch’s Brand Kit.
       </p>
@@ -501,7 +501,7 @@ function BranchManagePanel({
           >
             {busy === 'rename' ? 'Saving…' : 'Save name'}
           </Button>
-          <span className="text-[11px] text-muted">The code ({b.code}) and the address stay the same.</span>
+          <span className="text-[0.6875rem] text-muted">The code ({b.code}) and the address stay the same.</span>
         </div>
       </div>
 
@@ -528,7 +528,7 @@ function BranchManagePanel({
 
       <div className="space-y-2 rounded border border-danger/40 p-3">
         <h3 className="text-xs font-bold text-danger">Delete permanently</h3>
-        <p className="text-[11px] text-muted max-w-xl">
+        <p className="text-[0.6875rem] text-muted max-w-xl">
           Deletes this branch’s Supabase project and everything in it — orders, stock, staff, finance — for good. This cannot be undone.
           Type <span className="font-mono font-bold text-body">{b.code}</span> to confirm.
         </p>
@@ -672,7 +672,7 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
   };
 
   const table = (rows: OwnerBranch[]) => (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
       <table className="w-full text-left text-xs">
         <thead className="text-muted border-b border-border">
           <tr>
@@ -717,7 +717,7 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
           </div>
           <fieldset className="rounded border border-border p-3 space-y-2">
             <legend className="px-1 text-xs font-bold">Receipt details for this branch</legend>
-            <p className="text-[11px] text-muted max-w-2xl">
+            <p className="text-[0.6875rem] text-muted max-w-2xl">
               Printed on this branch’s receipts and invoices. Only you can change them later (Manage → Receipt details); the branch
               manager prints with them but can’t edit them.
             </p>
@@ -750,7 +750,7 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
         ) : (
           table(live)
         )}
-        {data && <p className="text-[11px] text-muted">Figures: {data.period.from} to {data.period.to}, each from that branch’s own database.</p>}
+        {data && <p className="text-[0.6875rem] text-muted">Figures: {data.period.from} to {data.period.to}, each from that branch’s own database.</p>}
       </section>
 
       {archived.length > 0 && (
@@ -857,7 +857,7 @@ export function BranchComparison({ slug }: { slug: string }) {
               <span className="font-bold">{best.label}</span>
             </p>
           )}
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs tabular-nums">
               <thead className="text-muted border-b border-border">
                 <tr>
@@ -925,7 +925,7 @@ export function BranchComparison({ slug }: { slug: string }) {
               )}
             </table>
           </div>
-          <p className="text-[11px] text-muted">
+          <p className="text-[0.6875rem] text-muted">
             {data.period.from} to {data.period.to}. Each row comes from that branch’s own database; the total is their sum, nothing is
             counted twice. Operating profit = net sales − food cost − approved expenses.
             {unavailable.length > 0 && ` Not reachable right now: ${unavailable.map((b) => b.code).join(', ')}.`}

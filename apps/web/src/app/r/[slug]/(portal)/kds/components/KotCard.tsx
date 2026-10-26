@@ -50,22 +50,35 @@ export function KotCard({
       }`}
     >
       <div className={`flex items-center justify-between px-3 py-2 ${HEADER_BG[lane]} border-b border-border`}>
-        <span className="font-black text-sm">
-          KOT #{kot.order_number} <span className="text-muted font-semibold">({lane === 'new' ? 'NEW' : lane.toUpperCase()})</span>
-        </span>
+        {/* The whole card opens the ticket for the mouse; this button does it for the keyboard. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect();
+          }}
+          aria-pressed={selected}
+          aria-label={`KOT ${kot.order_number}, ${lane === 'new' ? 'new' : lane}, waiting ${formatElapsed(mins)}. Show ticket details`}
+          className="rounded text-left font-black text-sm hover:underline"
+        >
+          KOT #{kot.order_number}{' '}
+          <span className={`font-semibold ${lane === 'delayed' ? 'text-danger' : 'text-muted'}`}>
+            ({lane === 'new' ? 'NEW' : lane.toUpperCase()}){lane === 'delayed' ? ' ⚠' : ''}
+          </span>
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
             onPrint();
           }}
           className="text-muted hover:text-body"
-          aria-label="Print KOT"
+          aria-label={`Print KOT ${kot.order_number}`}
         >
-          <Printer size={14} />
+          <Printer size={14} aria-hidden />
         </button>
       </div>
 
-      <div className="px-3 py-2 border-b border-border/60 text-[11px] text-muted flex items-center justify-between">
+      <div className="px-3 py-2 border-b border-border/60 text-[0.6875rem] text-muted flex items-center justify-between">
         <span>
           ORDER #{kot.order_number} · {orderTypeLabel(kot.channel).toUpperCase()}
           {kot.table_label ? ` · TABLE ${tableNumberLabel(kot.table_label)}` : ''}
@@ -94,17 +107,17 @@ export function KotCard({
                   {l.qty} × {l.name_snapshot}
                 </span>
                 <span
-                  className={`text-[10px] font-bold uppercase shrink-0 ${
+                  className={`text-[0.625rem] font-bold uppercase shrink-0 ${
                     l.kds_status === 'ready' || l.kds_status === 'served' ? 'text-ok' : l.kds_status === 'preparing' ? 'text-warn' : 'text-muted'
                   }`}
                 >
                   {l.kds_status}
                 </span>
               </div>
-              {l.variant_name_snapshot && <div className="text-muted text-[11px] mt-0.5">{l.variant_name_snapshot}</div>}
-              {l.modifiers && l.modifiers.length > 0 && <div className="text-muted text-[11px]">{l.modifiers.map((m) => m.name).join(', ')}</div>}
+              {l.variant_name_snapshot && <div className="text-muted text-[0.6875rem] mt-0.5">{l.variant_name_snapshot}</div>}
+              {l.modifiers && l.modifiers.length > 0 && <div className="text-muted text-[0.6875rem]">{l.modifiers.map((m) => m.name).join(', ')}</div>}
               {l.customer_note && (
-                <div className="flex items-center gap-1 text-warn text-[11px] font-semibold mt-0.5">
+                <div className="flex items-center gap-1 text-warn text-[0.6875rem] font-semibold mt-0.5">
                   <AlertTriangle size={11} /> {l.customer_note}
                 </div>
               )}

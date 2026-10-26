@@ -122,7 +122,7 @@ export function GetStartedForm({
         </div>
       </fieldset>
 
-      <p className="text-[11px] text-muted">
+      <p className="text-[0.6875rem] text-muted">
         After payment we&rsquo;ll build your workspace and email{' '}
         <span className="font-semibold">{f.owner_email || 'your address'}</span> a secure link to
         set your password and open your portal. Your sign-in is always your business email.
@@ -152,7 +152,7 @@ export function GetStartedForm({
       >
         {busy ? 'Processing…' : 'Continue to payment'}
       </button>
-      <p className="text-[11px] text-muted">
+      <p className="text-[0.6875rem] text-muted">
         Payment is taken securely and your workspace is provisioned only after it&rsquo;s
         confirmed. Card details are never stored by Automation Restaurant.
       </p>

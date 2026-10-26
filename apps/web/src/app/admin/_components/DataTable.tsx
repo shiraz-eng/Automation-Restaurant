@@ -91,7 +91,7 @@ export function DataTable<T>({
           <p className="text-ink-muted text-xs p-4">{emptyMessage}</p>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-ink-muted border-b border-white/10">
                   <tr>

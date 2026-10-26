@@ -7,6 +7,10 @@ import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
 import { downloadTextPdf } from '@/lib/textToPdf';
 import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
+import { aiLanguage, detectLanguage, isRtlLanguage, type AiModuleKey } from '@automation-restaurant/shared';
+import { useAiVoice } from '@/lib/ai/useAiVoice';
+import { speak, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
+import { AiVoiceSettings, MicButton, SpeakControls, VoiceStatus } from '@/components/ai/VoiceControls';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -47,6 +51,8 @@ type Msg = {
   document?: { title: string; content: string };
   /** Reopened from a saved chat — its proposal buttons are not live any more. */
   fromHistory?: boolean;
+  /** The language the answer was written in (the API says), for direction and read-aloud. */
+  language?: string;
 };
 type SavedChat = { id: string; title: string; updated_at: string; message_count: number };
 type FileRef = { name: string; mimeType: string; storagePath: string };
@@ -82,7 +88,21 @@ const SUGGESTIONS = [
   'Make a PDF kitchen hygiene checklist',
 ];
 
-export function AiChat({ slug }: { slug: string }) {
+// Opened from a module (the AI Guide's data tab), the first suggestions are about that module.
+const MODULE_SUGGESTIONS: Partial<Record<AiModuleKey, string[]>> = {
+  pos: ['What were today’s sales so far?', 'Show me the latest orders', 'Any reservations tonight?'],
+  kitchen: ['What is happening in the kitchen right now?', 'Which dishes are unavailable right now?', 'How fast is the kitchen today?'],
+  menu: ['Which dishes sold best this week?', 'Which dishes should I promote or drop?', 'How are my deals performing?'],
+  marketing: ['How are my promotions performing this month?', 'What are guests saying in recent feedback?', 'Draft a post announcing tonight’s special'],
+  inventory: ['Which ingredients are low on stock?', 'What is my food cost this month?', 'How much did we waste this week?'],
+  suppliers: ['What do I owe suppliers right now?', 'How are my suppliers performing?', 'Summarise purchasing this month'],
+  finance: ['What is my profit this month so far?', 'Where did my money go this month?', 'How do sales compare with last month?'],
+  staff: ['Who clocked in today?', 'How was attendance this month?', 'Which shifts are planned this week?'],
+  manager: ['How is my restaurant doing right now?', 'What needs my attention?', 'What are our best-selling items this week?'],
+  admin: ['Give me my owner scorecard', 'What changed in the restaurant recently?', 'How are my branches doing?'],
+};
+
+export function AiChat({ slug, module = 'global', compact = false }: { slug: string; module?: AiModuleKey; compact?: boolean }) {
   const supabase = usePortalSupabase();
   // The branch being viewed (multi-branch) — the API narrows reports and answers to it.
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -103,6 +123,23 @@ export function AiChat({ slug }: { slug: string }) {
   const [history, setHistory] = useState<SavedChat[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [announce, setAnnounce] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const getToken = async () => (await supabase.auth.getSession()).data.session?.access_token ?? null;
+  const voice = useAiVoice({ slug, module, getToken });
+  const mic = useSpeechInput({
+    language: voice.micLanguage,
+    server: voice.server,
+    preferServer: voice.prefs.serverSpeech,
+    // Spoken words land in the box to check and edit; nothing is sent until Ask.
+    onText: (text) => {
+      setInput((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+  });
+  useEffect(() => () => stopSpeech(), []);
 
   async function loadHistory() {
     const { data } = await supabase
@@ -155,6 +192,8 @@ export function AiChat({ slug }: { slug: string }) {
           dealCard: (x.dealCard as { period: string; deals: DealProfitRow[] } | undefined) ?? undefined,
           document: (x.document as { title: string; content: string } | undefined) ?? undefined,
           fromHistory: true,
+          // Saved answers don't store their language; the text itself says (direction, read-aloud voice).
+          language: r.role === 'assistant' ? detectLanguage(r.content)?.code : undefined,
         };
       }),
     );
@@ -252,6 +291,11 @@ export function AiChat({ slug }: { slug: string }) {
     // answer stays, with the error shown under it).
     const dropEmptyReply = () =>
       setMsgs((all) => (all[replyIndex] && !all[replyIndex]!.content.trim() ? all.filter((_, i) => i !== replyIndex) : all));
+    // Right-to-left from the first word when the answer language is known up front.
+    patchReply({ language: voice.answerChoice !== 'auto' ? voice.answerChoice : (detectLanguage(q)?.code ?? 'en') });
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let streamed = '';
     try {
       const result = await streamAiChat(
         `${API}/api/ai/chat`,
@@ -264,24 +308,40 @@ export function AiChat({ slug }: { slug: string }) {
             .slice(-30)
             .map((m) => ({ role: m.role, content: m.content.slice(0, 30000), ...(m.attachment ? { attachment: m.attachment } : {}) })),
           ...(conversationId ? { conversationId } : {}),
+          module,
+          responseLanguage: voice.answerChoice,
         },
         {
           status: (label) => setStatus(label),
           delta: (text) => {
             setStatus(null);
+            streamed += text;
             patchReply((m) => ({ content: m.content + text }));
             scrollDown();
           },
         },
+        controller.signal,
       );
       if (!result.ok) {
+        if (result.code === 'aborted') {
+          patchReply((m) => ({ content: m.content.trim() ? `${m.content}\n\n_(stopped)_` : '' }));
+          dropEmptyReply();
+          return;
+        }
         setError(result.error);
         dropEmptyReply();
         return;
       }
       const data = result.done;
+      const finalText = streamed.trim() ? streamed : String(data.reply ?? '(no answer)');
+      // With "Automatic", the answer is shown and read in the language it was actually written in.
+      const answerLanguage =
+        voice.answerChoice !== 'auto'
+          ? voice.answerChoice
+          : (detectLanguage(finalText)?.code ?? (typeof data.language === 'string' ? data.language : undefined));
       patchReply((m) => ({
-        content: m.content.trim() ? m.content : String(data.reply ?? '(no answer)'),
+        language: answerLanguage ?? m.language,
+        content: m.content.trim() ? m.content : finalText,
         tools: ((data.tools as { name: string }[] | undefined) ?? []).map((x) => x.name),
         pendingAction: (data.pendingAction as PendingAction | null) ?? undefined,
         profitCard: (data.profitCard as ProfitCard | null) ?? undefined,
@@ -294,7 +354,11 @@ export function AiChat({ slug }: { slug: string }) {
         loadHistory();
       }
       scrollDown();
+      // Announce the finished answer to screen readers and, if chosen, read it aloud.
+      setAnnounce(data.pendingAction ? `${finalText} A change is waiting for you to confirm or cancel.` : finalText);
+      if (voice.speakEnabled && voice.prefs.autoSpeak) speak(`reply-${replyIndex}`, finalText, answerLanguage ?? 'en', { voiceName: voice.voiceName, rate: voice.rate });
     } finally {
+      abortRef.current = null;
       setBusy(false);
       setStatus(null);
     }
@@ -395,26 +459,48 @@ export function AiChat({ slug }: { slug: string }) {
 
   const currentTitle = history.find((h) => h.id === conversationId)?.title;
 
+  const suggestions = (module !== 'global' && MODULE_SUGGESTIONS[module]) || SUGGESTIONS;
+  const answerName = voice.answerChoice === 'auto' ? 'Auto' : (aiLanguage(voice.answerChoice)?.native ?? voice.answerChoice);
+  const lastLang = [...msgs].reverse().find((m) => m.role === 'assistant' && m.language)?.language;
+
   return (
-    <div className="relative rounded-lg border border-border bg-surface flex flex-col h-[65vh]">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+    <div className={compact ? 'relative flex min-h-0 flex-1 flex-col bg-surface' : 'relative rounded-lg border border-border bg-surface flex flex-col h-[65vh]'}>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <button
           type="button"
           onClick={() => setHistoryOpen((v) => !v)}
-          className="text-xs font-semibold rounded border border-border px-2.5 py-1 hover:border-primary"
+          aria-expanded={historyOpen}
+          className="shrink-0 text-xs font-semibold rounded border border-border px-2.5 py-1 hover:border-primary"
         >
-          History{history.length ? ` (${history.length})` : ''} ▾
+          History{history.length ? ` (${history.length})` : ''} <span aria-hidden>▾</span>
         </button>
-        <span className="text-xs text-muted truncate">{loadingChat ? 'Opening chat…' : currentTitle ?? (msgs.length ? 'New chat' : '')}</span>
+        <span className="min-w-[4rem] flex-1 text-xs text-muted truncate">{loadingChat ? 'Opening chat…' : currentTitle ?? (msgs.length ? 'New chat' : '')}</span>
+        {/* Inside the AI Guide the panel header already has this control. */}
+        {!compact && (
+          <button
+            type="button"
+            onClick={() => setVoiceOpen((v) => !v)}
+            aria-expanded={voiceOpen}
+            aria-label={`Language and voice settings (answers: ${voice.answerChoice === 'auto' ? 'automatic' : (aiLanguage(voice.answerChoice)?.name ?? voice.answerChoice)})`}
+            className="shrink-0 text-xs font-semibold rounded border border-border px-2.5 py-1 hover:border-primary"
+          >
+            <span aria-hidden>文A {answerName}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={newChat}
           disabled={busy}
-          className="text-xs font-semibold rounded bg-primary text-primary-fg px-2.5 py-1 disabled:opacity-50"
+          className="shrink-0 text-xs font-semibold rounded bg-primary text-primary-fg px-2.5 py-1 disabled:opacity-50"
         >
           + New chat
         </button>
       </div>
+      {voiceOpen && (
+        <div className="border-b border-border bg-main p-3 max-h-[55%] overflow-y-auto">
+          <AiVoiceSettings voice={voice} answerLanguage={lastLang ?? (voice.answerChoice !== 'auto' ? voice.answerChoice : voice.micLanguage)} onClose={() => setVoiceOpen(false)} />
+        </div>
+      )}
       {historyOpen && (
         <div className="absolute left-2 right-2 top-11 z-20 max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
           {history.length === 0 ? (
@@ -427,7 +513,7 @@ export function AiChat({ slug }: { slug: string }) {
               >
                 <button type="button" onClick={() => openChat(h.id)} className="flex-1 min-w-0 text-left">
                   <div className="text-xs font-semibold truncate">{h.title}</div>
-                  <div className="text-[10px] text-muted">
+                  <div className="text-[0.625rem] text-muted">
                     {new Date(h.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ·{' '}
                     {h.message_count} messages
                   </div>
@@ -449,8 +535,8 @@ export function AiChat({ slug }: { slug: string }) {
       <div ref={boxRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {msgs.length === 0 ? (
           <div className="space-y-2">
-            <p className="text-muted text-xs">Try asking:</p>
-            {SUGGESTIONS.map((s) => (
+            <p className="text-muted text-xs">Try asking (in any language — type or tap the microphone):</p>
+            {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => send(s)}
@@ -462,24 +548,34 @@ export function AiChat({ slug }: { slug: string }) {
           </div>
         ) : (
           msgs.map((m, i) => (
-            <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
+            <div key={i} className={m.role === 'user' ? 'text-end' : ''}>
               {m.role === 'user' ? (
-                <div className="inline-block rounded-lg px-3 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-primary text-primary-fg text-left">
+                <div
+                  lang={detectLanguage(m.content)?.code}
+                  dir="auto"
+                  className="inline-block rounded-lg px-3 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-primary text-primary-fg text-start"
+                >
+                  <span className="sr-only">You asked: </span>
                   {m.content}
                 </div>
               ) : m.content ? (
-                <div className="inline-block rounded-lg px-3 py-2 text-sm max-w-[85%] bg-main border border-border">
+                <div
+                  lang={m.language}
+                  dir={isRtlLanguage(m.language) ? 'rtl' : 'ltr'}
+                  className={`inline-block rounded-lg px-3 py-2 text-sm max-w-[85%] bg-main border border-border text-start ${isRtlLanguage(m.language) ? 'leading-loose' : ''}`}
+                >
+                  <span className="sr-only">Assistant: </span>
                   <Markdown text={m.content} />
-                  {busy && i === msgs.length - 1 && <span className="inline-block w-1.5 h-3.5 align-middle bg-current opacity-60 animate-pulse ml-0.5" />}
+                  {busy && i === msgs.length - 1 && <span className="inline-block w-1.5 h-3.5 align-middle bg-current opacity-60 motion-safe:animate-pulse ms-0.5" aria-hidden />}
                 </div>
               ) : null}
               {m.attachment && (
-                <div className="text-[10px] text-muted mt-1">📎 {m.attachment.name}</div>
+                <div className="text-[0.625rem] text-muted mt-1">📎 {m.attachment.name}</div>
               )}
               {m.document && (
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[10px] text-muted font-semibold uppercase tracking-wide">PDF document</div>
+                    <div className="text-[0.625rem] text-muted font-semibold uppercase tracking-wide">PDF document</div>
                     <div className="text-sm font-semibold truncate">{m.document.title}</div>
                   </div>
                   <button
@@ -492,7 +588,8 @@ export function AiChat({ slug }: { slug: string }) {
                 </div>
               )}
               {m.role === 'assistant' && m.content && !(busy && i === msgs.length - 1) && (
-                <div className="text-[10px] text-muted mt-1 flex items-center gap-2">
+                <div className="text-[0.625rem] text-muted mt-1 flex flex-wrap items-center gap-2">
+                  {voice.speakEnabled && <SpeakControls id={`reply-${i}`} text={m.content} language={m.language ?? 'en'} voice={voice} />}
                   {m.tools && m.tools.length > 0 && <span>· {m.tools.join(' · ')}</span>}
                   <button
                     type="button"
@@ -514,15 +611,15 @@ export function AiChat({ slug }: { slug: string }) {
                   </div>
                   <div className="flex items-center gap-4 mt-1">
                     <div>
-                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="text-[0.625rem] text-muted">Net sales</div>
                       <div className="font-mono font-bold text-sm">{formatCents(m.profitCard.net_sales_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">Gross profit</div>
+                      <div className="text-[0.625rem] text-muted">Gross profit</div>
                       <div className="font-mono font-bold text-sm">{formatCents(m.profitCard.gross_profit_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">Net profit</div>
+                      <div className="text-[0.625rem] text-muted">Net profit</div>
                       <div className={`font-mono font-bold text-sm ${m.profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
                         {formatCents(m.profitCard.net_profit_cents)}
                       </div>
@@ -541,15 +638,15 @@ export function AiChat({ slug }: { slug: string }) {
                   </div>
                   <div className="flex items-center gap-4 mt-1">
                     <div>
-                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="text-[0.625rem] text-muted">Net sales</div>
                       <div className="font-mono font-bold text-sm">{formatCents(m.orderCard.net_sales_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">COGS</div>
+                      <div className="text-[0.625rem] text-muted">COGS</div>
                       <div className="font-mono font-bold text-sm">{formatCents(m.orderCard.cogs_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">Contribution</div>
+                      <div className="text-[0.625rem] text-muted">Contribution</div>
                       <div className={`font-mono font-bold text-sm ${m.orderCard.contribution_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
                         {formatCents(m.orderCard.contribution_cents)}
                       </div>
@@ -566,7 +663,7 @@ export function AiChat({ slug }: { slug: string }) {
                     <span className="text-muted font-semibold">{m.dealCard.period} · {m.dealCard.deals.length} deal(s)</span>
                     <span className="text-primary font-semibold">View breakdown →</span>
                   </div>
-                  <div className="text-[11px] text-muted mt-1">
+                  <div className="text-[0.6875rem] text-muted mt-1">
                     Top: {m.dealCard.deals.slice().sort((a, b) => b.contribution_cents - a.contribution_cents)[0]?.name}
                   </div>
                 </button>
@@ -575,7 +672,7 @@ export function AiChat({ slug }: { slug: string }) {
                 <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
                   {m.pendingAction.name === 'add_inventory_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
-                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -601,7 +698,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'add_menu_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
-                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -623,7 +720,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'record_expenses' && Array.isArray((m.pendingAction.args as { expenses?: unknown[] })?.expenses) && (
-                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -645,7 +742,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.pendingAction.name === 'add_staff_members' && Array.isArray((m.pendingAction.args as { staff?: unknown[] })?.staff) && (
-                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[11px]">
+                    <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                       <table className="w-full text-left">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
@@ -667,7 +764,7 @@ export function AiChat({ slug }: { slug: string }) {
                     </div>
                   )}
                   {m.fromHistory && !m.resolution ? (
-                    <p className="text-[11px] text-muted">From an earlier chat — ask again to redo it, or approve it in Approvals.</p>
+                    <p className="text-[0.6875rem] text-muted">From an earlier chat — ask again to redo it, or approve it in Approvals.</p>
                   ) : !m.resolution ? (
                     <div className="flex gap-2">
                       <button
@@ -695,6 +792,7 @@ export function AiChat({ slug }: { slug: string }) {
                             : 'text-muted'
                       }`}
                     >
+                      {m.resolution === 'confirmed' ? '✓ ' : m.resolution === 'failed' ? '✗ Not done: ' : ''}
                       {m.resolutionMessage}
                     </p>
                   )}
@@ -704,12 +802,20 @@ export function AiChat({ slug }: { slug: string }) {
           ))
         )}
         {busy && (status || !msgs[msgs.length - 1]?.content) && (
-          <p className="text-muted text-xs flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+          <p className="text-muted text-xs flex items-center gap-1.5" role="status">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary motion-safe:animate-pulse" aria-hidden />
             {status ?? 'Thinking…'}
           </p>
         )}
-        {error && <p className="text-danger text-xs">{error}</p>}
+        {error && (
+          <p className="text-danger text-xs" role="alert">
+            <strong>Not answered: </strong>
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {announce ? `Assistant answered: ${announce}` : ''}
       </div>
       <form
         onSubmit={(e) => {
@@ -731,6 +837,7 @@ export function AiChat({ slug }: { slug: string }) {
             </button>
           </div>
         )}
+        {voice.micEnabled && <VoiceStatus mic={mic} language={voice.micLanguage} />}
         <div className="flex gap-2">
           <input
             ref={fileInputRef}
@@ -738,29 +845,46 @@ export function AiChat({ slug }: { slug: string }) {
             accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.csv,.txt,text/csv,text/plain"
             onChange={handleFileSelect}
             className="hidden"
+            tabIndex={-1}
+            aria-hidden
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={busy}
             title="Attach a PDF, image, CSV or text file (up to 10 MB)"
-            className="rounded border border-border px-3 py-2 text-sm hover:border-primary disabled:opacity-50"
+            aria-label="Attach a PDF, image, CSV or text file (up to 10 MB)"
+            className="shrink-0 rounded border border-border px-3 py-2 text-sm hover:border-primary disabled:opacity-50"
           >
-            📎
+            <span aria-hidden>📎</span>
           </button>
           <input
+            ref={inputRef}
             value={input}
+            dir="auto"
+            aria-label="Ask the assistant"
             onChange={(e) => setInput(e.target.value)}
-            placeholder={pendingFile ? `Ask about ${pendingFile.name}… (or just press Ask)` : 'Ask anything — or attach a PDF to read, summarise or extract…'}
+            placeholder={pendingFile ? `Ask about ${pendingFile.name}… (or just press Ask)` : compact ? 'Ask about your restaurant…' : 'Ask anything — or attach a PDF to read, summarise or extract…'}
             className="flex-1 min-w-0 rounded border border-border bg-main px-3 py-2 text-sm outline-none focus:border-primary"
           />
-          <button
-            type="submit"
-            disabled={busy || (!input.trim() && !pendingFile)}
-            className="rounded bg-primary text-primary-fg font-semibold px-4 py-2 text-sm disabled:opacity-50"
-          >
-            Ask
-          </button>
+          {voice.micEnabled && !busy && <MicButton mic={mic} language={voice.micLanguage} />}
+          {busy && !pendingFile ? (
+            <button
+              type="button"
+              onClick={() => abortRef.current?.abort()}
+              className="shrink-0 rounded border border-border font-semibold px-3 py-2 text-sm hover:bg-main"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={busy || (!input.trim() && !pendingFile)}
+              className="shrink-0 rounded bg-primary text-primary-fg font-semibold px-4 py-2 text-sm disabled:opacity-50"
+            >
+              Ask
+            </button>
+          )}
         </div>
       </form>
 

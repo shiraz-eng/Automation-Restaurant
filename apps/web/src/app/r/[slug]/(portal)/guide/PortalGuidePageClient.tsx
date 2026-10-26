@@ -67,7 +67,7 @@ export function PortalGuidePageClient({
             <ChefHat size={16} strokeWidth={2.4} />
           </span>
           <h1 className="text-xl font-black text-body">Automation Restaurant AI Guide</h1>
-          <span className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[10px] font-bold text-gold">
+          <span className="inline-flex items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[0.625rem] font-bold text-gold">
             <Sparkles size={10} />
             <span>Product & Setup Specialist</span>
           </span>
@@ -97,7 +97,7 @@ export function PortalGuidePageClient({
                 <div className="text-xs font-bold text-body group-hover:text-gold transition-colors">
                   {action.title}
                 </div>
-                <div className="text-[10px] text-muted mt-0.5 line-clamp-1">{action.desc}</div>
+                <div className="text-[0.625rem] text-muted mt-0.5 line-clamp-1">{action.desc}</div>
               </div>
             </Link>
           );
@@ -121,7 +121,7 @@ export function PortalGuidePageClient({
       {/* Security reminder */}
       <div className="rounded-xl border border-border bg-surface/50 p-4 text-xs text-muted flex items-start gap-2.5">
         <AlertCircle size={15} className="text-gold shrink-0 mt-0.5" />
-        <div className="text-[11px] leading-relaxed">
+        <div className="text-[0.6875rem] leading-relaxed">
           The AI Guide diagnoses account issues using authorized control-plane metadata only. It will never ask
           for database passwords, Stripe secrets, or private credentials.
         </div>

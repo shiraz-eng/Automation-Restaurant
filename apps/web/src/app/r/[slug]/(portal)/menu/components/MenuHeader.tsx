@@ -21,7 +21,7 @@ export function MenuHeader({
         </p>
       </div>
       {canCreate && (
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={onManageCategories}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-main transition-colors"

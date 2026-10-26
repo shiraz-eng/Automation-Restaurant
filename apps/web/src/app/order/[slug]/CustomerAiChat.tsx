@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { activeCurrency, formatCents } from '@/lib/format';
 import { Markdown } from '@/components/Markdown';
 import { streamAiChat } from '@/lib/aiStream';
@@ -50,6 +51,8 @@ export function CustomerAiChat({
   hideTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, open, () => setOpen(false));
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [dealCards, setDealCards] = useState<Record<number, DealCard[]>>({});
   const [resolvedCards, setResolvedCards] = useState<Record<number, ResolvedCard[]>>({});
@@ -245,15 +248,15 @@ export function CustomerAiChat({
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 bg-main flex flex-col lg:items-center lg:justify-center lg:bg-black/50">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Ask about the menu" className="fixed inset-0 z-50 bg-main flex flex-col lg:items-center lg:justify-center lg:bg-black/50">
           <div className="flex flex-col w-full h-full lg:h-[85vh] lg:max-w-md lg:rounded-2xl lg:border lg:border-border lg:shadow-2xl overflow-hidden bg-main">
           <div className="flex items-center justify-between px-4 py-3.5 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
               <span className="w-8 h-8 rounded-full bg-primary text-primary-fg grid place-items-center text-sm font-bold shrink-0">✦</span>
               <div>
                 <div className="font-bold text-sm">Ask about the menu</div>
-                <div className="text-muted text-[10.5px]">Recommendations only — you confirm before anything&rsquo;s added</div>
-                <div className="text-muted text-[10px]">Chats are saved so the restaurant can improve its service.</div>
+                <div className="text-muted text-[0.65625rem]">Recommendations only — you confirm before anything&rsquo;s added</div>
+                <div className="text-muted text-[0.625rem]">Chats are saved so the restaurant can improve its service.</div>
               </div>
             </div>
             <button onClick={() => setOpen(false)} className="text-muted hover:text-body text-xl leading-none px-2" aria-label="Close">
@@ -287,17 +290,17 @@ export function CustomerAiChat({
                   {m.role === 'user' ? m.content : <Markdown text={m.content} />}
                   {dealCards[i]?.map((card, ci) => (
                     <div key={ci} className="mt-2 rounded-xl border border-ok/50 bg-ok/10 p-2.5">
-                      <div className="font-bold text-[11px]">{card.deal_name}</div>
-                      <div className="text-[11px]">
+                      <div className="font-bold text-[0.6875rem]">{card.deal_name}</div>
+                      <div className="text-[0.6875rem]">
                         {formatCents(card.individual_total_cents)} individually → {formatCents(card.deal_total_cents)} as a combo
                       </div>
-                      <div className="text-[11px] font-bold text-ok">Save {formatCents(card.savings_cents)}</div>
+                      <div className="text-[0.6875rem] font-bold text-ok">Save {formatCents(card.savings_cents)}</div>
                       {card.status === 'one_item_away' && card.missing && (
-                        <div className="text-[11px] text-muted">Add {card.missing} to qualify.</div>
+                        <div className="text-[0.6875rem] text-muted">Add {card.missing} to qualify.</div>
                       )}
                       <button
                         onClick={() => useDeal(card)}
-                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5"
+                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[0.6875rem] font-bold px-3 py-1.5"
                       >
                         {card.status === 'eligible_now' ? 'Use Deal' : 'Add & Switch'}
                       </button>
@@ -305,33 +308,33 @@ export function CustomerAiChat({
                   ))}
                   {resolvedCards[i]?.map((card, ci) => (
                     <div key={ci} className="mt-2 rounded-xl border border-border bg-surface p-2.5">
-                      <div className="font-bold text-[11px]">
+                      <div className="font-bold text-[0.6875rem]">
                         {card.item_name}
                         {card.variant_name ? ` · ${card.variant_name}` : ''}
                       </div>
                       {card.resolved_modifiers.length > 0 && (
-                        <div className="text-[11px] text-muted">+ {card.resolved_modifiers.map((m2) => m2.name).join(', ')}</div>
+                        <div className="text-[0.6875rem] text-muted">+ {card.resolved_modifiers.map((m2) => m2.name).join(', ')}</div>
                       )}
                       {card.available && card.unit_price_cents != null ? (
                         <>
-                          <div className="text-[11px]">{formatCents(card.unit_price_cents)}</div>
+                          <div className="text-[0.6875rem]">{formatCents(card.unit_price_cents)}</div>
                           <button
                             onClick={() => addResolved(card, i, ci)}
                             disabled={addedKeys.has(`${i}:${ci}`)}
-                            className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5 disabled:opacity-50"
+                            className="mt-1.5 rounded-full bg-primary text-primary-fg text-[0.6875rem] font-bold px-3 py-1.5 disabled:opacity-50"
                           >
                             {addedKeys.has(`${i}:${ci}`) ? 'Added' : 'Add to cart'}
                           </button>
                         </>
                       ) : (
-                        <div className="text-[11px] text-danger">Not currently available.</div>
+                        <div className="text-[0.6875rem] text-danger">Not currently available.</div>
                       )}
                     </div>
                   ))}
                   {budgetCards[i] && (
                     <div className="mt-2 rounded-xl border border-border bg-surface p-2.5">
-                      <div className="font-bold text-[11px] mb-1">{budgetCards[i].title || 'Suggested order'}</div>
-                      <ul className="text-[11px] space-y-0.5">
+                      <div className="font-bold text-[0.6875rem] mb-1">{budgetCards[i].title || 'Suggested order'}</div>
+                      <ul className="text-[0.6875rem] space-y-0.5">
                         {budgetCards[i].items.map((it, ii) => (
                           <li key={ii} className="flex justify-between">
                             <span>{it.qty}× {it.name}</span>
@@ -345,10 +348,10 @@ export function CustomerAiChat({
                           </li>
                         )}
                       </ul>
-                      <div className="text-[11px] font-bold mt-1">Subtotal {formatCents(budgetCards[i].subtotal_cents)}</div>
+                      <div className="text-[0.6875rem] font-bold mt-1">Subtotal {formatCents(budgetCards[i].subtotal_cents)}</div>
                       <button
                         onClick={() => addBudgetProposal(budgetCards[i])}
-                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[11px] font-bold px-3 py-1.5"
+                        className="mt-1.5 rounded-full bg-primary text-primary-fg text-[0.6875rem] font-bold px-3 py-1.5"
                       >
                         Add all to cart
                       </button>

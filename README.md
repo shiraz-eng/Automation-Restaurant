@@ -187,6 +187,71 @@ tablets, laptops and large desktops.
 POS checkout. Tablet: website and Kitchen Display. Desktop: website, customer
 menu and Finance. Logos and personal data are blurred.</sub>
 
+## Languages, voice and accessibility
+
+**Multilingual AI.** The AI Guide, the Assistant and the customer menu's AI
+answer in the language you write or speak in. This includes English, Urdu (right
+to left), Roman Urdu, Hindi, Arabic, Punjabi, Pashto, Persian, Bengali, Turkish,
+French, Spanish, German, Chinese and Malay.
+- The **文A / Auto** button (Language & voice) fixes the answer language. For
+  example, ask in Urdu and get the answer in English.
+- Figures, prices, currency, dates, dish and supplier names, and screen names
+  are kept exactly as they are.
+- Each answer bubble carries its own language and direction, so Urdu and Arabic
+  read right to left and English inside them stays readable.
+
+**Voice.**
+- **Speaking:** tap the microphone and speak. The browser's own speech
+  recognition is used where it exists. Otherwise the recording goes to the API,
+  which transcribes it with Gemini (`POST /api/ai/transcribe`), rate-limited and
+  for signed-in staff only.
+- **Nothing is sent by voice alone.** The words appear in the message box to
+  check before sending. Anything that changes data is still only proposed, with
+  Confirm / Cancel.
+- **Listening:** **Listen** reads an answer aloud with the device's voices, with
+  Pause, Resume, Stop and Replay. If the device has no voice for that language,
+  it says so, and the answer is always on screen as text.
+
+**The AI Guide in the portal** has a **Your restaurant data** tab. It is the
+same permission-checked Assistant: for example, ask in Urdu on the Inventory
+screen and it reads the real low-stock list. Each module offers its own
+suggested questions.
+
+**Settings → AI & Voice** (settings permission) sets, for all modules or for
+POS, Kitchen, Menu, Marketing, Inventory, Suppliers, Finance, Staff, Manager,
+Admin and Customer:
+- the AI provider;
+- the model, which is checked live against what the server's key can use;
+- the answer and listening languages, and automatic language detection;
+- whether voice input and spoken answers are offered.
+
+Settings live in the restaurant's own database (`ai_module_settings`, tenant
+migration 0108) and are only written by the API, after validation, with an
+audit entry. They never widen access: the assistant always works with the
+signed-in person's own permissions.
+
+**Accessibility.** The ♿ button in every header (website, portals, kiosk
+portals, customer menu and admin) offers:
+- text size 100–150% (every size is in rem, so layouts reflow);
+- high contrast;
+- reduce motion (the operating system's setting is always followed too);
+- underlined links;
+- wider text spacing;
+- larger touch targets.
+
+The choice is saved on the device and applied before the first paint on every
+page.
+
+Across the platform:
+- Keyboard focus is always visible, and every layout has a "Skip to main
+  content" link.
+- Dialogs and drawers keep focus inside, close on Escape and return focus.
+- AI answers, errors and loading states are announced to screen readers.
+- Status is never shown by colour alone.
+- Form errors are tied to their fields.
+- Wide tables can be scrolled with the keyboard.
+- On phones, the Orders list becomes cards.
+
 ---
 
 ## What it does
@@ -307,7 +372,16 @@ live deployment uses Gemini.
 | `/api/public/ai/chat` | Customer AI on the guest menu (read-only, rate-limited per visitor) |
 | `/api/public/guide-ai/chat`, `/api/guide-ai/chat` | AI Guide (public and signed-in) |
 | `/api/saas-ai/chat` | Billing assistant (owner only) |
+| `/api/ai/config` | AI settings per module: effective settings for any staff login; the live provider/model registry and edits for `settings.update` (validated, audited) |
+| `/api/ai/transcribe` | Voice input for browsers without speech recognition (Gemini audio → text; staff only, rate-limited, module must allow voice) |
 | Import routes (menu, recipe, inventory, supplier, supplier price, supplier invoice, PO, staff, table) | AI document import into reviewable drafts |
+
+**Per-module model choice.** Settings → AI & Voice can pin a provider and model
+for each module. The choices come from the provider's own model list for the
+server's key (`apps/api/src/lib/aiRegistry.ts`, checked live and cached), never
+from a hard-coded list. A pinned Gemini model is tried first, and the usual
+fast models still back it up. A choice that stops being available falls back to
+the server default.
 
 **Reliability**
 - **Model racing:** if a Gemini model hasn't started answering quickly, or
@@ -773,6 +847,13 @@ database suite can rehearse a migration that is not applied yet: set
 ## Known limitations
 
 - AI features use Google Gemini; the free quota can run out (HTTP 429/503). Use a paid key for production.
+- Voice depends on the device:
+  - Speech recognition uses the browser's own service (Chrome, Edge and Safari
+    send the audio to their vendor), or the API's Gemini transcriber.
+  - Read-aloud uses the voices installed on the device, and many computers have
+    no Urdu or Arabic voice. The answer is always shown as text.
+- AI settings per module need tenant migration 0108. Until it is applied, every
+  module uses the built-in defaults and the settings page says so.
 - Stripe price IDs must be set in `STRIPE_PRICE_MAP` before live card payments work.
 - Each branch is a separate Supabase project in the owner's account, so it counts toward
   that account's project limit and cost (the Supabase free plan allows two active projects).

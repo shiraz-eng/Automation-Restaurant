@@ -1,6 +1,6 @@
 import {
   Activity, BadgeCheck, BookOpen, Bot, Building2, CalendarCheck, CalendarClock, ChartColumn, ChefHat, ClipboardList, Coins, CreditCard,
-  FileDown, HandCoins, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, Megaphone, Package, Palette, Percent, PieChart, QrCode,
+  FileDown, HandCoins, Hourglass, KeyRound, Landmark, Languages, LayoutDashboard, LifeBuoy, Megaphone, Package, Palette, Percent, PieChart, QrCode,
   ReceiptText, Scale, ScrollText, Settings, Share2, ShoppingCart, Sparkles, Star, Tag, TriangleAlert, Truck, Undo2, UserRound, Users,
   UtensilsCrossed, Wallet, type LucideIcon,
 } from 'lucide-react';
@@ -208,6 +208,7 @@ export const MODULES: ModuleDef[] = [
       { key: 'assistant', title: 'Assistant', description: 'Ask about your restaurant, import data and draft actions.', path: 'ai', icon: Bot, accent: 'violet', perm: 'ai.view', feature: 'analytics.advanced' },
       { key: 'approvals', title: 'Approvals', description: 'Actions the assistant proposed that are waiting for you.', path: 'approvals', icon: BadgeCheck, accent: 'emerald', perm: 'ai.approve_sensitive_action' },
       { key: 'guide', title: 'AI Guide', description: 'Step-by-step help with any screen in the app.', path: 'guide', icon: LifeBuoy, accent: 'blue', perm: '' },
+      { key: 'ai-settings', title: 'AI & Voice Settings', description: 'Model, languages and voice for each module.', path: 'settings/ai', icon: Languages, accent: 'slate', perm: 'settings.view', shared: true },
     ],
   },
   {
@@ -224,6 +225,7 @@ export const MODULES: ModuleDef[] = [
       { key: 'tax', title: 'Tax', description: 'The sales tax rate charged on every order.', path: 'settings/tax', icon: Percent, accent: 'teal', perm: 'settings.view', ownerOnly: true },
       { key: 'refunds', title: 'Refund Approvals', description: 'How large a refund staff can give before it needs sign-off.', path: 'settings/refunds', icon: Undo2, accent: 'orange', perm: 'settings.view', ownerOnly: true },
       { key: 'billing', title: 'Billing', description: 'Your Automation Restaurant plan and payments.', path: 'billing', icon: CreditCard, accent: 'rose', perm: 'settings.view', ownerOnly: true, hideInBranch: true },
+      { key: 'ai-settings', title: 'AI & Voice', description: 'Which AI model answers in each module, its languages and voice.', path: 'settings/ai', icon: Languages, accent: 'violet', perm: 'settings.view' },
     ],
   },
 ];

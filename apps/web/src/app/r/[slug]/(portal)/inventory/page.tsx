@@ -113,7 +113,7 @@ export default async function InventoryPage({
         {ledger.length === 0 ? (
           <p className="text-muted text-xs">Nothing yet.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
             <table className="w-full text-left text-xs">
               <tbody>
                 {ledger.map((l) => (

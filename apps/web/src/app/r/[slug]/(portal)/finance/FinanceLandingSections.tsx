@@ -184,7 +184,7 @@ export async function RevenueExpenseSection({ client, range, access }: { client:
         <RevenueExpenseChart buckets={buckets} />
       )}
       {!failed && !empty && (
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-[0.6875rem] text-muted">
           Revenue is net sales; expenses are approved operating expenses dated in each period{access.canCogs ? ', stacked on food cost (COGS)' : ''}.
         </p>
       )}
@@ -290,7 +290,7 @@ export async function RecentTransactions({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-body">{describe(e, e.supplier_id ? names.get(e.supplier_id) ?? null : null)}</span>
-                  <span className="block text-[11px] text-muted">
+                  <span className="block text-[0.6875rem] text-muted">
                     {k.label} • {new Date(`${e.business_date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
                   </span>
                 </span>

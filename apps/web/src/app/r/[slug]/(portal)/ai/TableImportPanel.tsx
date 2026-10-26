@@ -200,7 +200,7 @@ export function TableImportPanel({
                   />
                   <span className="font-semibold">{row.label}</span>
                   <span className="text-muted">{row.seats} seats</span>
-                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
+                  <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                 </label>
               );
             })}

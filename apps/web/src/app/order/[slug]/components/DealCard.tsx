@@ -40,11 +40,11 @@ export function DealCard({
         ) : (
           <ImageFallback className="w-full h-full" />
         )}
-        <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-primary text-primary-fg text-[10px] font-black uppercase tracking-wide px-2 py-1">
+        <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-primary text-primary-fg text-[0.625rem] font-black uppercase tracking-wide px-2 py-1">
           <Sparkles size={11} /> Deal
         </span>
         {savings > 0 && (
-          <span className="absolute top-2 right-2 rounded-full bg-ok text-white text-[10px] font-black px-2 py-1">
+          <span className="absolute top-2 right-2 rounded-full bg-ok text-ink text-[0.625rem] font-black px-2 py-1">
             Save {formatCents(savings)}
           </span>
         )}
@@ -52,7 +52,7 @@ export function DealCard({
 
       <div className="p-3 flex flex-col flex-1">
         <div className="font-bold text-sm leading-snug">{deal.name}</div>
-        <p className="text-muted text-[11.5px] leading-snug mt-0.5 line-clamp-2">{componentSummary}</p>
+        <p className="text-muted text-[0.71875rem] leading-snug mt-0.5 line-clamp-2">{componentSummary}</p>
 
         <div className="flex items-center justify-between gap-2 mt-2.5">
           <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
@@ -60,7 +60,7 @@ export function DealCard({
               {hasOptions ? `from ${formatCents(deal.price_cents)}` : formatCents(deal.price_cents)}
             </span>
             {!hasOptions && savings > 0 && (
-              <span className="text-muted text-[11px] line-through">{formatCents(individual)}</span>
+              <span className="text-muted text-[0.6875rem] line-through">{formatCents(individual)}</span>
             )}
           </span>
 

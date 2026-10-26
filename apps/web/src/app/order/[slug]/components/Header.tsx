@@ -1,6 +1,7 @@
 'use client';
 
 import { Search, X } from 'lucide-react';
+import { AccessibilityMenu } from '@/components/AccessibilityMenu';
 
 export function Header({
   restaurantName,
@@ -36,24 +37,28 @@ export function Header({
         ) : null}
         <div className="min-w-0 flex-1">
           <h1 className="font-black text-lg leading-tight truncate">{restaurantName}</h1>
-          {tagline && <p className="text-muted text-[11.5px] truncate">{tagline}</p>}
+          {tagline && <p className="text-muted text-[0.71875rem] truncate">{tagline}</p>}
         </div>
         <button
           type="button"
           onClick={onEditGuest}
           className="text-right shrink-0 rounded-lg p-1 hover:bg-surface/80 transition-colors text-left"
           title="Click to edit table or name"
+          aria-label={`${tableDisplay}, ordering as ${guestName}. Change table or name`}
         >
-          <div className="text-[10px] uppercase tracking-wide text-muted font-bold">
+          <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">
             {tableDisplay}
           </div>
           <div className="text-xs font-semibold truncate max-w-[8rem]">{guestName}</div>
         </button>
+        <AccessibilityMenu className="shrink-0" />
       </div>
 
-      <div className="relative mt-3.5">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+      <div className="relative mt-3.5" role="search">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
         <input
+          type="search"
+          aria-label="Search the menu"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search chicken, burgers, fries…"

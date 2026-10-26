@@ -157,14 +157,14 @@ export function PriorityManager({
           <div className="flex items-center gap-2">
             <h2 className="font-bold text-sm">Priority Allocation</h2>
             <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+              className={`rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase ${
                 allocationEnabled ? 'bg-ok/10 text-ok' : 'bg-main text-muted'
               }`}
             >
               {allocationEnabled ? 'On' : 'Off'}
             </span>
           </div>
-          <p className="text-muted text-[11px] mt-1 max-w-xl">
+          <p className="text-muted text-[0.6875rem] mt-1 max-w-xl">
             {allocationEnabled
               ? 'Limited shared ingredients are divided between priority levels by the shares below; within a level, dishes are served in the order listed. Availability updates automatically on every stock or priority change.'
               : 'Each product shows everything its ingredients could make on its own, so products sharing an ingredient can promise the same stock twice. Turn on to allocate by priority.'}
@@ -211,7 +211,7 @@ export function PriorityManager({
             </Button>
           </div>
           {unprioritized.length === 0 && menuItems.length > 0 && (
-            <p className="text-muted text-[11px] mt-2">Every product already has a priority set.</p>
+            <p className="text-muted text-[0.6875rem] mt-2">Every product already has a priority set.</p>
           )}
         </div>
       )}
@@ -231,10 +231,10 @@ export function PriorityManager({
             >
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-bold text-xs uppercase tracking-wide">{level.label}</h3>
-                <span className="text-[10px] text-muted">{rows.length}</span>
+                <span className="text-[0.625rem] text-muted">{rows.length}</span>
               </div>
               {rows.length === 0 ? (
-                <p className="text-muted text-[11px] py-3 text-center">Drop a product here, or add one above.</p>
+                <p className="text-muted text-[0.6875rem] py-3 text-center">Drop a product here, or add one above.</p>
               ) : (
                 <div className="space-y-1.5">
                   {rows.map((r) => {
@@ -259,7 +259,7 @@ export function PriorityManager({
                         </div>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {a && (
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${STATUS_TONE[a.status] ?? ''}`} title={a.reason ?? undefined}>
+                            <span className={`rounded-full px-1.5 py-0.5 text-[0.625rem] font-bold ${STATUS_TONE[a.status] ?? ''}`} title={a.reason ?? undefined}>
                               {STATUS_LABEL[a.status] ?? a.status}
                               {a.producibleQty != null ? ` · ${a.producibleQty}` : ''}
                             </span>
@@ -269,7 +269,7 @@ export function PriorityManager({
                               <Select
                                 value={r.priority_level}
                                 onChange={(e) => changeLevel(r.menu_item_id, e.target.value as PriorityLevel)}
-                                className="text-[10px] py-0.5 w-20 ml-auto"
+                                className="text-[0.625rem] py-0.5 w-20 ml-auto"
                               >
                                 {LEVELS.map((l) => (
                                   <option key={l.key} value={l.key}>
@@ -296,14 +296,14 @@ export function PriorityManager({
       {unprioritized.length > 0 && (
         <div className="rounded-lg border border-border bg-surface p-4">
           <h3 className="font-bold text-xs uppercase tracking-wide text-muted mb-2">Not prioritized ({unprioritized.length})</h3>
-          <p className="text-muted text-[11px] mb-2">
+          <p className="text-muted text-[0.6875rem] mb-2">
             These products still get the recipe-driven engine&rsquo;s normal, independent availability calculation
             unless a shared ingredient is also claimed by a prioritized product above — in that case, they&rsquo;re
             served last, from whatever&rsquo;s left.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {unprioritized.map((m) => (
-              <span key={m.id} className="rounded-full border border-border px-2.5 py-1 text-[11px]">
+              <span key={m.id} className="rounded-full border border-border px-2.5 py-1 text-[0.6875rem]">
                 {m.name}
               </span>
             ))}

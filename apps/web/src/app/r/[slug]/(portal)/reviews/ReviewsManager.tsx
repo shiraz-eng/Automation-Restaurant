@@ -175,9 +175,9 @@ export function ReviewsManager({
         <Card>
           <div className="flex flex-wrap gap-6">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted font-bold">Average rating</div>
+              <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Average rating</div>
               <div className="text-3xl font-black tabular-nums">{analytics.avg_overall ?? '—'}</div>
-              <div className="text-muted text-[11px]">
+              <div className="text-muted text-[0.6875rem]">
                 {analytics.count} reviews · {analytics.responded} answered
               </div>
             </div>
@@ -185,7 +185,7 @@ export function ReviewsManager({
               {[5, 4, 3, 2, 1].map((star) => {
                 const n = Number(analytics.by_star?.[String(star)] ?? 0);
                 return (
-                  <div key={star} className="flex items-center gap-2 text-[11px]">
+                  <div key={star} className="flex items-center gap-2 text-[0.6875rem]">
                     <span className="w-6 text-muted">{star}★</span>
                     <div className="h-2 flex-1 rounded bg-main overflow-hidden">
                       <div className="h-full bg-warn" style={{ width: `${(n / maxStar) * 100}%` }} />
@@ -195,7 +195,7 @@ export function ReviewsManager({
                 );
               })}
             </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[11px] self-center">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[0.6875rem] self-center">
               {categories.map(([label, v]) => (
                 <div key={label} className="flex justify-between gap-3">
                   <span className="text-muted">{label}</span>
@@ -230,11 +230,11 @@ export function ReviewsManager({
                 <div>
                   <Stars n={r.overall} />
                   <span className="ml-2 text-xs font-semibold">{r.guest_name || 'Guest'}</span>
-                  <span className="ml-2 text-[11px] text-muted">
+                  <span className="ml-2 text-[0.6875rem] text-muted">
                     {r.table_label ? `${r.table_label} · ` : ''}
                     {formatDateTime(r.created_at)}
                   </span>
-                  {r.is_hidden && <span className="ml-2 text-[10px] font-bold text-danger uppercase">hidden</span>}
+                  {r.is_hidden && <span className="ml-2 text-[0.625rem] font-bold text-danger uppercase">hidden</span>}
                 </div>
                 {canModerate && (
                   <Button variant="ghost" disabled={busyId === r.id} onClick={() => moderate(r)}>
@@ -243,10 +243,10 @@ export function ReviewsManager({
                 )}
               </div>
               {r.comment && <p className="text-xs mt-2 whitespace-pre-wrap">{r.comment}</p>}
-              {r.moderation_note && r.is_hidden && <p className="text-[11px] text-muted mt-1">Hidden: {r.moderation_note}</p>}
+              {r.moderation_note && r.is_hidden && <p className="text-[0.6875rem] text-muted mt-1">Hidden: {r.moderation_note}</p>}
               {r.response && (
                 <div className="mt-2 rounded-md border border-border bg-main/50 p-2 text-xs">
-                  <div className="text-[10px] font-bold text-muted uppercase tracking-wide mb-0.5">
+                  <div className="text-[0.625rem] font-bold text-muted uppercase tracking-wide mb-0.5">
                     Reply{r.responded_by ? ` · ${r.responded_by}` : ''}
                   </div>
                   {r.response}

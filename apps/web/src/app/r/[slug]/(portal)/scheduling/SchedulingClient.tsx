@@ -168,15 +168,15 @@ export function SchedulingClient({
             date.setDate(date.getDate() + i);
             return (
               <div key={d} className="rounded-lg border border-border bg-surface p-2 min-h-[7rem]">
-                <div className="text-[11px] font-bold text-muted mb-1.5">
+                <div className="text-[0.6875rem] font-bold text-muted mb-1.5">
                   {d} {date.getDate()}
                 </div>
                 <div className="space-y-1.5">
                   {byDay[i].length === 0 ? (
-                    <div className="text-[11px] text-muted/60">—</div>
+                    <div className="text-[0.6875rem] text-muted/60">—</div>
                   ) : (
                     byDay[i].map((s) => (
-                      <div key={s.id} className="rounded bg-main px-1.5 py-1 text-[11px] group">
+                      <div key={s.id} className="rounded bg-main px-1.5 py-1 text-[0.6875rem] group">
                         <div className="font-semibold truncate">{memberName(s.membership_id)}</div>
                         <div className="text-muted">
                           {hhmm(s.starts_at)}–{hhmm(s.ends_at)}
@@ -275,7 +275,7 @@ export function SchedulingClient({
           </Card>
         )}
 
-        <Card className="p-0 overflow-x-auto">
+        <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border">
               <tr>

@@ -232,7 +232,7 @@ export function RecipeImportPanel({
             <span className="text-muted font-semibold">{diff.summary.exists} already exist</span>
             {diff.summary.blocked > 0 && <span className="text-danger font-semibold">, {diff.summary.blocked} blocked</span>}.
           </div>
-          <p className="text-[11px] text-muted">
+          <p className="text-[0.6875rem] text-muted">
             Pick the dish each recipe is for. A linked recipe is activated, so that dish starts deducting stock and shows
             its food cost. Leave it on “Don’t link” to link it later from Menu.
           </p>
@@ -251,16 +251,16 @@ export function RecipeImportPanel({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-semibold">{row.recipe_name}</span>
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
+                      <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
                     {(row.menu_item_name || row.yield_unit) && (
-                      <div className="text-[11px] text-muted">
+                      <div className="text-[0.6875rem] text-muted">
                         {row.menu_item_name ? `Document says it's for ${row.menu_item_name}${row.variant_name ? ` · ${row.variant_name}` : ''}` : ''}
                         {row.menu_item_name && row.yield_unit ? ' — ' : ''}
                         {row.yield_unit ? `makes ${row.yield_qty} ${row.yield_unit}` : ''}
                       </div>
                     )}
-                    <div className="text-[11px] text-muted">
+                    <div className="text-[0.6875rem] text-muted">
                       {row.ingredients.map((ing, ii) => (
                         <span key={ii} className={`mr-2 ${ing.issue ? 'text-danger' : ''}`}>
                           {ing.qty_base != null ? `${ing.qty_base}${ing.base_unit} ` : ''}
@@ -270,7 +270,7 @@ export function RecipeImportPanel({
                       ))}
                     </div>
                     {row.status === 'blocked' && row.issues.length > 0 && (
-                      <div className="text-[11px] text-danger">{row.issues.join(' · ')}</div>
+                      <div className="text-[0.6875rem] text-danger">{row.issues.join(' · ')}</div>
                     )}
                     {row.status === 'ready' && approved.has(key) && dishes.length > 0 && (() => {
                       const link = links[key];
@@ -284,12 +284,12 @@ export function RecipeImportPanel({
                       const suggestedSize = suggestedLink?.variant_id ? suggestedDish!.sizes.find((s) => s.id === suggestedLink.variant_id)?.name : null;
                       return (
                         <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <span className="text-[11px] text-muted">Link to dish:</span>
+                          <span className="text-[0.6875rem] text-muted">Link to dish:</span>
                           <select
                             value={link?.menu_item_id ?? ''}
                             disabled={stage === 'applying'}
                             onChange={(e) => setLink(key, e.target.value ? { menu_item_id: e.target.value, variant_id: null } : null)}
-                            className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+                            className="rounded border border-border bg-surface px-2 py-1 text-[0.6875rem]"
                           >
                             <option value="">Don’t link</option>
                             {dishes.map((d) => (
@@ -304,7 +304,7 @@ export function RecipeImportPanel({
                               value={link?.variant_id ?? ''}
                               disabled={stage === 'applying'}
                               onChange={(e) => setLink(key, { menu_item_id: dish.id, variant_id: e.target.value || null })}
-                              className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+                              className="rounded border border-border bg-surface px-2 py-1 text-[0.6875rem]"
                             >
                               <option value="">Whole dish</option>
                               {dish.sizes.map((s) => (
@@ -315,10 +315,10 @@ export function RecipeImportPanel({
                             </select>
                           )}
                           {link && pickedSlots.has(slotKey(link)) && Object.entries(links).some(([k, l]) => k !== key && slotKey(l) === slotKey(link)) && (
-                            <span className="text-[11px] text-danger">Another recipe here is linked to the same dish.</span>
+                            <span className="text-[0.6875rem] text-danger">Another recipe here is linked to the same dish.</span>
                           )}
                           {suggestionFree && (
-                            <button type="button" onClick={() => setLink(key, suggestedLink)} className="text-primary text-[11px] underline">
+                            <button type="button" onClick={() => setLink(key, suggestedLink)} className="text-primary text-[0.6875rem] underline">
                               Use “{suggestedDish!.name}{suggestedSize ? ` · ${suggestedSize}` : ''}”
                             </button>
                           )}
@@ -340,7 +340,7 @@ export function RecipeImportPanel({
               <input type="radio" name="recipe-save-mode" checked={saveActive} disabled={stage === 'applying'} onChange={() => setSaveActive(true)} />
               Active
             </label>
-            <span className="text-[11px] text-muted">
+            <span className="text-[0.6875rem] text-muted">
               {saveActive
                 ? 'Ready to use straight away. Linked dishes start deducting stock.'
                 : 'Linked recipes are always activated; the rest stay drafts to review on the Recipes page.'}

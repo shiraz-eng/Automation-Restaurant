@@ -85,7 +85,7 @@ export default async function AdminOverviewPage({
     <div className="space-y-8 max-w-6xl">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-muted">SaaS Overview</div>
+          <div className="text-[0.625rem] font-bold uppercase tracking-[0.14em] text-ink-muted">SaaS Overview</div>
           <h1 className="text-xl font-black mt-0.5">Platform-level subscription, billing alerts, and signups</h1>
         </div>
         <DateRangeFilter defaultDays={30} />

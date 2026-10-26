@@ -69,7 +69,7 @@ export function IngredientCostPanel() {
       <div className="flex flex-wrap items-center justify-between gap-2 p-3 border-b border-border">
         <div>
           <h3 className="font-bold text-sm">Ingredient costs</h3>
-          <p className="text-muted text-[11px]">Cost per base unit. Recipe food cost and COGS use these figures.</p>
+          <p className="text-muted text-[0.6875rem]">Cost per base unit. Recipe food cost and COGS use these figures.</p>
         </div>
         <Input placeholder="Search" value={filter} onChange={(e) => setFilter(e.target.value)} className="w-48" />
       </div>
@@ -80,7 +80,7 @@ export function IngredientCostPanel() {
       ) : shown.length === 0 ? (
         <p className="p-3 text-muted text-xs">No ingredients.</p>
       ) : (
-        <div className="max-h-[28rem] overflow-auto">
+        <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>

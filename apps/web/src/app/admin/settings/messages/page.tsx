@@ -52,7 +52,7 @@ export default async function AdminMessagesPage() {
                     {r.restaurant ? ` · ${r.restaurant}` : ''}
                   </div>
                 </div>
-                <div className="text-ink-muted text-[11px] whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</div>
+                <div className="text-ink-muted text-[0.6875rem] whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</div>
               </div>
               <p className="text-xs whitespace-pre-wrap">{r.message}</p>
             </AdminCard>

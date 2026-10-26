@@ -125,7 +125,7 @@ export function ExportHistoryPanel({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface overflow-x-auto">
+    <div className="rounded-lg border border-border bg-surface overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
       <table className="w-full text-left text-xs">
         <thead className="text-muted bg-main">
           <tr className="border-b border-border">
@@ -144,14 +144,14 @@ export function ExportHistoryPanel({ slug }: { slug: string }) {
               <td className="p-3">
                 <div className="font-semibold text-body">{FORMAT_LABEL[r.format] ?? r.format}</div>
                 {r.sheets && r.sheets.length > 0 && (
-                  <div className="text-[10px] text-muted mt-0.5">{r.sheets.join(', ')}</div>
+                  <div className="text-[0.625rem] text-muted mt-0.5">{r.sheets.join(', ')}</div>
                 )}
               </td>
               <td className="p-3 text-muted">{DOMAIN_LABEL[r.domain] ?? r.domain}</td>
               <td className="p-3 text-muted">{r.period_label}</td>
               <td className="p-3">
                 <div className="text-body">{r.requested_by_email ?? '—'}</div>
-                {r.requested_by_role && <div className="text-[10px] text-muted capitalize">{r.requested_by_role}</div>}
+                {r.requested_by_role && <div className="text-[0.625rem] text-muted capitalize">{r.requested_by_role}</div>}
               </td>
               <td className="p-3 text-muted">{formatDateTime(r.created_at)}</td>
               <td className="p-3">

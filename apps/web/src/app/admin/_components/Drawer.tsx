@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { X } from 'lucide-react';
 
 /** Shared right-side slide-over — the detail drawer for Customers/Restaurants rows. */
@@ -26,10 +27,12 @@ export function Drawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, open, onClose);
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative w-full max-w-md h-full bg-ink border-l border-white/10 overflow-y-auto">
         <div className="sticky top-0 bg-ink/95 backdrop-blur border-b border-white/10 p-4 flex items-start justify-between gap-3 z-10">

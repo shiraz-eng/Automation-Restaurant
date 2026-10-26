@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus as PlusIcon, Sparkles, Trash2, X } from 'lucide-react';
@@ -367,12 +368,15 @@ export function ProductEditor({
   }, [baseRecipeComponents, ingredients]);
   const linkedDeals = useMemo(() => dealsForItem(deals, item.id), [deals, item.id]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex justify-end" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Edit ${item.name}`} className="fixed inset-0 z-40 bg-black/50 flex justify-end" onClick={onClose}>
       <div className="w-full lg:w-[900px] h-full bg-main border-l border-border overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 bg-main border-b border-border px-5 py-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wide text-muted font-bold">Edit Product</div>
+            <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Edit Product</div>
             <h2 className="font-black text-lg truncate">{item.name}</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -513,7 +517,7 @@ export function ProductEditor({
             <section className="pt-5 border-t border-border">
               <h3 className="font-bold text-sm mb-3">Variants</h3>
               {item.menu_variants.length > 0 && (
-                <div className="overflow-x-auto mb-3">
+                <div className="overflow-x-auto mb-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                 <table className="w-full text-left text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
@@ -543,7 +547,7 @@ export function ProductEditor({
                                   <span className="whitespace-nowrap">
                                     <span className="font-semibold">{sizeLink.recipe.name}</span>
                                     {canManageRecipes && (
-                                      <button onClick={() => unlinkItemRecipe(sizeLink)} disabled={busy} className="text-danger text-[11px] underline ml-2">
+                                      <button onClick={() => unlinkItemRecipe(sizeLink)} disabled={busy} className="text-danger text-[0.6875rem] underline ml-2">
                                         Unlink
                                       </button>
                                     )}
@@ -557,7 +561,7 @@ export function ProductEditor({
                                   value=""
                                   disabled={busy}
                                   onChange={(e) => linkSizeRecipe(e.target.value, v.id)}
-                                  className="text-[11px] py-1 min-w-[9rem]"
+                                  className="text-[0.6875rem] py-1 min-w-[9rem]"
                                   aria-label={`Link a recipe to ${v.name}`}
                                 >
                                   <option value="">{fallback}</option>
@@ -735,7 +739,7 @@ export function ProductEditor({
                 </div>
                 <div className="p-3">
                   <div className="font-bold text-sm">{name || 'Untitled product'}</div>
-                  {description && <p className="text-muted text-[11px] mt-0.5 line-clamp-2">{description}</p>}
+                  {description && <p className="text-muted text-[0.6875rem] mt-0.5 line-clamp-2">{description}</p>}
                   <div className="flex items-center justify-between mt-2">
                     <span className="font-black text-sm">
                       {item.menu_variants.length > 1 ? `from ${formatCents(previewPrice)}` : formatCents(previewPrice)}
@@ -744,7 +748,7 @@ export function ProductEditor({
                   </div>
                 </div>
               </div>
-              <p className="text-muted text-[10.5px] mt-2">Exactly how this product appears on the live Customer Menu.</p>
+              <p className="text-muted text-[0.65625rem] mt-2">Exactly how this product appears on the live Customer Menu.</p>
             </section>
 
             <section className="rounded-lg border border-border bg-surface p-4">
@@ -766,7 +770,7 @@ export function ProductEditor({
                           </span>
                         </div>
                         {canManageRecipes && (
-                          <button onClick={() => unlinkItemRecipe(link)} disabled={busy} className="text-danger text-[11px] underline shrink-0">
+                          <button onClick={() => unlinkItemRecipe(link)} disabled={busy} className="text-danger text-[0.6875rem] underline shrink-0">
                             Unlink
                           </button>
                         )}
@@ -857,7 +861,7 @@ export function ProductEditor({
                 </div>
               ) : (
                 linkedIngredients.length > 0 && (
-                  <p className="text-muted text-[11px] mb-3">No recipe-driven producible-qty tracking yet — link ingredients on the Recipes page to enable it.</p>
+                  <p className="text-muted text-[0.6875rem] mb-3">No recipe-driven producible-qty tracking yet — link ingredients on the Recipes page to enable it.</p>
                 )
               )}
               {linkedIngredients.length > 0 ? (
@@ -914,7 +918,7 @@ export function ProductEditor({
                   <Link
                     key={c.label}
                     href={c.href(slug)}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-main px-2.5 py-1 text-[11px] font-semibold hover:border-primary/40 transition-colors"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-main px-2.5 py-1 text-[0.6875rem] font-semibold hover:border-primary/40 transition-colors"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     {c.label}

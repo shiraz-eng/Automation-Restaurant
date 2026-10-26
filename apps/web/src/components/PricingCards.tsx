@@ -38,7 +38,7 @@ export function PricingCards({ plans }: { plans: PlanRow[] }) {
               } bg-surface`}
             >
               {featured && (
-                <span className="self-start rounded-full bg-black/5 text-black text-[11px] font-bold px-2.5 py-0.5 mb-3">
+                <span className="self-start rounded-full bg-black/5 text-black text-[0.6875rem] font-bold px-2.5 py-0.5 mb-3">
                   Most popular
                 </span>
               )}
@@ -62,7 +62,7 @@ export function PricingCards({ plans }: { plans: PlanRow[] }) {
                   </li>
                 ))}
               </ul>
-              <dl className="text-[11px] text-muted space-y-1 mb-5">
+              <dl className="text-[0.6875rem] text-muted space-y-1 mb-5">
                 <div className="flex justify-between">
                   <dt>Users</dt>
                   <dd className="text-body font-semibold">{p.limits.users}</dd>

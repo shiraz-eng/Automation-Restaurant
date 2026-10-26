@@ -504,7 +504,7 @@ export function CheckoutClient({
                 {due(b) === 0 ? 'paid' : formatCents(due(b))}
               </span>
             </div>
-            <div className="text-[11px] text-muted">
+            <div className="text-[0.6875rem] text-muted">
               #{b.order_number} · {b.status.replace('_', ' ')}
             </div>
           </button>
@@ -513,17 +513,17 @@ export function CheckoutClient({
 
       {bill && (
         <Card className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between mb-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
             <h2 className="font-black">
               Order #{bill.order_number}
               {bill.table_label ? ` · ${bill.table_label}` : ''}
             </h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
               {canPrintReceipt && (
                 <button
                   onClick={() => printInvoice(bill, restaurantName, receipt)}
-                  className="text-primary text-xs font-semibold underline"
+                  className="min-h-6 py-1 text-primary text-xs font-semibold underline"
                 >
                   Print invoice
                 </button>
@@ -531,7 +531,7 @@ export function CheckoutClient({
               {canViewReceipt && (
                 <button
                   onClick={() => downloadReceiptPdf(effectiveReceiptConfig(receipt), toReceiptContext(bill, restaurantName, receipt))}
-                  className="text-primary text-xs font-semibold underline"
+                  className="min-h-6 py-1 text-primary text-xs font-semibold underline"
                 >
                   Download PDF
                 </button>
@@ -547,7 +547,7 @@ export function CheckoutClient({
                 </span>
                 <span className="flex items-center gap-2">
                   {canOverridePrice && (
-                    <button onClick={() => overridePrice(l)} disabled={busy} className="text-primary underline text-[11px]">
+                    <button onClick={() => overridePrice(l)} disabled={busy} className="min-h-6 py-1 text-primary underline text-[0.6875rem]">
                       change price
                     </button>
                   )}
@@ -631,7 +631,7 @@ export function CheckoutClient({
 
           {bill.payments.length > 0 && (
             <div className="mt-4 border-t border-border pt-2 space-y-1">
-              <div className="text-[10px] uppercase tracking-wide text-muted font-bold">Payments</div>
+              <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Payments</div>
               {bill.payments.map((p) => (
                 <div key={p.id} className="flex items-center justify-between text-xs">
                   <span className="capitalize">
@@ -663,7 +663,7 @@ export function CheckoutClient({
           )}
 
           {canRefund && refundThresholdCents != null && (
-            <p className="mt-2 text-[11px] text-muted">
+            <p className="mt-2 text-[0.6875rem] text-muted">
               {canApproveRefund
                 ? `You can approve refunds above the ${formatCents(refundThresholdCents)} limit.`
                 : `Refunds above ${formatCents(refundThresholdCents)} need someone with refund approval.`}

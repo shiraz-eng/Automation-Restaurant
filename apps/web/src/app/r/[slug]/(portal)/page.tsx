@@ -205,7 +205,7 @@ export default async function DashboardPage({
           {orders.length === 0 ? (
             <p className="text-muted text-xs">No orders yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">
@@ -278,7 +278,7 @@ export default async function DashboardPage({
           {inventory.length === 0 ? (
             <p className="text-muted text-xs">No inventory items.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">
@@ -324,7 +324,7 @@ export default async function DashboardPage({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sm font-bold text-body">📦 Inventory &amp; Recipe Tracking</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+              <span className="text-[0.625rem] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
                 Professional
               </span>
             </div>
@@ -352,7 +352,7 @@ export default async function DashboardPage({
           {portalActivity.length === 0 ? (
             <p className="text-muted text-xs">No portals created yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">

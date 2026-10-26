@@ -25,8 +25,8 @@ export function UseCases() {
           <Reveal key={t.title} delay={(i % 4) * 60}>
             <div className="rounded-2xl border border-border bg-surface p-4 h-full text-center">
               <t.icon size={20} className="mx-auto text-black" strokeWidth={2} />
-              <div className="font-display font-bold text-[13px] mt-2.5">{t.title}</div>
-              <p className="text-muted text-[11px] mt-1 leading-snug">{t.text}</p>
+              <div className="font-display font-bold text-[0.8125rem] mt-2.5">{t.title}</div>
+              <p className="text-muted text-[0.6875rem] mt-1 leading-snug">{t.text}</p>
             </div>
           </Reveal>
         ))}

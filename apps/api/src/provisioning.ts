@@ -349,7 +349,8 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v105 Branch operations: suppliers per branch or shared (price lists, messages, payments and credit notes follow), Branch manager role = the whole panel except owner-only and shared-menu keys.
 //   v106 inventory_stock view: ingredient stock as the branch in view sees it (a branch login never sees another branch's stock).
 //   v107 retire in-database branch logins: every portal and staff login works across the whole restaurant (branches are separate restaurants now).
-const SCHEMA_VERSION = 107;
+//   v108 AI settings per module: ai_module_settings (provider, model, languages, auto-detect, voice in/out per module; API-only writes).
+const SCHEMA_VERSION = 108;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.

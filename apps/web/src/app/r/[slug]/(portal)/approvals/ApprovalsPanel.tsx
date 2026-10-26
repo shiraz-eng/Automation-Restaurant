@@ -173,7 +173,7 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
         <div className="space-y-2">
           {items.map((item) => (
             <div key={item.id} className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm space-y-2">
-              <div className="flex items-center gap-1.5 flex-wrap text-[10px] uppercase tracking-wide text-muted">
+              <div className="flex items-center gap-1.5 flex-wrap text-[0.625rem] uppercase tracking-wide text-muted">
                 <span className="font-bold text-primary">{item.action_name.replace(/_/g, ' ')}</span>
                 <span>· proposed {formatDateTime(item.created_at)}</span>
                 {item.proposed_by_email && <span>· by {item.proposed_by_email}</span>}
@@ -190,15 +190,15 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
                   </div>
                   <div className="flex items-center gap-4 mt-1">
                     <div>
-                      <div className="text-[10px] text-muted">Net sales</div>
+                      <div className="text-[0.625rem] text-muted">Net sales</div>
                       <div className="font-mono font-bold text-sm">{formatCents(item.profitCard.net_sales_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">Gross profit</div>
+                      <div className="text-[0.625rem] text-muted">Gross profit</div>
                       <div className="font-mono font-bold text-sm">{formatCents(item.profitCard.gross_profit_cents)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted">Net profit</div>
+                      <div className="text-[0.625rem] text-muted">Net profit</div>
                       <div className={`font-mono font-bold text-sm ${item.profitCard.net_profit_cents >= 0 ? 'text-ok' : 'text-danger'}`}>
                         {formatCents(item.profitCard.net_profit_cents)}
                       </div>

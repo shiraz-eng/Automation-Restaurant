@@ -128,14 +128,14 @@ export function SectionEditorClient({ row, role, perms }: { row: SiteSectionRow;
           <div className="flex items-center justify-between">
             <div>
               <div className="font-bold text-sm">{row.slug}</div>
-              <div className="text-[10px] font-mono text-ink-muted">{row.section_type}</div>
+              <div className="text-[0.625rem] font-mono text-ink-muted">{row.section_type}</div>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${row.is_active ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
+              <span className={`text-[0.625rem] font-bold uppercase px-2 py-0.5 rounded-full ${row.is_active ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
                 {row.is_active ? 'Published' : 'Unpublished'}
               </span>
               {hasUnpublishedDraft && (
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full text-gold bg-gold/10">Unsaved draft</span>
+                <span className="text-[0.625rem] font-bold uppercase px-2 py-0.5 rounded-full text-gold bg-gold/10">Unsaved draft</span>
               )}
             </div>
           </div>
@@ -176,9 +176,9 @@ export function SectionEditorClient({ row, role, perms }: { row: SiteSectionRow;
                 )}
               </>
             ) : (
-              <span className="text-[11px] text-ink-muted">Publishing requires the CMS Publish permission.</span>
+              <span className="text-[0.6875rem] text-ink-muted">Publishing requires the CMS Publish permission.</span>
             )}
-            {savedAt && <span className="text-[11px] text-ink-muted">Draft saved.</span>}
+            {savedAt && <span className="text-[0.6875rem] text-ink-muted">Draft saved.</span>}
           </div>
         </AdminCard>
 
@@ -194,7 +194,7 @@ export function SectionEditorClient({ row, role, perms }: { row: SiteSectionRow;
             href={previewSrc}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[11px] font-semibold text-gold hover:underline flex items-center gap-1"
+            className="text-[0.6875rem] font-semibold text-gold hover:underline flex items-center gap-1"
           >
             Open in new tab ↗
           </a>

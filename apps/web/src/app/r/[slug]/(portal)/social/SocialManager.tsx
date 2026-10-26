@@ -263,7 +263,7 @@ export function SocialManager({
               <Card key={p.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-[11px] mb-1">
+                    <div className="flex items-center gap-2 text-[0.6875rem] mb-1">
                       <span className={`font-bold uppercase ${STATUS_TONE[p.status]}`}>{STATUS_LABEL[p.status]}</span>
                       {p.proposed_by_role === 'ai' && <span className="text-muted">· AI-drafted</span>}
                       {p.related_type && <span className="text-muted">· {p.related_type.replace('_', ' ')}</span>}
@@ -289,13 +289,13 @@ export function SocialManager({
                       <>
                         <p className="text-sm whitespace-pre-wrap">{p.caption}</p>
                         {p.media_url ? (
-                          <div className="text-[11px] text-muted mt-1 truncate">🖼 {p.media_url}</div>
+                          <div className="text-[0.6875rem] text-muted mt-1 truncate">🖼 {p.media_url}</div>
                         ) : (
-                          <div className="text-[11px] text-warn mt-1">No image attached yet.</div>
+                          <div className="text-[0.6875rem] text-warn mt-1">No image attached yet.</div>
                         )}
-                        {p.status === 'failed' && p.error && <div className="text-[11px] text-danger mt-1">{p.error}</div>}
+                        {p.status === 'failed' && p.error && <div className="text-[0.6875rem] text-danger mt-1">{p.error}</div>}
                         {p.status === 'published' && p.published_at && (
-                          <div className="text-[11px] text-muted mt-1">Published {new Date(p.published_at).toLocaleString()}</div>
+                          <div className="text-[0.6875rem] text-muted mt-1">Published {new Date(p.published_at).toLocaleString()}</div>
                         )}
                       </>
                     )}

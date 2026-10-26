@@ -76,7 +76,7 @@ function InviteForm({ roles, catalog, onDone }: { roles: Role[]; catalog: Catalo
         </AdminField>
       </div>
       <div>
-        <div className="text-[11px] font-semibold text-ink-muted mb-1.5">Extra permissions (on top of the role)</div>
+        <div className="text-[0.6875rem] font-semibold text-ink-muted mb-1.5">Extra permissions (on top of the role)</div>
         <div className="flex flex-wrap gap-3">
           {catalog.map((c) => (
             <label key={c.key} className="flex items-center gap-1.5 text-xs">
@@ -160,7 +160,7 @@ export function TeamManager() {
             <div>
               <div className="font-bold text-sm flex items-center gap-2">
                 {a.email}
-                <span className="text-[10px] font-mono text-ink-muted">{a.role}</span>
+                <span className="text-[0.625rem] font-mono text-ink-muted">{a.role}</span>
                 <AdminBadge status={a.status} />
               </div>
               <div className="text-ink-muted text-xs">

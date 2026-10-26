@@ -28,14 +28,14 @@ export function StationFilter({
 }
 
 function Count({ n }: { n: number }) {
-  return <span className="opacity-70 tabular-nums">{n} Active</span>;
+  return <span className="opacity-90 tabular-nums">{n} Active</span>;
 }
 
 function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-colors ${
+      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[0.6875rem] font-bold whitespace-nowrap transition-colors ${
         active ? 'bg-primary text-primary-fg' : 'bg-surface border border-border text-body hover:border-primary/40'
       }`}
     >

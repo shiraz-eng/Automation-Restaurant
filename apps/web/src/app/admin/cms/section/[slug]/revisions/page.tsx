@@ -54,7 +54,7 @@ export default async function CmsSectionRevisionsPage({ params }: { params: Prom
       {rows.length === 0 ? (
         <AdminCard>No revisions recorded yet.</AdminCard>
       ) : (
-        <AdminCard className="p-0 overflow-x-auto">
+        <AdminCard className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-ink-muted border-b border-white/10">
               <tr>
@@ -68,7 +68,7 @@ export default async function CmsSectionRevisionsPage({ params }: { params: Prom
                 <tr key={r.id} className="border-b border-white/10 last:border-0">
                   <td className="p-3 text-ink-muted whitespace-nowrap">{formatDateTime(r.created_at)}</td>
                   <td className="p-3">
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${ACTION_TONE[r.action]}`}>
+                    <span className={`text-[0.625rem] font-bold uppercase px-2 py-0.5 rounded-full ${ACTION_TONE[r.action]}`}>
                       {ACTION_LABEL[r.action]}
                     </span>
                   </td>

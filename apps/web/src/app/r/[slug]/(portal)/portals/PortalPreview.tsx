@@ -33,7 +33,7 @@ export function PortalPreview({
         <span className="h-2 w-2 rounded-full bg-danger/40" />
         <span className="h-2 w-2 rounded-full bg-warn/40" />
         <span className="h-2 w-2 rounded-full bg-ok/40" />
-        <span className="ml-1 text-[10px] text-muted font-mono truncate">
+        <span className="ml-1 text-[0.625rem] text-muted font-mono truncate">
           /portal/{portalName.trim() ? portalName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'your-portal'}
         </span>
       </div>
@@ -44,7 +44,7 @@ export function PortalPreview({
             <img src={logoUrl} alt="" className="h-6 w-6 rounded object-contain" />
           )}
           <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-muted truncate">{restaurantName}</div>
+            <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted truncate">{restaurantName}</div>
             <div className="font-bold text-sm truncate">{portalName.trim() || 'Untitled portal'}</div>
           </div>
         </div>
@@ -60,13 +60,13 @@ export function PortalPreview({
                 <div className="text-xs font-bold mb-1">{s.label}</div>
                 <ul className="space-y-0.5">
                   {s.allowed.map((k) => (
-                    <li key={k} className="flex items-center gap-1.5 text-[11px] text-body">
+                    <li key={k} className="flex items-center gap-1.5 text-[0.6875rem] text-body">
                       <Check size={11} className="text-ok shrink-0" />
                       {label(k)}
                     </li>
                   ))}
                   {s.restricted.map((k) => (
-                    <li key={k} className="flex items-center gap-1.5 text-[11px] text-muted/70">
+                    <li key={k} className="flex items-center gap-1.5 text-[0.6875rem] text-muted/70">
                       <Lock size={10} className="shrink-0" />
                       {label(k)}
                     </li>
@@ -79,13 +79,13 @@ export function PortalPreview({
 
         {unused.length > 0 && (
           <div className="mt-3 rounded-md border border-warn/40 bg-warn/5 p-2">
-            <div className="text-[10px] font-bold text-warn uppercase tracking-wide mb-1">
+            <div className="text-[0.625rem] font-bold text-warn uppercase tracking-wide mb-1">
               Selected but not doing anything yet
             </div>
-            <p className="text-[10px] text-muted mb-1">
+            <p className="text-[0.625rem] text-muted mb-1">
               Each of these needs another permission to work — usually the matching &ldquo;View&rdquo; one.
             </p>
-            <ul className="text-[11px] text-muted space-y-0.5">
+            <ul className="text-[0.6875rem] text-muted space-y-0.5">
               {unused.map((k) => {
                 const missing = (PERMISSION_REQUIRES[k] ?? [])
                   .filter((req) => !req.split('|').some((d) => permissions.has(d)))

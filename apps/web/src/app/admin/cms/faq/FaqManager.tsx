@@ -84,7 +84,7 @@ function ItemRow({
   return (
     <AdminCard className="space-y-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[10px] font-bold text-ink-muted">
+        <div className="flex items-center gap-1.5 text-[0.625rem] font-bold text-ink-muted">
           <button onClick={() => onMove(-1)} disabled={isFirst} className="disabled:opacity-30" aria-label="Move up">
             ↑
           </button>
@@ -93,7 +93,7 @@ function ItemRow({
           </button>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${item.is_published ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
+          <span className={`text-[0.625rem] font-bold uppercase px-2 py-0.5 rounded-full ${item.is_published ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
             {item.is_published ? 'Published' : 'Hidden'}
           </span>
           <button onClick={remove} className="text-red-400 text-xs px-1" aria-label="Delete">

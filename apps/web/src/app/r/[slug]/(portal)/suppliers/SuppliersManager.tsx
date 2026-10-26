@@ -197,7 +197,7 @@ export function SuppliersManager({
       </Card>
       )}
 
-      <Card className="p-0 overflow-x-auto">
+      <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -222,7 +222,7 @@ export function SuppliersManager({
                     <div className="font-semibold">
                       {s.name}
                       {s.branch_label && (
-                        <span className="ml-1.5 rounded bg-main px-1.5 py-0.5 text-[10px] font-bold text-muted">{s.branch_label}</span>
+                        <span className="ml-1.5 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold text-muted">{s.branch_label}</span>
                       )}
                     </div>
                     {s.address && <div className="text-muted">{s.address}</div>}
@@ -240,7 +240,7 @@ export function SuppliersManager({
                   </td>
                   {(canManage || canEdit) && (
                     <td className="p-3 text-right whitespace-nowrap">
-                      {s.locked && <span className="text-[11px] text-muted">Shared · managed by the owner</span>}
+                      {s.locked && <span className="text-[0.6875rem] text-muted">Shared · managed by the owner</span>}
                       {canEdit && !s.locked && (
                         <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
                           Edit

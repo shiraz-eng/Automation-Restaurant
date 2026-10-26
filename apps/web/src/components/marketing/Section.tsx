@@ -62,7 +62,7 @@ export function Section({
 export function Eyebrow({ children, tone = 'default' }: { children: ReactNode; tone?: 'default' | 'surface' | 'dark' }) {
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] ${
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.14em] ${
         tone === 'dark' ? 'border-gold/25 text-gold bg-gold/[0.07]' : 'border-black/15 text-black bg-black/[0.04]'
       }`}
     >

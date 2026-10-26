@@ -41,10 +41,10 @@ function PermBadges({ p }: { p: PermRow }) {
   return (
     <span className="flex items-center gap-1 shrink-0">
       {p.type && (
-        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${TYPE_STYLE[p.type]}`}>{TYPE_LABEL[p.type]}</span>
+        <span className={`rounded px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase ${TYPE_STYLE[p.type]}`}>{TYPE_LABEL[p.type]}</span>
       )}
       {p.risk_level === 'high' && (
-        <span className="rounded border border-danger/50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-danger">High risk</span>
+        <span className="rounded border border-danger/50 px-1.5 py-0.5 text-[0.5625rem] font-bold uppercase text-danger">High risk</span>
       )}
     </span>
   );
@@ -435,7 +435,7 @@ export function PortalsManager({
           <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="font-bold text-sm">{editId ? `Edit access — ${name}` : 'Create custom portal'}</h2>
-              <p className="text-muted text-[11px] mt-0.5">
+              <p className="text-muted text-[0.6875rem] mt-0.5">
                 A portal is a name plus the individual permissions you grant it — nothing more.
                 There&rsquo;s no predefined &ldquo;Kitchen&rdquo; or &ldquo;Finance&rdquo; portal to pick.
               </p>
@@ -482,7 +482,7 @@ export function PortalsManager({
                       value={permSearch}
                       onChange={(e) => setPermSearch(e.target.value)}
                       placeholder="Search permissions…"
-                      className="rounded border border-border bg-surface pl-6 pr-2 py-1 text-[11px] outline-none focus:border-primary w-44"
+                      className="rounded border border-border bg-surface pl-6 pr-2 py-1 text-[0.6875rem] outline-none focus:border-primary w-44"
                     />
                   </div>
                 </div>
@@ -507,7 +507,7 @@ export function PortalsManager({
                       key={f}
                       type="button"
                       onClick={() => setPermFilter(f)}
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                      className={`rounded-full px-2 py-0.5 text-[0.625rem] font-semibold border ${
                         permFilter === f ? 'bg-primary text-primary-fg border-primary' : 'border-border text-muted hover:text-body'
                       }`}
                     >
@@ -515,7 +515,7 @@ export function PortalsManager({
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-3 mb-2 text-[10px]">
+                <div className="flex gap-3 mb-2 text-[0.625rem]">
                   <button type="button" onClick={() => setVisible(true)} className="font-semibold text-primary hover:underline">
                     Select visible
                   </button>
@@ -536,7 +536,7 @@ export function PortalsManager({
                             <button
                               type="button"
                               onClick={() => toggleCollapsed(grp)}
-                              className="flex items-center gap-1 text-[11px] font-bold text-body min-w-0"
+                              className="flex items-center gap-1 text-[0.6875rem] font-bold text-body min-w-0"
                             >
                               {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                               <span className="truncate">{grp}</span>
@@ -547,7 +547,7 @@ export function PortalsManager({
                             <button
                               type="button"
                               onClick={() => toggleGroup(rows)}
-                              className="text-[10px] font-semibold text-muted hover:text-primary shrink-0"
+                              className="text-[0.625rem] font-semibold text-muted hover:text-primary shrink-0"
                             >
                               {rows.every((r) => selected.has(r.key)) ? 'Clear' : 'Select all'}
                             </button>
@@ -588,13 +588,13 @@ export function PortalsManager({
                     Selected access <span className="text-muted font-normal">({selected.size})</span>
                   </span>
                   {selected.size > 0 && (
-                    <button type="button" onClick={() => setSelected(new Set())} className="text-[10px] font-semibold text-muted hover:text-danger">
+                    <button type="button" onClick={() => setSelected(new Set())} className="text-[0.625rem] font-semibold text-muted hover:text-danger">
                       Clear all
                     </button>
                   )}
                 </div>
                 {hasMeta && (
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 mb-2 text-[10px] text-muted">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mb-2 text-[0.625rem] text-muted">
                     <span>
                       Read <b className="text-body">{selectedSummary.read}</b>
                     </span>
@@ -619,7 +619,7 @@ export function PortalsManager({
                     <div className="space-y-2">
                       {selectedGroups.map(([grp, rows]) => (
                         <div key={grp}>
-                          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-0.5">
+                          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-0.5">
                             {grp} ({rows.length})
                           </div>
                           <ul className="space-y-0.5">
@@ -680,10 +680,10 @@ export function PortalsManager({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="font-bold text-sm truncate">{p.name}</div>
-                      <div className="text-muted text-[11px] capitalize">{p.type.replace('_', ' ')}</div>
+                      <div className="text-muted text-[0.6875rem] capitalize">{p.type.replace('_', ' ')}</div>
                     </div>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase ${
                         p.status === 'active' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
                       }`}
                     >
@@ -691,20 +691,20 @@ export function PortalsManager({
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-3 text-[11px] text-muted">
+                  <div className="mt-3 flex items-center gap-3 text-[0.6875rem] text-muted">
                     <span>
                       <span className="font-bold text-body">{p.permissions.includes('*') ? 'All' : p.permissions.length}</span>{' '}
                       permissions
                     </span>
                   </div>
                   {/* Its own session slot (lib/sessionSlot.ts): opens next to the owner's panel, signed in on its own. */}
-                  <div className="text-[10px] font-mono text-muted mt-1.5 truncate">/r/{slotSlug(baseSlug(slug), p.route_key)}/portal/{p.route_key}</div>
-                  {p.email && <div className="text-[10px] text-muted truncate">{p.email}</div>}
-                  <div className="text-[10px] text-muted mt-1">
+                  <div className="text-[0.625rem] font-mono text-muted mt-1.5 truncate">/r/{slotSlug(baseSlug(slug), p.route_key)}/portal/{p.route_key}</div>
+                  {p.email && <div className="text-[0.625rem] text-muted truncate">{p.email}</div>}
+                  <div className="text-[0.625rem] text-muted mt-1">
                     {p.last_login_at ? `Last sign-in ${formatDateTime(p.last_login_at)}` : 'Never signed in'}
                   </div>
                   {p.last_logout_at && (
-                    <div className="text-[10px] text-muted">Last sign-out {formatDateTime(p.last_logout_at)}</div>
+                    <div className="text-[0.625rem] text-muted">Last sign-out {formatDateTime(p.last_logout_at)}</div>
                   )}
 
                   {manageable(p) ? (
@@ -731,7 +731,7 @@ export function PortalsManager({
                     )}
                   </div>
                   ) : (
-                    <p className="mt-3 pt-3 border-t border-border text-[10px] text-muted">
+                    <p className="mt-3 pt-3 border-t border-border text-[0.625rem] text-muted">
                       {p.id === selfPortalId ? 'This is your portal.' : 'Has access you don’t hold — view only.'}
                     </p>
                   )}
@@ -745,7 +745,7 @@ export function PortalsManager({
       {(() => {
         const admin = portals.find((p) => p.type === 'super_admin');
         return admin ? (
-          <p className="text-muted text-[11px]">
+          <p className="text-muted text-[0.6875rem]">
             <span className="font-semibold text-body">{admin.name}</span> (Super Admin) has full
             control of this restaurant and can&rsquo;t be edited or removed here. It&rsquo;s not a
             separate login — the Owner signs in as themselves; change your own password from the

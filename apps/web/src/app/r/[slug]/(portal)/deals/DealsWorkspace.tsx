@@ -264,12 +264,12 @@ export function DealsWorkspace({
             ['Expired', counts.expired],
           ].map(([label, v]) => (
             <div key={label} className="p-4">
-              <div className="text-[11px] text-muted font-semibold">{label}</div>
+              <div className="text-[0.6875rem] text-muted font-semibold">{label}</div>
               <div className="text-2xl font-black tabular-nums">{v}</div>
             </div>
           ))}
           <div className="p-4">
-            <div className="text-[11px] text-muted font-semibold">Revenue from Deals · 30 days</div>
+            <div className="text-[0.6875rem] text-muted font-semibold">Revenue from Deals · 30 days</div>
             <div className="text-2xl font-black tabular-nums flex items-center gap-2">
               {money(revenue30, currency)}
               {revenue30 > 0 && <TrendingUp size={16} className="text-ok" />}
@@ -306,7 +306,7 @@ export function DealsWorkspace({
                   <button
                     key={t}
                     onClick={() => setTab(t)}
-                    className={`rounded px-2.5 py-1 text-[11px] font-semibold ${
+                    className={`rounded px-2.5 py-1 text-[0.6875rem] font-semibold ${
                       tab === t ? 'bg-main text-body border border-border' : 'text-muted hover:text-body'
                     }`}
                   >
@@ -339,7 +339,7 @@ export function DealsWorkspace({
                 {rows.length === 0 ? 'No deals yet — create your first combo.' : 'No deals match these filters.'}
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                 <table className="w-full text-left text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
@@ -376,7 +376,7 @@ export function DealsWorkspace({
                               )}
                               <div className="min-w-0">
                                 <div className="font-semibold truncate">{d.name}</div>
-                                {d.ref_code && <div className="text-[10px] text-muted font-mono">{d.ref_code}</div>}
+                                {d.ref_code && <div className="text-[0.625rem] text-muted font-mono">{d.ref_code}</div>}
                               </div>
                             </div>
                           </td>
@@ -385,7 +385,7 @@ export function DealsWorkspace({
                           <td className="p-2.5 text-right font-semibold tabular-nums whitespace-nowrap">{money(d.price_cents, currency)}</td>
                           <td className="p-2.5">
                             {r.discount != null ? (
-                              <span className="rounded bg-warn/10 text-warn px-1.5 py-0.5 text-[10px] font-bold">{r.discount}%</span>
+                              <span className="rounded bg-warn/10 text-warn px-1.5 py-0.5 text-[0.625rem] font-bold">{r.discount}%</span>
                             ) : (
                               <span className="text-muted">—</span>
                             )}
@@ -394,7 +394,7 @@ export function DealsWorkspace({
                           <td className="p-2.5 text-right tabular-nums whitespace-nowrap">{Number(r.perf?.orders ?? 0)} orders</td>
                           <td className="p-2.5 text-right tabular-nums whitespace-nowrap">{money(Number(r.perf?.revenue_cents ?? 0), currency)}</td>
                           <td className="p-2.5">
-                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[r.status]}`}>
+                            <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold ${STATUS_STYLE[r.status]}`}>
                               {STATUS_LABEL[r.status]}
                             </span>
                           </td>
@@ -458,19 +458,19 @@ export function DealsWorkspace({
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
                 <div>
                   <div className="text-sm font-bold">Deal Performance</div>
-                  <div className="text-[11px] text-muted">Revenue from deals, last 30 days</div>
+                  <div className="text-[0.6875rem] text-muted">Revenue from deals, last 30 days</div>
                 </div>
                 <div className="flex gap-4 text-right">
                   <div>
-                    <div className="text-[10px] text-muted">Orders</div>
+                    <div className="text-[0.625rem] text-muted">Orders</div>
                     <div className="text-sm font-bold tabular-nums">{daily.reduce((s, p) => s + Number(p.orders), 0)}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-muted">Revenue</div>
+                    <div className="text-[0.625rem] text-muted">Revenue</div>
                     <div className="text-sm font-bold tabular-nums">{money(daily.reduce((s, p) => s + Number(p.revenue_cents), 0), currency)}</div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-muted">Avg / order</div>
+                    <div className="text-[0.625rem] text-muted">Avg / order</div>
                     <div className="text-sm font-bold tabular-nums">
                       {(() => {
                         const o = daily.reduce((s, p) => s + Number(p.orders), 0);
@@ -592,7 +592,7 @@ function DealDetails({
   const d = row.deal;
   const savings = Math.max(row.regular - d.price_cents, 0);
   const Line = ({ k, v }: { k: string; v: React.ReactNode }) => (
-    <div className="flex justify-between gap-3 text-[11px]">
+    <div className="flex justify-between gap-3 text-[0.6875rem]">
       <dt className="text-muted shrink-0">{k}</dt>
       <dd className="font-semibold text-right">{v}</dd>
     </div>
@@ -602,10 +602,10 @@ function DealDetails({
       <div className="flex items-start justify-between gap-2 p-3 border-b border-border">
         <div className="min-w-0">
           <div className="font-black text-base truncate">{d.name}</div>
-          {d.ref_code && <div className="text-[10px] text-muted font-mono">{d.ref_code}</div>}
+          {d.ref_code && <div className="text-[0.625rem] text-muted font-mono">{d.ref_code}</div>}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[row.status]}`}>{STATUS_LABEL[row.status]}</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold ${STATUS_STYLE[row.status]}`}>{STATUS_LABEL[row.status]}</span>
           <button onClick={onClose} className="text-muted hover:text-body" aria-label="Close details">
             <X size={14} />
           </button>
@@ -613,7 +613,7 @@ function DealDetails({
       </div>
       <div className="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
         <section>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">Deal information</div>
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">Deal information</div>
           <dl className="space-y-1">
             {d.description && <Line k="Description" v={<span className="font-normal">{d.description}</span>} />}
             <Line k="Type" v={TYPE_LABEL[d.deal_type]} />
@@ -624,8 +624,8 @@ function DealDetails({
           </dl>
         </section>
         <section>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">Included items</div>
-          <ul className="space-y-0.5 text-[11px]">
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">Included items</div>
+          <ul className="space-y-0.5 text-[0.6875rem]">
             {d.deal_components.map((c, i) => (
               <li key={i}>
                 {c.qty > 1 ? `${c.qty}× ` : ''}
@@ -640,7 +640,7 @@ function DealDetails({
           </ul>
         </section>
         <section>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">Pricing</div>
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">Pricing</div>
           <dl className="space-y-1">
             <Line k="Original price" v={money(row.regular, currency)} />
             <Line k="Deal price" v={money(d.price_cents, currency)} />
@@ -649,8 +649,8 @@ function DealDetails({
           </dl>
         </section>
         <section>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">Availability</div>
-          <div className="grid grid-cols-2 gap-1 text-[11px]">
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">Availability</div>
+          <div className="grid grid-cols-2 gap-1 text-[0.6875rem]">
             {(Object.keys(ORDER_TYPE_LABEL) as (keyof typeof ORDER_TYPE_LABEL)[]).map((t) => (
               <span key={t} className={d.order_types.includes(t) ? '' : 'text-muted line-through'}>
                 {d.order_types.includes(t) ? '✓' : '✕'} {ORDER_TYPE_LABEL[t]}
@@ -671,7 +671,7 @@ function DealDetails({
           </dl>
         </section>
         <section>
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">Rules</div>
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">Rules</div>
           <dl className="space-y-1">
             <Line k="Min per order" v={d.min_qty} />
             <Line k="Max per order" v={d.max_qty ?? 'No limit'} />

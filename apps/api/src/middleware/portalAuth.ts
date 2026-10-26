@@ -99,7 +99,8 @@ export function holdsAll(callerPerms: string[], role: string | null, perms: stri
 /**
  * Express middleware: resolve the restaurant from :slug (params, body or query),
  * verify the caller's tenant-project JWT (Authorization: Bearer …) and require
- * the `need` permission (any one of them, when given a list). On success
+ * the `need` permission (any one of them, when given a list; an empty list
+ * admits any signed-in member). On success
  * attaches req.tenant. Enforced server-side —
  * the UI hiding a control is never the check (spec §28).
  */
@@ -142,7 +143,8 @@ export function requirePortalPerm(need: string | string[]) {
     const permissions = Array.isArray(meta.permissions) ? meta.permissions : [];
     const role = meta.role ?? null;
 
-    if (!needs.some((k) => permits(permissions, role, k))) {
+    // An empty list = any signed-in member of this restaurant.
+    if (needs.length > 0 && !needs.some((k) => permits(permissions, role, k))) {
       return res
         .status(403)
         .json({

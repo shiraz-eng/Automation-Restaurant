@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { X } from 'lucide-react';
 import { formatCents } from '@/lib/format';
 import type { DealLite, DealOptionGroup, DealOptionItem } from '../menuTypes';
@@ -55,8 +56,11 @@ export function DealSheet({
     for (let i = 0; i < qty; i++) onAdd(deal, chosenIds, chosenOptions);
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={deal.name} className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
       <div
         className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -88,7 +92,7 @@ export function DealSheet({
                 <div className="flex items-baseline justify-between mb-2">
                   <h3 className="font-bold text-sm">{g.name}</h3>
                   <span
-                    className={`text-[10.5px] font-bold uppercase tracking-wide ${
+                    className={`text-[0.65625rem] font-bold uppercase tracking-wide ${
                       g.min_select > 0 ? 'text-primary' : 'text-muted'
                     }`}
                   >

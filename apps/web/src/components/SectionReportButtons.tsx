@@ -130,11 +130,11 @@ export function SectionReportButtons({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         {range ? (
-          <span className="text-[10px] text-muted">
+          <span className="text-[0.625rem] text-muted">
             Report for <span className="font-semibold text-body">{range.label}</span>
           </span>
         ) : (
-        <div className="flex gap-1 rounded-lg border border-border bg-main p-1">
+        <div className="flex max-w-full flex-wrap gap-1 rounded-lg border border-border bg-main p-1" role="group" aria-label="Report period">
           {PERIODS.map((p) => (
             <button
               key={p.key}
@@ -142,7 +142,8 @@ export function SectionReportButtons({
                 setCustomRange(null);
                 setPeriod(p.key);
               }}
-              className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${
+              aria-pressed={!customRange && period === p.key}
+              className={`px-2 py-1 rounded text-[0.625rem] font-semibold transition-colors ${
                 !customRange && period === p.key ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'
               }`}
             >
@@ -154,7 +155,7 @@ export function SectionReportButtons({
               setCustomDraft(customRange ?? { from: '', to: '' });
               setCustomOpen((v) => !v);
             }}
-            className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${customRange ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'}`}
+            className={`px-2 py-1 rounded text-[0.625rem] font-semibold transition-colors ${customRange ? 'bg-primary text-primary-fg' : 'text-muted hover:text-body'}`}
           >
             Date / Custom
           </button>
@@ -163,7 +164,7 @@ export function SectionReportButtons({
         <button
           onClick={handlePdf}
           disabled={busy !== null}
-          className="rounded-lg bg-primary text-primary-fg px-2.5 py-1.5 text-[10px] font-semibold disabled:opacity-50"
+          className="rounded-lg bg-primary text-primary-fg px-2.5 py-1.5 text-[0.625rem] font-semibold disabled:opacity-50"
           title={`Generate a ${label} PDF for ${periodLabel}`}
         >
           {busy === 'pdf' ? 'Generating…' : `${label} PDF`}
@@ -171,7 +172,7 @@ export function SectionReportButtons({
         <button
           onClick={handleExcel}
           disabled={busy !== null}
-          className="rounded-lg border border-border bg-main px-2.5 py-1.5 text-[10px] font-semibold text-body hover:border-primary disabled:opacity-50"
+          className="rounded-lg border border-border bg-main px-2.5 py-1.5 text-[0.625rem] font-semibold text-body hover:border-primary disabled:opacity-50"
           title={`Export ${label} to Excel for ${periodLabel}`}
         >
           {busy === 'excel' ? 'Exporting…' : `${label} Excel`}
@@ -180,24 +181,24 @@ export function SectionReportButtons({
 
       {customOpen && !range && (
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-main p-2.5">
-          <label className="text-[10px] text-muted flex flex-col gap-1">
+          <label className="text-[0.625rem] text-muted flex flex-col gap-1">
             From
             <input
               type="date"
               value={customDraft.from}
               max={customDraft.to || undefined}
               onChange={(e) => setCustomDraft((d) => ({ ...d, from: e.target.value }))}
-              className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+              className="rounded border border-border bg-surface px-2 py-1 text-[0.6875rem]"
             />
           </label>
-          <label className="text-[10px] text-muted flex flex-col gap-1">
+          <label className="text-[0.625rem] text-muted flex flex-col gap-1">
             To
             <input
               type="date"
               value={customDraft.to}
               min={customDraft.from || undefined}
               onChange={(e) => setCustomDraft((d) => ({ ...d, to: e.target.value }))}
-              className="rounded border border-border bg-surface px-2 py-1 text-[11px]"
+              className="rounded border border-border bg-surface px-2 py-1 text-[0.6875rem]"
             />
           </label>
           <button
@@ -207,7 +208,7 @@ export function SectionReportButtons({
               setCustomOpen(false);
             }}
             disabled={!customDraft.from || !customDraft.to}
-            className="rounded-lg bg-primary text-primary-fg px-2.5 py-1.5 text-[10px] font-semibold disabled:opacity-50"
+            className="rounded-lg bg-primary text-primary-fg px-2.5 py-1.5 text-[0.625rem] font-semibold disabled:opacity-50"
           >
             Apply
           </button>
@@ -217,14 +218,14 @@ export function SectionReportButtons({
                 setCustomRange(null);
                 setCustomOpen(false);
               }}
-              className="rounded-lg border border-border px-2.5 py-1.5 text-[10px] font-semibold text-muted hover:text-body"
+              className="rounded-lg border border-border px-2.5 py-1.5 text-[0.625rem] font-semibold text-muted hover:text-body"
             >
               Clear
             </button>
           )}
         </div>
       )}
-      {error && <p className="text-danger text-[11px]">{error}</p>}
+      {error && <p className="text-danger text-[0.6875rem]">{error}</p>}
     </div>
   );
 }

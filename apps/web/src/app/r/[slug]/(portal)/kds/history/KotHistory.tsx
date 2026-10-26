@@ -106,7 +106,7 @@ export function KotHistory({ rows, auditRows }: { rows: HistoryRow[]; auditRows:
       </div>
 
       <div className="rounded-lg border border-border bg-surface overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="border-b border-border text-muted">

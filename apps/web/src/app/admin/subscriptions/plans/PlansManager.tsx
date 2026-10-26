@@ -135,7 +135,7 @@ function PlanEditor({ plan, onDone }: { plan: PlanDbRow; onDone: () => void }) {
           <AdminInput value={draft.stripe_price_id_annual ?? ''} onChange={(e) => set('stripe_price_id_annual', e.target.value)} placeholder="price_..." />
         </AdminField>
       </div>
-      <p className="text-[11px] text-ink-muted -mt-1">
+      <p className="text-[0.6875rem] text-ink-muted -mt-1">
         Changing displayed price alone does not change what Stripe charges — Stripe prices are immutable, so a real price
         change needs a new Stripe Price object; paste its ID here.
       </p>
@@ -165,7 +165,7 @@ function PlanEditor({ plan, onDone }: { plan: PlanDbRow; onDone: () => void }) {
 
       <div>
         <div className="text-xs font-semibold mb-1.5">Enforced features</div>
-        <p className="text-[11px] text-ink-muted mb-2">These are actually gated in the app — checking one really unlocks it.</p>
+        <p className="text-[0.6875rem] text-ink-muted mb-2">These are actually gated in the app — checking one really unlocks it.</p>
         <div className="flex flex-wrap gap-3">
           {ENFORCEABLE_FEATURES.map((f) => (
             <label key={f} className="flex items-center gap-1.5 text-xs">
@@ -175,7 +175,7 @@ function PlanEditor({ plan, onDone }: { plan: PlanDbRow; onDone: () => void }) {
           ))}
         </div>
         <div className="text-xs font-semibold mb-1.5 mt-3">Marketing-only features</div>
-        <p className="text-[11px] text-ink-muted mb-2">Not enforced anywhere yet — checking one only changes what's displayed as included.</p>
+        <p className="text-[0.6875rem] text-ink-muted mb-2">Not enforced anywhere yet — checking one only changes what's displayed as included.</p>
         <div className="flex flex-wrap gap-3">
           {MARKETING_ONLY_FEATURES.map((f) => (
             <label key={f} className="flex items-center gap-1.5 text-xs text-ink-muted">
@@ -263,7 +263,7 @@ export function PlansManager({ plans }: { plans: PlanDbRow[] }) {
         </AdminButton>
         {resyncMsg && <span className="text-xs text-ink-muted">{resyncMsg}</span>}
       </div>
-      <p className="text-[11px] text-ink-muted -mt-2">
+      <p className="text-[0.6875rem] text-ink-muted -mt-2">
         Push every active tenant&rsquo;s current plan features into their own project — run this after changing a
         plan&rsquo;s features so it takes effect immediately instead of waiting for their next subscription event.
       </p>
@@ -275,8 +275,8 @@ export function PlansManager({ plans }: { plans: PlanDbRow[] }) {
             <div>
               <div className="font-bold text-sm flex items-center gap-2">
                 {p.name}
-                <span className="text-[10px] font-mono text-ink-muted">{p.tier}</span>
-                {!p.is_active && <span className="text-[10px] font-bold text-red-400">INACTIVE</span>}
+                <span className="text-[0.625rem] font-mono text-ink-muted">{p.tier}</span>
+                {!p.is_active && <span className="text-[0.625rem] font-bold text-red-400">INACTIVE</span>}
               </div>
               <div className="text-ink-muted text-xs">
                 {p.price_monthly_cents == null ? 'Contact sales' : `$${p.price_monthly_cents / 100}/mo`}

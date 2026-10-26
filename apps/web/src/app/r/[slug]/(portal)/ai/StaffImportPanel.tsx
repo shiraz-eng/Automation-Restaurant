@@ -206,9 +206,9 @@ export function StaffImportPanel({
                       <span className="font-semibold">{row.full_name}</span>
                       <span className="text-muted">{row.job_title || '—'}</span>
                       {row.email && <span className="text-muted">{row.email}</span>}
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
+                      <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
-                    {row.issues.length > 0 && <div className="text-[11px] text-danger">{row.issues.join(' · ')}</div>}
+                    {row.issues.length > 0 && <div className="text-[0.6875rem] text-danger">{row.issues.join(' · ')}</div>}
                   </div>
                 </label>
               );

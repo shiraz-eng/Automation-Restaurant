@@ -32,7 +32,7 @@ export function CurrencySettings({ currency, canEdit }: { currency: string; canE
   return (
     <Card>
       <h2 className="font-bold text-sm mb-1">Currency</h2>
-      <p className="text-muted text-[11px] mb-4">
+      <p className="text-muted text-[0.6875rem] mb-4">
         Used on every screen, receipt, PDF and Excel report, the customer menu and in AI answers. Changing it changes the
         symbol and formatting only. Amounts are not converted, so pick your real currency before you start trading.
       </p>
@@ -55,7 +55,7 @@ export function CurrencySettings({ currency, canEdit }: { currency: string; canE
           </Button>
         )}
       </div>
-      <p className="text-muted text-[11px] mt-3">
+      <p className="text-muted text-[0.6875rem] mt-3">
         Example: a price of 1,250.50 shows as <span className="font-mono">{formatMoney(125050, code)}</span>
         {code !== currency && <> (currently {formatMoney(125050, currency)})</>}.
       </p>

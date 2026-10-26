@@ -165,7 +165,7 @@ export function InvoiceDetail({
         <Info label="Outstanding" value={formatCents(outstanding)} strong />
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -227,7 +227,7 @@ export function InvoiceDetail({
               }`}
             >
               <div>
-                <span className="mr-2 rounded bg-main px-1.5 py-0.5 text-[10px] font-bold uppercase">{HOLD_LABEL[h.kind] ?? h.kind}</span>
+                <span className="mr-2 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">{HOLD_LABEL[h.kind] ?? h.kind}</span>
                 {h.reason}
                 {h.status === 'resolved' && h.resolution_note && <span className="ml-1">— resolved: {h.resolution_note}</span>}
               </div>
@@ -306,7 +306,7 @@ export function InvoiceDetail({
 function Info({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
+      <p className="text-[0.625rem] uppercase tracking-wide text-muted">{label}</p>
       <p className={strong ? 'font-bold font-mono' : 'font-semibold'}>{value}</p>
     </div>
   );

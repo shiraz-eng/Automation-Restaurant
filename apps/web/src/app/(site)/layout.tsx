@@ -1,3 +1,4 @@
+import { AccessibilityMenu } from '@/components/AccessibilityMenu';
 import Link from 'next/link';
 import { Fraunces, Manrope } from 'next/font/google';
 import { ChefHat } from 'lucide-react';
@@ -22,6 +23,9 @@ const NAV: [string, string][] = [
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
     <div id="site-root" className={`${fraunces.variable} ${manrope.variable} font-body min-h-screen flex flex-col bg-main text-body`}>
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-40 bg-ink/90 backdrop-blur-md text-ink-fg relative">
         <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
         <div className="mx-auto max-w-6xl px-5 h-16 flex items-center justify-between">
@@ -31,7 +35,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
             </span>
             Automation<span className="text-gold">.</span>
           </Link>
-          <nav className="hidden md:flex items-center gap-7 text-[13.5px] font-medium text-ink-muted">
+          <nav aria-label="Main" className="hidden md:flex items-center gap-7 text-[0.84375rem] font-medium text-ink-muted">
             {NAV.map(([href, label]) => (
               <Link key={href} href={href} className="hover:text-ink-fg transition-colors">
                 {label}
@@ -39,21 +43,27 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
             ))}
           </nav>
           <div className="hidden md:flex items-center gap-2.5">
-            <Link href="/login" className="text-[13.5px] font-semibold text-ink-muted hover:text-ink-fg transition-colors px-2">
+            <AccessibilityMenu tone="dark" />
+            <Link href="/login" className="text-[0.84375rem] font-semibold text-ink-muted hover:text-ink-fg transition-colors px-2">
               Sign in
             </Link>
             <Link
               href="/get-started"
-              className="rounded-lg bg-black border border-white/15 text-white text-[13.5px] font-bold px-4 py-2 transition-all hover:-translate-y-px hover:border-gold/50"
+              className="rounded-lg bg-black border border-white/15 text-white text-[0.84375rem] font-bold px-4 py-2 transition-all hover:-translate-y-px hover:border-gold/50"
             >
               Get Started
             </Link>
           </div>
-          <MobileMenu items={NAV} />
+          <div className="flex items-center gap-2 md:hidden">
+            <AccessibilityMenu tone="dark" />
+            <MobileMenu items={NAV} />
+          </div>
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
+        {children}
+      </main>
 
       <SiteFooter />
       <GuideAiWidget mode="public" />

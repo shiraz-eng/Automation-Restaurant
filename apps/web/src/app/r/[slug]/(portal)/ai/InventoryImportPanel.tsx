@@ -238,7 +238,7 @@ export function InventoryImportPanel({
             <span className="text-primary font-semibold">{diff.summary.updated_items} updated</span>.
           </div>
           {issues.length > 0 && (
-            <div className="rounded border border-danger/40 bg-danger/10 p-2 text-[11px] text-danger space-y-0.5">
+            <div className="rounded border border-danger/40 bg-danger/10 p-2 text-[0.6875rem] text-danger space-y-0.5">
               <div className="font-bold">Action required</div>
               {issues.map((iss, i) => (
                 <div key={i}>{iss.message}</div>
@@ -262,9 +262,9 @@ export function InventoryImportPanel({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-semibold">{row.name}</span>
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
+                      <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
-                    <div className="text-[11px] text-muted">
+                    <div className="text-[0.6875rem] text-muted">
                       {row.status === 'new' ? (
                         <>
                           {row.unit && <span className="mr-2">unit: {row.unit}</span>}

@@ -88,7 +88,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
   if (loading) {
     return (
       <section className="rounded-lg border border-border bg-surface p-5">
-        <div className="h-5 w-48 rounded bg-main animate-pulse mb-4" />
+        <div className="h-5 w-48 max-w-full rounded bg-main animate-pulse mb-4" />
         <div className="grid grid-cols-3 gap-3">
           {Array.from({ length: 9 }).map((_, i) => (
             <div key={i} className="h-16 rounded-lg border border-border bg-main animate-pulse" />
@@ -116,11 +116,11 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="font-bold">Restaurant Intelligence</h2>
-          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${STATUS_TONE[data.overall_status]}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold ${STATUS_TONE[data.overall_status]}`}>
             {data.overall_status}
           </span>
         </div>
-        <span className="text-muted text-[11px]">{data.period}</span>
+        <span className="text-muted text-[0.6875rem]">{data.period}</span>
       </div>
 
       {exec && (
@@ -137,12 +137,12 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
       )}
 
       <div>
-        <h3 className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">Owner Scorecard</h3>
+        <h3 className="text-[0.6875rem] font-bold text-muted uppercase tracking-wide mb-2">Owner Scorecard</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {data.scorecard.map((row) => (
             <div key={row.domain} className={`rounded-lg border p-2.5 ${STATUS_TONE[row.status]}`} title={row.evidence.join(' ')}>
-              <div className="text-[11px] font-bold">{row.domain}</div>
-              <div className="text-[10px] opacity-80">{row.status}</div>
+              <div className="text-[0.6875rem] font-bold">{row.domain}</div>
+              <div className="text-[0.625rem] opacity-80">{row.status}</div>
             </div>
           ))}
         </div>
@@ -150,7 +150,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div>
-          <h3 className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">What needs attention</h3>
+          <h3 className="text-[0.6875rem] font-bold text-muted uppercase tracking-wide mb-2">What needs attention</h3>
           {topAttention.length === 0 ? (
             <p className="text-ok text-xs">Nothing needs attention right now.</p>
           ) : (
@@ -165,7 +165,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
           )}
         </div>
         <div>
-          <h3 className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">What&apos;s working</h3>
+          <h3 className="text-[0.6875rem] font-bold text-muted uppercase tracking-wide mb-2">What&apos;s working</h3>
           {topPositives.length === 0 ? (
             <p className="text-muted text-xs">No clear period-over-period improvements found yet.</p>
           ) : (
@@ -180,7 +180,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
           )}
         </div>
         <div>
-          <h3 className="text-[11px] font-bold text-muted uppercase tracking-wide mb-2">Areas to review</h3>
+          <h3 className="text-[0.6875rem] font-bold text-muted uppercase tracking-wide mb-2">Areas to review</h3>
           {topAreas.length === 0 ? (
             <p className="text-muted text-xs">No notable concerns found in this period.</p>
           ) : (
@@ -197,7 +197,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
       </div>
 
       {(data.attention_items.length > 4 || data.positive_highlights.length > 4 || data.areas_to_review.length > 3) && (
-        <button onClick={() => setExpanded((v) => !v)} className="text-primary text-[11px] font-semibold hover:underline">
+        <button onClick={() => setExpanded((v) => !v)} className="text-primary text-[0.6875rem] font-semibold hover:underline">
           {expanded ? 'Show less' : 'Show more'}
         </button>
       )}
@@ -208,7 +208,7 @@ export function RestaurantIntelligencePanel({ period, customRange }: { period: P
 function MiniStat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
   return (
     <div className="rounded-lg border border-border bg-main p-3">
-      <div className="text-[10px] text-muted">{label}</div>
+      <div className="text-[0.625rem] text-muted">{label}</div>
       <div className={`mt-0.5 font-bold text-sm tabular-nums ${tone === 'warn' ? 'text-warn' : 'text-body'}`}>{value}</div>
     </div>
   );

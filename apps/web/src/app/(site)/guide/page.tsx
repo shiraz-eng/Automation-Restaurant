@@ -75,7 +75,7 @@ export default function GuidePage() {
                       </div>
                       <div>
                         <div className="text-xs font-bold text-body">{topic.title}</div>
-                        <div className="text-[11px] text-muted leading-relaxed mt-0.5">{topic.desc}</div>
+                        <div className="text-[0.6875rem] text-muted leading-relaxed mt-0.5">{topic.desc}</div>
                       </div>
                     </div>
                   );

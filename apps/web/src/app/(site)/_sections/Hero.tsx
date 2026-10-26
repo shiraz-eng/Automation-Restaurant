@@ -46,7 +46,7 @@ function HeroView({ content }: { content: HeroContent }) {
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-8 items-center">
           {/* Copy */}
           <div className="relative">
-            <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/[0.07] px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-gold">
+            <span className="inline-flex items-center gap-2 rounded-full border border-gold/25 bg-gold/[0.07] px-3.5 py-1.5 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-gold">
               {content.badge}
             </span>
             <h1 className="font-display text-4xl sm:text-5xl md:text-[3.15rem] font-semibold leading-[1.08] tracking-tight mt-6">
@@ -93,7 +93,7 @@ function HeroView({ content }: { content: HeroContent }) {
                 needs more height than a mobile 4:3 crop gives it, so mobile
                 keeps only the two bottom cards (see PhotoPanel note below). */}
             <div className="hidden sm:block absolute left-5 top-5 w-44 rounded-xl border border-white/10 bg-ink/85 backdrop-blur-md p-3 shadow-xl">
-              <div className="flex items-center justify-between text-[10px] font-semibold text-ink-muted">
+              <div className="flex items-center justify-between text-[0.625rem] font-semibold text-ink-muted">
                 Sales Analytics
                 <span className="text-white/30">···</span>
               </div>
@@ -112,7 +112,7 @@ function HeroView({ content }: { content: HeroContent }) {
             {/* Inventory alert badge */}
             <div className="hidden sm:flex absolute right-5 top-5 items-center gap-2 rounded-xl border border-warn/30 bg-ink/85 backdrop-blur-md px-3 py-2 shadow-xl">
               <AlertTriangle size={14} className="shrink-0 text-warn" />
-              <div className="text-[10px] leading-tight">
+              <div className="text-[0.625rem] leading-tight">
                 <div className="font-bold text-ink-fg">{content.inventoryAlert.title}</div>
                 <div className="text-ink-muted">{content.inventoryAlert.text}</div>
               </div>
@@ -121,16 +121,16 @@ function HeroView({ content }: { content: HeroContent }) {
             {/* Kitchen Display card — top on mobile (where the two hidden
                 cards would have sat), bottom-left on desktop. */}
             <div className="absolute left-3 top-3 sm:left-5 sm:top-auto sm:bottom-20 w-[172px] sm:w-48 rounded-xl border border-white/10 bg-ink/85 backdrop-blur-md p-3 shadow-xl">
-              <div className="flex items-center justify-between text-[10px] font-semibold text-ink-fg mb-1.5">
+              <div className="flex items-center justify-between text-[0.625rem] font-semibold text-ink-fg mb-1.5">
                 <span className="flex items-center gap-1.5">
                   <ChefHat size={11} className="text-gold" />
                   Kitchen Display
                 </span>
-                <span className="rounded-full bg-ok/20 text-ok px-1.5 py-0.5 text-[8.5px] font-bold">Active</span>
+                <span className="rounded-full bg-ok/20 text-ok px-1.5 py-0.5 text-[0.53125rem] font-bold">Active</span>
               </div>
               <ul className="space-y-1">
                 {content.kitchenTickets.map((t) => (
-                  <li key={t.table} className="flex items-center justify-between text-[9.5px]">
+                  <li key={t.table} className="flex items-center justify-between text-[0.59375rem]">
                     <span className="text-ink-muted">{t.table}</span>
                     <span
                       className={`rounded px-1.5 py-0.5 font-semibold ${
@@ -146,12 +146,12 @@ function HeroView({ content }: { content: HeroContent }) {
 
             {/* AI Recommendation card */}
             <div className="absolute right-3 bottom-3 sm:right-5 sm:bottom-5 w-[200px] sm:w-56 rounded-xl border border-gold/20 bg-ink/90 backdrop-blur-md p-3 shadow-xl">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-gold mb-1">
+              <div className="flex items-center gap-1.5 text-[0.625rem] font-bold text-gold mb-1">
                 <Sparkles size={12} />
                 {content.aiRecommendation.title}
               </div>
-              <p className="text-[10px] text-ink-muted leading-snug">{content.aiRecommendation.text}</p>
-              <div className="mt-1.5 flex items-center gap-1 text-[9.5px] font-semibold text-ink-fg">
+              <p className="text-[0.625rem] text-ink-muted leading-snug">{content.aiRecommendation.text}</p>
+              <div className="mt-1.5 flex items-center gap-1 text-[0.59375rem] font-semibold text-ink-fg">
                 {content.aiRecommendation.linkText} <ArrowUpRight size={10} />
               </div>
             </div>

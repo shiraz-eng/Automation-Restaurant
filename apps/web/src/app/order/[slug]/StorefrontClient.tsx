@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, X } from 'lucide-react';
 import { formatCents } from '@/lib/format';
@@ -78,6 +79,8 @@ export function StorefrontClient({
   const [tableLabel, setTableLabel] = useState(table?.trim() || '');
   const [started, setStarted] = useState(Boolean(customerName?.trim()));
   const [editingGuest, setEditingGuest] = useState(false);
+  const guestRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(guestRef, editingGuest, () => setEditingGuest(false));
 
   // Dynamic favicon & tab title matching restaurant Brand Kit
   useEffect(() => {
@@ -118,6 +121,8 @@ export function StorefrontClient({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCat, setActiveCat] = useState<string>('cat-deals');
   const [cartOpen, setCartOpen] = useState(false);
+  const cartRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(cartRef, cartOpen, () => setCartOpen(false));
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [dealCart, setDealCart] = useState<Record<string, DealCartLine>>({});
   const [orderNote, setOrderNote] = useState('');
@@ -566,17 +571,17 @@ export function StorefrontClient({
                         className="rounded-xl border border-ok/50 bg-ok/10 p-3.5 flex items-center justify-between gap-3"
                       >
                         <div className="min-w-0">
-                          <div className="text-[11px] font-black uppercase tracking-wide text-ok">
+                          <div className="text-[0.6875rem] font-black uppercase tracking-wide text-ok">
                             You could save {formatCents(m.savingsCents)}
                           </div>
                           <div className="text-sm font-bold truncate">Your cart matches the {m.deal.name}</div>
-                          <div className="text-[11px] text-muted">
+                          <div className="text-[0.6875rem] text-muted">
                             {formatCents(m.individualTotalCents)} individually → {formatCents(m.deal.price_cents)} as a combo
                           </div>
                         </div>
                         <button
                           onClick={() => switchToDeal(m)}
-                          className="rounded-full bg-ok text-white font-bold px-3.5 py-2 text-xs shrink-0"
+                          className="rounded-full bg-ok text-ink font-bold px-3.5 py-2 text-xs shrink-0"
                         >
                           Switch & save
                         </button>
@@ -588,7 +593,7 @@ export function StorefrontClient({
                       >
                         <div className="min-w-0">
                           <div className="text-sm font-bold truncate">Add {m.missing?.label} to unlock the {m.deal.name}</div>
-                          <div className="text-[11px] text-muted">Save {formatCents(m.savingsCents)} vs buying separately</div>
+                          <div className="text-[0.6875rem] text-muted">Save {formatCents(m.savingsCents)} vs buying separately</div>
                         </div>
                         {m.missing?.variantId && (
                           <button
@@ -692,7 +697,7 @@ export function StorefrontClient({
       <MobileCartBar count={count} total={total} onOpen={() => setCartOpen(true)} />
 
       {cartOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setCartOpen(false)}>
+        <div ref={cartRef} role="dialog" aria-modal="true" aria-label="Your order" className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setCartOpen(false)}>
           <div
             className="absolute inset-x-0 bottom-0 top-16 bg-surface rounded-t-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -764,10 +769,10 @@ export function StorefrontClient({
       />
 
       {editingGuest && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div ref={guestRef} role="dialog" aria-modal="true" aria-labelledby="guest-details-title" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-sm rounded-2xl bg-surface border border-border p-6 shadow-xl space-y-4 text-body">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-base">Your Table &amp; Details</h2>
+              <h2 id="guest-details-title" className="font-bold text-base">Your Table &amp; Details</h2>
               <button
                 type="button"
                 onClick={() => setEditingGuest(false)}

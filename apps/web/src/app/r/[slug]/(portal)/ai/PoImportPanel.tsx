@@ -212,10 +212,10 @@ export function PoImportPanel({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-semibold">{po.matched_supplier_name ?? po.supplier_name}</span>
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[po.status]}`}>{po.status}</span>
+                      <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[po.status]}`}>{po.status}</span>
                       {po.status === 'ready' && <span className="text-muted">subtotal {formatCents(po.subtotal_cents)}</span>}
                     </div>
-                    <div className="text-[11px] text-muted">
+                    <div className="text-[0.6875rem] text-muted">
                       {po.lines.map((l, li) => (
                         <span key={li} className={`mr-2 ${l.issue ? 'text-danger' : ''}`}>
                           {l.qty}× {l.inventory_item_name ?? l.item_name}
@@ -224,7 +224,7 @@ export function PoImportPanel({
                         </span>
                       ))}
                     </div>
-                    {po.status === 'blocked' && po.issues.length > 0 && <div className="text-[11px] text-danger">{po.issues.join(' · ')}</div>}
+                    {po.status === 'blocked' && po.issues.length > 0 && <div className="text-[0.6875rem] text-danger">{po.issues.join(' · ')}</div>}
                   </div>
                 </label>
               );

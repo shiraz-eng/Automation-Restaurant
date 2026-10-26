@@ -32,7 +32,7 @@ export function TrendChart({
           <circle key={c.label} cx={c.x} cy={c.y} r={2.5} fill={color} />
         ))}
       </svg>
-      <div className="flex justify-between text-[10px] text-ink-muted mt-1">
+      <div className="flex justify-between text-[0.625rem] text-ink-muted mt-1">
         <span>{points[0].label}</span>
         <span>{points[points.length - 1].label}</span>
       </div>

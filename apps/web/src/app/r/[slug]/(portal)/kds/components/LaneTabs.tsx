@@ -25,7 +25,7 @@ export function LaneTabs({ counts, active, onPick }: { counts: Record<LaneFilter
               isActive ? `border-primary ${TONE[lane]}` : 'border-transparent text-muted hover:text-body'
             }`}
           >
-            {FILTER_LABEL[lane].toUpperCase()} <span className="tabular-nums opacity-70">({counts[lane]})</span>
+            {FILTER_LABEL[lane].toUpperCase()} <span className="tabular-nums opacity-90">({counts[lane]})</span>
           </button>
         );
       })}

@@ -221,9 +221,9 @@ export function SupplierPriceImportPanel({
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-semibold">{row.matched_inventory_item_name ?? row.item_name}</span>
                       <span className="text-muted">from {row.matched_supplier_name ?? row.supplier_name}</span>
-                      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
+                      <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[row.status]}`}>{row.status}</span>
                     </div>
-                    <div className="text-[11px] text-muted">
+                    <div className="text-[0.6875rem] text-muted">
                       {row.price_cents != null && (
                         <span className="mr-2">
                           {row.existing_price_cents != null && row.existing_price_cents !== row.price_cents ? (
@@ -240,7 +240,7 @@ export function SupplierPriceImportPanel({
                       {row.moq != null && <span className="mr-2">MOQ {row.moq}</span>}
                       {row.lead_time_days != null && <span className="mr-2">{row.lead_time_days}d lead time</span>}
                     </div>
-                    {row.issues.length > 0 && <div className="text-[11px] text-danger">{row.issues.join(' · ')}</div>}
+                    {row.issues.length > 0 && <div className="text-[0.6875rem] text-danger">{row.issues.join(' · ')}</div>}
                   </div>
                 </label>
               );

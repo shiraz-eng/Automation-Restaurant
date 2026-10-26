@@ -25,6 +25,14 @@ const config: Config = {
         'ink-muted': 'rgb(var(--ink-muted) / <alpha-value>)',
         gold: 'rgb(var(--gold) / <alpha-value>)',
       },
+      // Text uses readable shades of the same colours (globals.css): a brand or
+      // status colour that works as a fill can be too faint as small text.
+      textColor: {
+        primary: 'rgb(var(--primary-text) / <alpha-value>)',
+        ok: 'rgb(var(--ok-text) / <alpha-value>)',
+        warn: 'rgb(var(--warn-text) / <alpha-value>)',
+        danger: 'rgb(var(--danger-text) / <alpha-value>)',
+      },
       borderRadius: {
         DEFAULT: 'var(--radius)',
         lg: 'calc(var(--radius) + 4px)',

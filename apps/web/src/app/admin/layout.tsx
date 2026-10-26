@@ -1,3 +1,4 @@
+import { AccessibilityMenu } from '@/components/AccessibilityMenu';
 import Link from 'next/link';
 import {
   ChefHat,
@@ -90,12 +91,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <span className="text-gold text-lg leading-none">.</span>
             </span>
           </Link>
-          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-muted">Platform Administration</div>
+          <div className="mt-1 text-[0.625rem] font-bold uppercase tracking-[0.14em] text-ink-muted">Platform Administration</div>
         </div>
         <nav className="flex-1 flex flex-col gap-3 px-3 overflow-y-auto">
           {groups.map((g) => (
             <div key={g.header}>
-              <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-muted/70">{g.header}</div>
+              <div className="px-3 pb-1 text-[0.625rem] font-bold uppercase tracking-[0.1em] text-ink-muted/70">{g.header}</div>
               <div className="flex flex-col gap-0.5">
                 {g.items.map(([href, label, Icon]) => (
                   <Link
@@ -112,7 +113,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           ))}
         </nav>
         <div className="p-3 border-t border-white/10 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-ink-muted truncate">{user.email}</span>
+          <span className="text-[0.6875rem] text-ink-muted truncate">{user.email}</span>
+          <AccessibilityMenu tone="dark" />
           <AdminSignOut />
         </div>
       </aside>
@@ -123,7 +125,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <span className="font-black text-sm">Automation</span>
             <span className="text-gold">.</span>
           </Link>
-          <AdminSignOut />
+          <div className="flex items-center gap-2">
+            <AccessibilityMenu tone="dark" />
+            <AdminSignOut />
+          </div>
         </header>
         <nav className="md:hidden flex items-center gap-3 px-5 py-2 border-b border-white/10 bg-black/30 text-xs font-semibold text-ink-muted overflow-x-auto">
           {flatItems.map(([href, label]) => (
@@ -132,7 +137,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </Link>
           ))}
         </nav>
-        <main className="flex-1 p-6 md:p-10 overflow-x-hidden">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1 p-6 md:p-10 overflow-x-hidden focus:outline-none">
+          {children}
+        </main>
       </div>
     </div>
   );

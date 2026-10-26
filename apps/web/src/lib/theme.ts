@@ -50,6 +50,39 @@ export const DEFAULT_THEME: ThemeState = {
 
 export const STORAGE_KEY = 'ar-theme';
 
+// ── Readable brand text ──────────────────────────────────────────────────────
+// A Brand Kit colour is chosen for buttons and fills; as TEXT it can be too
+// faint (violet on a dark page is ~3:1). text-primary reads --primary-text,
+// which is the brand colour mixed toward black (light pages) or white (dark
+// pages) just enough to reach WCAG AA 4.5:1. Mirrored in app/layout.tsx's
+// no-flash script.
+
+function luminance([r, g, b]: number[]): number {
+  const f = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * f(r!) + 0.7152 * f(g!) + 0.0722 * f(b!);
+}
+function contrast(a: number[], b: number[]): number {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x! + 0.05) / (y! + 0.05);
+}
+
+/** `channels` ("124 58 237") mixed toward `toward` until it reaches 4.5:1 on every background. */
+export function readableTextChannels(channels: string, backgrounds: number[][], toward: number[]): string {
+  const base = channels.trim().split(/\s+/).map(Number);
+  if (base.length !== 3 || base.some((n) => !Number.isFinite(n))) return channels;
+  const tinted = backgrounds.map((bg) => bg.map((c, i) => c + (base[i]! - c) * 0.12));
+  for (let t = 0; t <= 1.0001; t += 0.05) {
+    const mixed = base.map((c, i) => Math.round(c + (toward[i]! - c) * t));
+    if ([...backgrounds, ...tinted].every((bg) => contrast(mixed, bg) >= 4.5)) return mixed.join(' ');
+  }
+  return toward.join(' ');
+}
+const LIGHT_BGS = [[255, 255, 255], [248, 250, 252]];
+const DARK_BGS = [[9, 9, 14], [20, 20, 26]];
+
 export function applyTheme(state: ThemeState) {
   const root = document.documentElement;
   const set = (cssVar: string, value?: string) => {
@@ -57,6 +90,8 @@ export function applyTheme(state: ThemeState) {
     else root.style.removeProperty(cssVar); // fall back to globals.css's light/dark rules
   };
   set('--primary', state.tokens.primary);
+  set('--primary-text-light', state.tokens.primary ? readableTextChannels(state.tokens.primary, LIGHT_BGS, [0, 0, 0]) : undefined);
+  set('--primary-text-dark', state.tokens.primary ? readableTextChannels(state.tokens.primary, DARK_BGS, [255, 255, 255]) : undefined);
   set('--primary-fg', state.tokens['primary-fg']);
   set('--radius', state.tokens.radius);
   set('--bg-main', state.tokens['bg-main']);

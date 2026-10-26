@@ -208,7 +208,7 @@ export function ModuleKpiCard({
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-medium text-muted">{label}</span>
         <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className={`text-xl sm:text-2xl font-black tracking-tight font-mono ${valueTone === 'danger' ? 'text-danger' : 'text-body'}`}>{value}</span>
+          <span className={`text-xl sm:text-2xl font-black tracking-tight font-mono leading-tight [overflow-wrap:anywhere] ${valueTone === 'danger' ? 'text-danger' : 'text-body'}`}>{value}</span>
           {hasDelta && (
             <span className={`inline-flex items-center gap-0.5 text-xs font-bold ${delta === 0 ? 'text-muted' : better ? 'text-ok' : 'text-danger'}`}>
               {delta! > 0 ? <ArrowUp className="h-3 w-3" aria-hidden /> : delta! < 0 ? <ArrowDown className="h-3 w-3" aria-hidden /> : null}
@@ -219,7 +219,7 @@ export function ModuleKpiCard({
           )}
         </span>
         {(compareLabel || footnote) && (
-          <span className="mt-0.5 block truncate text-[11px] text-muted" title={[footnote, compareLabel].filter(Boolean).join(' · ')}>
+          <span className="mt-0.5 block truncate text-[0.6875rem] text-muted" title={[footnote, compareLabel].filter(Boolean).join(' · ')}>
             {[footnote, hasDelta ? compareLabel : null].filter(Boolean).join(' · ')}
           </span>
         )}
@@ -242,7 +242,7 @@ export function ModuleUnavailableKpi({ label, message }: { label: string; messag
     <div className="flex h-full flex-col justify-center rounded-2xl border border-dashed border-border bg-surface p-4">
       <p className="text-xs font-medium text-muted">{label}</p>
       <p className="mt-1 text-sm font-semibold text-body">Unavailable</p>
-      <p className="mt-0.5 truncate text-[11px] text-muted" title={message}>
+      <p className="mt-0.5 truncate text-[0.6875rem] text-muted" title={message}>
         {message}
       </p>
     </div>

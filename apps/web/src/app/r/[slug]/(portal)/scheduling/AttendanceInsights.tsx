@@ -175,7 +175,7 @@ function DashboardTiles() {
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {tiles.map(([label, value, tone]) => (
         <div key={label} className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted font-bold">{label}</div>
+          <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">{label}</div>
           <div className={`text-lg font-black tabular-nums ${tone}`}>{value}</div>
         </div>
       ))}
@@ -224,7 +224,7 @@ function MyAttendance({ myMembershipId, canRequest }: { myMembershipId: string |
             {hours(s.worked_minutes)} worked{s.attendance_pct != null ? ` · ${s.attendance_pct}%` : ''}
           </p>
           {rows.length > 0 && (
-            <div className="overflow-x-auto mt-3">
+            <div className="overflow-x-auto mt-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs tabular-nums">
                 <tbody>
                   {rows.slice(0, 10).map((r) => (
@@ -240,7 +240,7 @@ function MyAttendance({ myMembershipId, canRequest }: { myMembershipId: string |
               </table>
             </div>
           )}
-          {canRequest && <p className="text-muted text-[11px] mt-2">Something wrong? Request a correction below.</p>}
+          {canRequest && <p className="text-muted text-[0.6875rem] mt-2">Something wrong? Request a correction below.</p>}
         </>
       )}
     </Card>
@@ -287,7 +287,7 @@ function MonthlyReport({ staff, allStaff, canExport }: { staff: StaffRow[]; allS
       <div className="flex flex-wrap items-end justify-between gap-3 p-3 border-b border-border">
         <div>
           <h3 className="font-bold text-sm">Monthly attendance report</h3>
-          <p className="text-muted text-[11px]">{allStaff ? 'Every staff member, or pick one.' : 'Pick an employee.'}</p>
+          <p className="text-muted text-[0.6875rem]">{allStaff ? 'Every staff member, or pick one.' : 'Pick an employee.'}</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <Field label="Month">
@@ -336,7 +336,7 @@ function MonthlyReport({ staff, allStaff, canExport }: { staff: StaffRow[]; allS
       ) : rows.length === 0 ? (
         <p className="p-3 text-muted text-xs">{allStaff || who ? 'No staff to report on.' : 'Choose an employee to see their month.'}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs tabular-nums">
             <thead className="text-muted border-b border-border">
               <tr>
@@ -446,7 +446,7 @@ function History({ staff, canExport }: { staff: StaffRow[]; canExport: boolean }
       {rows.length === 0 ? (
         <p className="p-3 text-muted text-xs">No attendance recorded in this range.</p>
       ) : (
-        <div className="max-h-[26rem] overflow-auto">
+        <div className="max-h-[26rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs tabular-nums">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
@@ -610,7 +610,7 @@ function Corrections({
       {error && <p className="text-danger text-xs mt-2">{error}</p>}
       {note && <p className="text-ok text-xs mt-2">{note}</p>}
       {list.length > 0 && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
@@ -633,7 +633,7 @@ function Corrections({
                   </td>
                   <td className="py-2 text-muted max-w-[220px]">
                     {c.reason}
-                    <div className="text-[10px]">
+                    <div className="text-[0.625rem]">
                       {c.requested_by_email ?? '—'} · {formatDateTime(c.created_at)}
                     </div>
                   </td>

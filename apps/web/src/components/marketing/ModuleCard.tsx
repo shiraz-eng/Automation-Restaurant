@@ -18,10 +18,10 @@ export function ModuleCard({
       <div className="grid h-10 w-10 place-items-center rounded-xl bg-black/5 text-black transition-colors group-hover:bg-black group-hover:text-white">
         <Icon size={19} strokeWidth={2} />
       </div>
-      <div className="font-display font-bold text-[15px] mt-3.5">{title}</div>
-      <p className="text-muted text-[13px] mt-1 leading-relaxed">{description}</p>
+      <div className="font-display font-bold text-[0.9375rem] mt-3.5">{title}</div>
+      <p className="text-muted text-[0.8125rem] mt-1 leading-relaxed">{description}</p>
       {href && (
-        <span className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-black opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0">
+        <span className="mt-3 inline-flex items-center gap-1 text-[0.75rem] font-semibold text-black opacity-0 -translate-x-1 transition-all group-hover:opacity-100 group-hover:translate-x-0">
           Learn more <ArrowRight size={12} />
         </span>
       )}

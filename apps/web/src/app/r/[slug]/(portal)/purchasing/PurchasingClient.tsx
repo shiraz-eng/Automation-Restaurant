@@ -533,7 +533,7 @@ export function PurchasingClient({
             </Card>
           ) : (
             <Card className="p-0 overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                 <table className="w-full text-left text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
@@ -595,7 +595,7 @@ export function PurchasingClient({
                       </p>
                       <p className="text-xs text-danger mt-0.5">
                         {h.kind && h.kind !== 'other' && (
-                          <span className="mr-1.5 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                          <span className="mr-1.5 rounded bg-danger/10 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">
                             {HOLD_KIND_LABEL[h.kind] ?? h.kind}
                           </span>
                         )}
@@ -649,8 +649,9 @@ export function PurchasingClient({
 
               <div className="space-y-2">
                 {lines.map((l, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_5rem_6rem_2rem] gap-2 items-end">
-                    <Field label={i === 0 ? 'Item' : ''}>
+                  // Phones: item on its own row, then quantity, cost and remove. Wider: one row per line.
+                  <div key={i} className="grid grid-cols-2 gap-2 items-end sm:grid-cols-[minmax(0,1fr)_5rem_6rem_2rem]">
+                    <Field label="Item" labelClassName={i === 0 ? '' : 'sm:sr-only'} className="col-span-2 sm:col-span-1">
                       <Select value={l.item_id} onChange={(e) => setLine(i, { item_id: e.target.value })}>
                         <option value="">— pick —</option>
                         {items.map((it) => (
@@ -660,16 +661,16 @@ export function PurchasingClient({
                         ))}
                       </Select>
                     </Field>
-                    <Field label={i === 0 ? 'Qty' : ''}>
+                    <Field label="Qty" labelClassName={i === 0 ? '' : 'sm:sr-only'}>
                       <Input type="number" min="0" step="0.001" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} />
                     </Field>
-                    <Field label={i === 0 ? 'Unit cost' : ''}>
+                    <Field label="Unit cost" labelClassName={i === 0 ? '' : 'sm:sr-only'}>
                       <Input type="number" min="0" step="0.01" value={l.cost} onChange={(e) => setLine(i, { cost: e.target.value })} />
                     </Field>
                     <button
                       type="button"
-                      aria-label="Remove line"
-                      className="h-8 rounded border border-border text-muted hover:bg-main disabled:opacity-40"
+                      aria-label={`Remove line ${i + 1}`}
+                      className="col-span-2 h-8 rounded border border-border text-muted hover:bg-main disabled:opacity-40 sm:col-span-1"
                       disabled={lines.length === 1}
                       onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
                     >
@@ -722,7 +723,7 @@ export function PurchasingClient({
                       <span className="font-mono text-body">{formatCents(total)}</span>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
                     <table className="w-full text-left text-xs">
                       <tbody>
                         {o.purchase_order_lines.map((l) => {
@@ -742,7 +743,7 @@ export function PurchasingClient({
                                   <button
                                     onClick={() => receiveLine(l)}
                                     disabled={busy}
-                                    className="text-primary underline decoration-dotted text-[11px]"
+                                    className="text-primary underline decoration-dotted text-[0.6875rem]"
                                   >
                                     receive
                                   </button>
@@ -755,7 +756,7 @@ export function PurchasingClient({
                     </table>
                   </div>
                   <div className="flex items-center justify-between gap-2 p-3 bg-main/40">
-                    <span className="text-[11px] text-muted">
+                    <span className="text-[0.6875rem] text-muted">
                       {o.received_at ? `received ${formatDateTime(o.received_at)}` : `created ${formatDateTime(o.created_at)}`}
                     </span>
                     {open && (
@@ -882,7 +883,7 @@ export function PurchasingClient({
                     type="file"
                     accept="application/pdf,image/jpeg,image/png,image/webp"
                     onChange={(e) => setInvFile(e.target.files?.[0] ?? null)}
-                    className="block w-full text-[11px] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+                    className="block w-full text-[0.6875rem] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
                   />
                 </Field>
               </div>
@@ -948,11 +949,11 @@ export function PurchasingClient({
                       <div>
                         <p className="text-sm font-semibold">
                           {sup?.name ?? '—'} · {inv.supplier_invoice_number} · {formatCents(inv.total_cents)}{' '}
-                          <span className={`ml-2 text-[11px] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>
+                          <span className={`ml-2 text-[0.6875rem] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>
                             {INVOICE_STATUS_LABEL[inv.status] ?? inv.status}
                           </span>
                         </p>
-                        <p className="text-[11px] text-muted mt-0.5">
+                        <p className="text-[0.6875rem] text-muted mt-0.5">
                           Invoiced {inv.invoice_date}
                           {inv.due_date ? ` · due ${inv.due_date}` : ''}
                         </p>
@@ -1030,7 +1031,7 @@ export function PurchasingClient({
               </div>
               {paySupplier && (
                 <div>
-                  <p className="text-[11px] text-muted mb-2">
+                  <p className="text-[0.6875rem] text-muted mb-2">
                     Allocate this payment across this supplier&apos;s approved/partially-paid invoices — amounts are validated against
                     the real outstanding balance when submitted.
                   </p>
@@ -1072,7 +1073,7 @@ export function PurchasingClient({
           <h2 className="font-bold text-sm mb-3">Supplier credit notes</h2>
           {canManagePayables && (
             <Card className="mb-3">
-              <p className="text-[11px] text-muted mb-3">
+              <p className="text-[0.6875rem] text-muted mb-3">
                 Record money a supplier owes back — returned goods, short delivery, a price correction. It reduces what you owe
                 them; linked to an invoice, it reduces that invoice&apos;s balance.
               </p>
@@ -1116,7 +1117,7 @@ export function PurchasingClient({
             </Card>
           )}
           {creditNotes.length > 0 && (
-            <Card className="p-0 overflow-x-auto">
+            <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
               <table className="w-full text-left text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>

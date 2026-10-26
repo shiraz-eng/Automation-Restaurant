@@ -97,6 +97,9 @@ export function LoginForm({
             <input
               type="email"
               required
+              autoComplete="username"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'login-error' : undefined}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 w-full rounded border border-border bg-surface px-3 py-2 outline-none focus:border-primary"
@@ -107,13 +110,21 @@ export function LoginForm({
             <input
               type="password"
               required
+              autoComplete="current-password"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? 'login-error' : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 w-full rounded border border-border bg-surface px-3 py-2 outline-none focus:border-primary"
             />
           </label>
 
-          {error && <p className="text-danger text-xs">{error}</p>}
+          {error && (
+            <p id="login-error" role="alert" className="text-danger text-xs">
+              <strong>Couldn&apos;t sign in: </strong>
+              {error}
+            </p>
+          )}
 
           <button
             type="submit"

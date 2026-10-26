@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { usePortalSupabase } from '@/components/PortalProvider';
 import { LaneTabs } from './components/LaneTabs';
 import { StationFilter } from './components/StationFilter';
@@ -126,6 +127,17 @@ export function KdsBoard({
   }
 
   const selected = kots.find((k) => k.id === selectedId) ?? null;
+  const sheetRef = useRef<HTMLDivElement>(null);
+  // The ticket sheet is a modal on phones and tablets only (lg: shows the inspector inline).
+  const [sheetIsModal, setSheetIsModal] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const on = () => setSheetIsModal(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  useDialogFocus(sheetRef, !!selected && sheetIsModal, () => setSelectedId(null));
 
   return (
     <div className="space-y-4">
@@ -188,7 +200,7 @@ export function KdsBoard({
       </div>
 
       {selected && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-black/50 flex items-end" onClick={() => setSelectedId(null)}>
+        <div ref={sheetRef} role="dialog" aria-modal="true" aria-label={`Order #${selected.order_number}`} className="lg:hidden fixed inset-0 z-40 bg-black/50 flex items-end" onClick={() => setSelectedId(null)}>
           <div className="w-full max-h-[85vh] bg-main rounded-t-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <KotInspector
               slug={slug}

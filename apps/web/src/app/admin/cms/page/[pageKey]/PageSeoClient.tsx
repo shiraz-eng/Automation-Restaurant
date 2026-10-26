@@ -58,7 +58,7 @@ export function PageSeoClient({ row, role, perms }: { row: PageSeoRow; role: str
   return (
     <AdminCard className="space-y-3">
       {!row.content_managed && (
-        <p className="text-[11px] text-gold bg-gold/10 rounded-lg px-3 py-2">
+        <p className="text-[0.6875rem] text-gold bg-gold/10 rounded-lg px-3 py-2">
           This page&rsquo;s body content isn&rsquo;t CMS-managed yet — still edited in code. SEO fields below are live regardless.
         </p>
       )}

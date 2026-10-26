@@ -42,7 +42,7 @@ export function RecipeLinkField({
           ))}
         </Select>
       </Field>
-      <p className="text-[11px] text-muted">
+      <p className="text-[0.6875rem] text-muted">
         {recipes.length === 0
           ? 'Create the recipe on the Recipes page (or import it with AI) first, then link it here.'
           : selected?.status === 'draft'

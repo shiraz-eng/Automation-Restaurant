@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { X } from 'lucide-react';
 import { formatCents } from '@/lib/format';
 import type { BrowseItem, DealLite, ModGroup, ModOption, Product } from '../menuTypes';
@@ -77,8 +78,11 @@ export function ItemSheet({
 
   const unitTotal = (variant?.price_cents ?? 0) + addonTotal;
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={item.name} className="fixed inset-0 z-40 bg-black/50 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
       <div
         className="w-full sm:max-w-md bg-surface rounded-t-2xl sm:rounded-2xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -109,7 +113,7 @@ export function ItemSheet({
               <div>
                 <div className="flex items-baseline justify-between mb-2">
                   <h3 className="font-bold text-sm">Choose size</h3>
-                  <span className="text-[10.5px] font-bold uppercase tracking-wide text-primary">Required</span>
+                  <span className="text-[0.65625rem] font-bold uppercase tracking-wide text-primary">Required</span>
                 </div>
                 <div className="space-y-1.5">
                   {item.variants.map((v) => {
@@ -149,7 +153,7 @@ export function ItemSheet({
                 <div className="flex items-baseline justify-between mb-2">
                   <h3 className="font-bold text-sm">{g.name}</h3>
                   <span
-                    className={`text-[10.5px] font-bold uppercase tracking-wide ${
+                    className={`text-[0.65625rem] font-bold uppercase tracking-wide ${
                       g.kind === 'required_single' ? 'text-primary' : 'text-muted'
                     }`}
                   >
@@ -229,8 +233,8 @@ export function ItemSheet({
                       )}
                     </div>
                     <div className="p-1.5">
-                      <div className="text-[11px] font-bold leading-tight line-clamp-2">{r.name}</div>
-                      <div className="text-[10.5px] text-primary font-bold mt-0.5">{formatCents(r.minPriceCents)}</div>
+                      <div className="text-[0.6875rem] font-bold leading-tight line-clamp-2">{r.name}</div>
+                      <div className="text-[0.65625rem] text-primary font-bold mt-0.5">{formatCents(r.minPriceCents)}</div>
                     </div>
                   </button>
                 ))}

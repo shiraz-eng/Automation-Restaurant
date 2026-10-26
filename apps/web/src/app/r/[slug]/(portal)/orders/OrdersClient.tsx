@@ -275,6 +275,124 @@ export function OrdersClient({
     }
   }
 
+  // Status controls and order details, shared by the table (tablets and up) and the cards (phones).
+  const statusControls = (o: (typeof orders)[number]) => {
+    const isTerminal = o.status === 'paid' || o.status === 'void';
+    return (
+      <>
+        {isTerminal ? (
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
+                o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
+              }`}
+            >
+              {TERMINAL_LABEL[o.status] ?? o.status}
+            </span>
+            {canReopen && o.status === 'paid' && (
+              <button
+                onClick={() => reopen(o)}
+                disabled={savingId === o.id}
+                className="min-h-6 py-1 text-primary text-xs underline shrink-0 disabled:opacity-50"
+              >
+                reopen
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            {canUpdateStatus ? (
+              <Select
+                aria-label={`Status of order ${o.order_number}`}
+                value={o.status}
+                disabled={savingId === o.id}
+                onChange={(e) => setStatus(o.id, e.target.value)}
+              >
+                {EDITABLE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace('_', ' ')}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
+                {o.status.replace('_', ' ')}
+              </span>
+            )}
+            {canReopen && o.status === 'served' && (
+              <button
+                onClick={() => reopen(o)}
+                disabled={savingId === o.id}
+                className="min-h-6 py-1 text-primary text-xs underline shrink-0 disabled:opacity-50"
+              >
+                reopen
+              </button>
+            )}
+            {canCancel && (
+              <button
+                onClick={() => cancel(o)}
+                disabled={savingId === o.id}
+                className="min-h-6 py-1 text-danger text-xs underline shrink-0 disabled:opacity-50"
+              >
+                cancel
+              </button>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+  const orderDetails = (o: (typeof orders)[number]) => (
+    <>
+      <div className="space-y-1">
+        {o.order_lines?.map((l, i) => (
+          <div key={i} className="flex justify-between text-xs">
+            <span>
+              {l.qty}× {l.name_snapshot}{' '}
+              <span className="text-muted">({l.kds_status})</span>
+            </span>
+            <span className="font-semibold">{formatCents(l.line_total_cents)}</span>
+          </div>
+        ))}
+        <div className="flex justify-between text-xs pt-1 border-t border-border mt-1 text-muted">
+          <span>subtotal {formatCents(o.subtotal_cents)}</span>
+          {o.discount_cents ? <span>discount -{formatCents(o.discount_cents)}</span> : null}
+          <span>tax {formatCents(o.tax_cents)}</span>
+          <span className="text-body font-bold">total {formatCents(o.total_cents)}</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border mt-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadReceipt(o);
+              }}
+              className="text-xs py-1 px-2.5 h-auto"
+            >
+              📄 Download Receipt PDF
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDownloadKot(o);
+              }}
+              className="text-xs py-1 px-2.5 h-auto"
+            >
+              🍳 Print KOT
+            </Button>
+          </div>
+          {o.paid_at && (
+            <span className="text-[0.6875rem] text-muted">
+              Paid at {formatDateTime(o.paid_at)}
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
   if (orders.length === 0) return <Card>No orders yet.</Card>;
 
   return (
@@ -300,7 +418,7 @@ export function OrdersClient({
                 statusFilter === key ? 'border-primary bg-primary text-primary-fg' : 'border-border text-muted'
               }`}
             >
-              {label} <span className="opacity-70">({orders.filter((o) => test(o.status)).length})</span>
+              {label} <span className="opacity-90">({orders.filter((o) => test(o.status)).length})</span>
             </button>
           ))}
         </div>
@@ -335,7 +453,38 @@ export function OrdersClient({
           {visible.length} of {orders.length}
         </span>
       </div>
-      <div className="overflow-x-auto">
+      {/* Phones: one card per order (number, where, total, status and its actions), details on tap. */}
+      <ul className="sm:hidden divide-y divide-border" aria-label="Orders">
+        {visible.length === 0 && <li className="p-6 text-center text-xs text-muted">No orders match these filters.</li>}
+        {visible.map((o) => (
+          <li key={o.id} className="space-y-2 p-3 text-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-mono text-sm font-bold">#{o.order_number}</div>
+                <div className="truncate text-muted">
+                  {o.table_label ?? o.channel.replace('_', ' ')}
+                  {o.customer_name ? ` · ${o.customer_name}` : ''}
+                </div>
+                <div className="text-muted">
+                  {o.order_lines?.length ?? 0} items · {formatDateTime(o.created_at)}
+                </div>
+              </div>
+              <div className="shrink-0 text-sm font-bold">{formatCents(o.total_cents)}</div>
+            </div>
+            <div>{statusControls(o)}</div>
+            <button
+              type="button"
+              aria-expanded={expanded === o.id}
+              onClick={() => setExpanded(expanded === o.id ? null : o.id)}
+              className="font-semibold text-primary underline-offset-2 hover:underline"
+            >
+              {expanded === o.id ? 'Hide items & receipt' : 'Show items & receipt'}
+            </button>
+            {expanded === o.id && <div className="rounded-lg bg-main/40 p-2">{orderDetails(o)}</div>}
+          </li>
+        ))}
+      </ul>
+      <div className="hidden sm:block overflow-x-auto" tabIndex={0} role="group" aria-label="Orders table">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -356,14 +505,26 @@ export function OrdersClient({
               </tr>
             )}
             {visible.map((o) => {
-              const isTerminal = o.status === 'paid' || o.status === 'void';
               return (
               <Fragment key={o.id}>
                 <tr
                   className="border-b border-border/60 hover:bg-main/50 cursor-pointer"
                   onClick={() => setExpanded(expanded === o.id ? null : o.id)}
                 >
-                  <td className="p-3 font-mono font-bold">{o.order_number}</td>
+                  <td className="p-3 font-mono font-bold">
+                    <button
+                      type="button"
+                      aria-expanded={expanded === o.id}
+                      aria-label={`Order ${o.order_number}: ${expanded === o.id ? 'hide' : 'show'} items and receipt`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded(expanded === o.id ? null : o.id);
+                      }}
+                      className="rounded hover:underline"
+                    >
+                      {o.order_number}
+                    </button>
+                  </td>
                   <td className="p-3 text-muted">
                     {o.table_label ?? o.channel.replace('_', ' ')}
                     {o.customer_name ? ` · ${o.customer_name}` : ''}
@@ -371,116 +532,14 @@ export function OrdersClient({
                   <td className="p-3 text-muted">{o.order_lines?.length ?? 0}</td>
                   <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
                   <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                    {isTerminal ? (
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`inline-block rounded px-2 py-1 text-xs font-semibold ${
-                            o.status === 'paid' ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'
-                          }`}
-                        >
-                          {TERMINAL_LABEL[o.status] ?? o.status}
-                        </span>
-                        {canReopen && o.status === 'paid' && (
-                          <button
-                            onClick={() => reopen(o)}
-                            disabled={savingId === o.id}
-                            className="text-primary text-xs underline shrink-0 disabled:opacity-50"
-                          >
-                            reopen
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        {canUpdateStatus ? (
-                          <Select
-                            value={o.status}
-                            disabled={savingId === o.id}
-                            onChange={(e) => setStatus(o.id, e.target.value)}
-                          >
-                            {EDITABLE_STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s.replace('_', ' ')}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <span className="inline-block rounded px-2 py-1 text-xs font-semibold bg-main text-muted capitalize">
-                            {o.status.replace('_', ' ')}
-                          </span>
-                        )}
-                        {canReopen && o.status === 'served' && (
-                          <button
-                            onClick={() => reopen(o)}
-                            disabled={savingId === o.id}
-                            className="text-primary text-xs underline shrink-0 disabled:opacity-50"
-                          >
-                            reopen
-                          </button>
-                        )}
-                        {canCancel && (
-                          <button
-                            onClick={() => cancel(o)}
-                            disabled={savingId === o.id}
-                            className="text-danger text-xs underline shrink-0 disabled:opacity-50"
-                          >
-                            cancel
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {statusControls(o)}
                   </td>
                   <td className="p-3 text-right text-muted">{formatDateTime(o.created_at)}</td>
                 </tr>
                 {expanded === o.id && (
                   <tr className="border-b border-border/60 bg-main/30">
                     <td colSpan={6} className="p-3">
-                      <div className="space-y-1">
-                        {o.order_lines?.map((l, i) => (
-                          <div key={i} className="flex justify-between text-xs">
-                            <span>
-                              {l.qty}× {l.name_snapshot}{' '}
-                              <span className="text-muted">({l.kds_status})</span>
-                            </span>
-                            <span className="font-semibold">{formatCents(l.line_total_cents)}</span>
-                          </div>
-                        ))}
-                        <div className="flex justify-between text-xs pt-1 border-t border-border mt-1 text-muted">
-                          <span>subtotal {formatCents(o.subtotal_cents)}</span>
-                          {o.discount_cents ? <span>discount -{formatCents(o.discount_cents)}</span> : null}
-                          <span>tax {formatCents(o.tax_cents)}</span>
-                          <span className="text-body font-bold">total {formatCents(o.total_cents)}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border mt-2">
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="primary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownloadReceipt(o);
-                              }}
-                              className="text-xs py-1 px-2.5 h-auto"
-                            >
-                              📄 Download Receipt PDF
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownloadKot(o);
-                              }}
-                              className="text-xs py-1 px-2.5 h-auto"
-                            >
-                              🍳 Print KOT
-                            </Button>
-                          </div>
-                          {o.paid_at && (
-                            <span className="text-[11px] text-muted">
-                              Paid at {formatDateTime(o.paid_at)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      {orderDetails(o)}
                     </td>
                   </tr>
                 )}

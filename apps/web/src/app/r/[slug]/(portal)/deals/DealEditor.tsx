@@ -359,18 +359,18 @@ export function DealEditor({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={draft.image_url} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="h-full w-full grid place-items-center text-muted text-[11px]">No image yet</div>
+          <div className="h-full w-full grid place-items-center text-muted text-[0.6875rem]">No image yet</div>
         )}
       </div>
       <div className="p-3 space-y-1.5">
         {draft.badge.trim() && (
-          <span className="inline-block rounded bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide">
+          <span className="inline-block rounded bg-primary/15 text-primary px-1.5 py-0.5 text-[0.625rem] font-black uppercase tracking-wide">
             {draft.badge.trim()}
           </span>
         )}
         <div className="font-black text-sm uppercase leading-tight">{draft.name.trim() || 'Deal name'}</div>
-        {draft.tagline.trim() && <div className="text-[11px] text-muted">{draft.tagline.trim()}</div>}
-        <div className="text-[11px] text-muted leading-snug">
+        {draft.tagline.trim() && <div className="text-[0.6875rem] text-muted">{draft.tagline.trim()}</div>}
+        <div className="text-[0.6875rem] text-muted leading-snug">
           {[
             ...draft.components.map((c) => `${c.qty > 1 ? `${c.qty}× ` : ''}${itemLabel(menuById, c.menu_item_id, c.variant_id)}`),
             ...draft.groups.map((g) => `Choice of ${g.name || 'item'}`),
@@ -378,12 +378,12 @@ export function DealEditor({
         </div>
         <div className="flex items-baseline gap-2 pt-1">
           {draft.show_savings && savings > 0 && (
-            <span className="text-[11px] text-muted line-through">{money(regular, currency)}</span>
+            <span className="text-[0.6875rem] text-muted line-through">{money(regular, currency)}</span>
           )}
           <span className="font-black text-base">{money(priceCents, currency)}</span>
         </div>
         {draft.show_savings && savings > 0 && (
-          <span className="inline-block rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[10px] font-bold">
+          <span className="inline-block rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[0.625rem] font-bold">
             SAVE {money(savings, currency)}
           </span>
         )}
@@ -404,7 +404,7 @@ export function DealEditor({
           <h1 className="text-xl font-black">{deal ? `Edit ${deal.name}` : 'Create New Deal'}</h1>
         </div>
         {deal && (
-          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_STYLE[derivedStatus]}`}>
+          <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold uppercase ${STATUS_STYLE[derivedStatus]}`}>
             {STATUS_LABEL[derivedStatus]}
           </span>
         )}
@@ -417,12 +417,12 @@ export function DealEditor({
             <li key={label} className="flex items-center gap-1">
               <button
                 onClick={() => setStep(i)}
-                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${
+                className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.6875rem] font-semibold whitespace-nowrap ${
                   i === step ? 'bg-primary text-primary-fg' : i < step ? 'text-body' : 'text-muted'
                 }`}
               >
                 <span
-                  className={`grid h-4 w-4 place-items-center rounded-full text-[9px] ${
+                  className={`grid h-4 w-4 place-items-center rounded-full text-[0.5625rem] ${
                     i < step ? 'bg-body text-surface' : i === step ? 'bg-primary-fg text-primary' : 'border border-border'
                   }`}
                 >
@@ -439,7 +439,7 @@ export function DealEditor({
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_300px]">
         <div className="space-y-4 min-w-0">
           <Card>
-            <div className="text-[10px] font-bold uppercase tracking-wide text-primary mb-3">
+            <div className="text-[0.625rem] font-bold uppercase tracking-wide text-primary mb-3">
               Step {step + 1} — {STEPS[step]}
             </div>
 
@@ -484,11 +484,11 @@ export function DealEditor({
                     />
                   </label>
                   {draft.image_url && (
-                    <button onClick={() => set('image_url', '')} className="text-[11px] text-muted hover:text-danger">
+                    <button onClick={() => set('image_url', '')} className="text-[0.6875rem] text-muted hover:text-danger">
                       Remove
                     </button>
                   )}
-                  {deal?.ref_code && <span className="text-[11px] text-muted font-mono ml-auto">Ref {deal.ref_code}</span>}
+                  {deal?.ref_code && <span className="text-[0.6875rem] text-muted font-mono ml-auto">Ref {deal.ref_code}</span>}
                 </div>
               </div>
             )}
@@ -510,11 +510,11 @@ export function DealEditor({
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-semibold truncate">{itemLabel(menuById, c.menu_item_id, c.variant_id)}</div>
-                            <div className="text-[10px] text-muted">
+                            <div className="text-[0.625rem] text-muted">
                               {money(itemPrice(menuById, c.menu_item_id, c.variant_id), currency)} each
                             </div>
                           </div>
-                          <span className="text-[11px] text-muted">Qty</span>
+                          <span className="text-[0.6875rem] text-muted">Qty</span>
                           <Input
                             type="number"
                             min="1"
@@ -564,7 +564,7 @@ export function DealEditor({
                     </Button>
                   </div>
                   {draft.groups.length === 0 && (
-                    <p className="text-muted text-[11px]">
+                    <p className="text-muted text-[0.6875rem]">
                       Optional — e.g. &ldquo;Choose your drink&rdquo;, where the customer picks one of several items.
                     </p>
                   )}
@@ -623,7 +623,7 @@ export function DealEditor({
                         {g.deal_option_items.map((it, ii) => (
                           <div key={ii} className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="flex-1 min-w-[140px] truncate">{itemLabel(menuById, it.menu_item_id, it.variant_id)}</span>
-                            <span className="text-[11px] text-muted">Extra</span>
+                            <span className="text-[0.6875rem] text-muted">Extra</span>
                             <Input
                               type="number"
                               step="0.01"
@@ -645,7 +645,7 @@ export function DealEditor({
                               }
                               className="w-20 text-right"
                             />
-                            <label className="flex items-center gap-1 text-[11px]">
+                            <label className="flex items-center gap-1 text-[0.6875rem]">
                               <input
                                 type="checkbox"
                                 checked={it.is_default}
@@ -776,20 +776,20 @@ export function DealEditor({
                               {foodCostPct == null ? (
                                 '—'
                               ) : foodCostPct <= 35 ? (
-                                <span className="rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[10px] font-bold">Healthy</span>
+                                <span className="rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[0.625rem] font-bold">Healthy</span>
                               ) : foodCostPct <= FOOD_COST_LIMIT_PCT ? (
-                                <span className="rounded bg-warn/15 text-warn px-1.5 py-0.5 text-[10px] font-bold">Watch</span>
+                                <span className="rounded bg-warn/15 text-warn px-1.5 py-0.5 text-[0.625rem] font-bold">Watch</span>
                               ) : (
-                                <span className="rounded bg-danger/15 text-danger px-1.5 py-0.5 text-[10px] font-bold">Low margin</span>
+                                <span className="rounded bg-danger/15 text-danger px-1.5 py-0.5 text-[0.625rem] font-bold">Low margin</span>
                               )}
                             </dd>
                           </div>
                           {!cost.known && (
-                            <p className="text-[10px] text-muted pt-1">Some items have no recipe, so their cost isn&rsquo;t counted.</p>
+                            <p className="text-[0.625rem] text-muted pt-1">Some items have no recipe, so their cost isn&rsquo;t counted.</p>
                           )}
                         </dl>
                       ) : (
-                        <p className="text-muted text-[11px]">
+                        <p className="text-muted text-[0.6875rem]">
                           {draft.components.length + draft.groups.length === 0
                             ? 'Add items to see the estimated food cost.'
                             : 'Cost estimate isn’t available right now.'}
@@ -830,7 +830,7 @@ export function DealEditor({
                 <Field label="Total usage limit">
                   <Input type="number" min="1" value={draft.usage_limit} onChange={(e) => set('usage_limit', e.target.value)} placeholder="Unlimited" />
                 </Field>
-                <p className="sm:col-span-3 text-[11px] text-muted">
+                <p className="sm:col-span-3 text-[0.6875rem] text-muted">
                   Checked when an order is placed — at the counter and on the customer menu alike.
                 </p>
               </div>
@@ -894,9 +894,9 @@ export function DealEditor({
                       )}
                     </>
                   ) : (
-                    <p className="text-muted text-[11px]">Calculated from the menu and inventory once the deal is saved.</p>
+                    <p className="text-muted text-[0.6875rem]">Calculated from the menu and inventory once the deal is saved.</p>
                   )}
-                  <p className="text-[10px] text-muted pt-1">Automatically calculated from the underlying menu and inventory — never set by hand.</p>
+                  <p className="text-[0.625rem] text-muted pt-1">Automatically calculated from the underlying menu and inventory — never set by hand.</p>
                 </div>
               </div>
             )}
@@ -925,7 +925,7 @@ export function DealEditor({
                           onClick={() =>
                             set('active_days', draft.active_days.includes(d) ? draft.active_days.filter((x) => x !== d) : [...draft.active_days, d])
                           }
-                          className={`w-11 rounded border py-1 text-[11px] font-semibold ${
+                          className={`w-11 rounded border py-1 text-[0.6875rem] font-semibold ${
                             draft.active_days.includes(d) ? 'bg-primary text-primary-fg border-primary' : 'border-border text-muted'
                           }`}
                         >
@@ -943,7 +943,7 @@ export function DealEditor({
                     <Input type="time" value={draft.end_time} onChange={(e) => set('end_time', e.target.value)} />
                   </Field>
                 </div>
-                <p className="text-[11px] text-muted">Leave times blank to offer it all day. Times use the restaurant&rsquo;s time zone.</p>
+                <p className="text-[0.6875rem] text-muted">Leave times blank to offer it all day. Times use the restaurant&rsquo;s time zone.</p>
               </div>
             )}
 
@@ -1015,11 +1015,11 @@ export function DealEditor({
 
         {/* Right column: live preview + summary */}
         <div className="space-y-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Live customer view</div>
+          <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted">Live customer view</div>
           {preview}
           <Card className="p-3">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-muted mb-2">Deal summary</div>
-            <dl className="text-[11px] space-y-1">
+            <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-2">Deal summary</div>
+            <dl className="text-[0.6875rem] space-y-1">
               <div className="flex justify-between">
                 <dt className="text-muted">Status</dt>
                 <dd className="font-semibold">{deal ? STATUS_LABEL[derivedStatus] : 'Draft'}</dd>
@@ -1049,7 +1049,7 @@ export function DealEditor({
             </dl>
             <div className="mt-2 flex flex-wrap gap-1">
               {[...draft.order_types.map((t) => ORDER_TYPE_LABEL[t]), ...draft.sales_channels.map((c) => CHANNEL_LABEL[c])].map((c) => (
-                <span key={c} className="rounded-full bg-main px-1.5 py-0.5 text-[10px]">
+                <span key={c} className="rounded-full bg-main px-1.5 py-0.5 text-[0.625rem]">
                   <Check size={9} className="inline text-ok -mt-0.5" /> {c}
                 </span>
               ))}
@@ -1090,7 +1090,7 @@ export function DealEditor({
           </div>
         </div>
       ) : (
-        <p className="text-[11px] text-muted">You can view this deal but not change it.</p>
+        <p className="text-[0.6875rem] text-muted">You can view this deal but not change it.</p>
       )}
     </div>
   );

@@ -89,9 +89,9 @@ export function CartContents({
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold truncate">{l.item.name}</div>
                   {l.modifierSnapshot.length > 0 && (
-                    <div className="text-[11px] text-muted truncate">{l.modifierSnapshot.map((m) => m.name).join(', ')}</div>
+                    <div className="text-[0.6875rem] text-muted truncate">{l.modifierSnapshot.map((m) => m.name).join(', ')}</div>
                   )}
-                  <div className="text-[11px] text-primary font-bold mt-0.5">{formatCents(lineUnitPrice(l))} each</div>
+                  <div className="text-[0.6875rem] text-primary font-bold mt-0.5">{formatCents(lineUnitPrice(l))} each</div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <button onClick={() => removeLine(key)} className="text-muted hover:text-danger" aria-label="Remove item">
@@ -125,11 +125,11 @@ export function CartContents({
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold truncate">{d.deal.name}</div>
                   {d.optionsSnapshot.length > 0 && (
-                    <div className="text-[11px] text-muted truncate">
+                    <div className="text-[0.6875rem] text-muted truncate">
                       {d.optionsSnapshot.map(dealOptionLabel).join(', ')}
                     </div>
                   )}
-                  <div className="text-[11px] text-primary font-bold mt-0.5">{formatCents(dealLineUnitPrice(d))} each</div>
+                  <div className="text-[0.6875rem] text-primary font-bold mt-0.5">{formatCents(dealLineUnitPrice(d))} each</div>
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <button onClick={() => removeDealLine(key)} className="text-muted hover:text-danger" aria-label="Remove combo">

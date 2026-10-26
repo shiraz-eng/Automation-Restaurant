@@ -331,22 +331,22 @@ export function RecipesManager({
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm truncate">{label}</span>
                       <span
-                        className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                        className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${
                           r.status === 'active' ? 'bg-ok/15 text-ok' : r.status === 'draft' ? 'bg-primary/15 text-primary' : 'bg-muted/20 text-muted'
                         }`}
                       >
                         {r.status}
                       </span>
-                      <span className="text-[10px] text-muted">{TYPE_LABELS[r.recipe_type]}</span>
+                      <span className="text-[0.625rem] text-muted">{TYPE_LABELS[r.recipe_type]}</span>
                     </div>
-                    <div className="text-[11px] text-muted mt-0.5">
+                    <div className="text-[0.6875rem] text-muted mt-0.5">
                       {links.length === 0 ? 'Not linked — link it from Menu' : links.length <= 2 ? `Linked to ${links.map(linkLabel).join(', ')}` : `Linked to ${links.length} dishes`} · {currentVersion?.recipe_ingredients.length ?? 0} ingredient
                       {currentVersion?.recipe_ingredients.length === 1 ? '' : 's'} · v{currentVersion?.version ?? '—'} · updated {formatDate(r.created_at)}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
                     {canViewCost && cost != null && <div className="font-bold text-sm">{formatCents(cost)}</div>}
-                    {canViewCost && foodCostPct != null && <div className="text-[11px] text-muted">{foodCostPct}% food cost</div>}
+                    {canViewCost && foodCostPct != null && <div className="text-[0.6875rem] text-muted">{foodCostPct}% food cost</div>}
                   </div>
                 </button>
 
@@ -430,7 +430,7 @@ export function RecipesManager({
                                 {v.effective_to ? ` to ${formatDate(v.effective_to)}` : ''}
                               </span>
                               {canManage && v.status === 'draft' && (
-                                <button onClick={() => activate(v.id)} disabled={busy} className="text-primary underline text-[11px]">
+                                <button onClick={() => activate(v.id)} disabled={busy} className="text-primary underline text-[0.6875rem]">
                                   Activate
                                 </button>
                               )}
@@ -660,7 +660,7 @@ function RecipeForm({
           </Field>
 
           {recipeType === 'menu_item' && (
-            <p className="text-[11px] text-muted">
+            <p className="text-[0.6875rem] text-muted">
               Saved on its own. To use it, open the dish on the Menu and link this recipe there — nothing is linked
               automatically.
             </p>
@@ -682,7 +682,7 @@ function RecipeForm({
       <div>
         <div className="flex items-baseline justify-between mb-2">
           <h3 className="font-bold text-xs">Ingredients</h3>
-          <span className="text-[11px] text-muted">Quantities are in each ingredient&apos;s own stock unit</span>
+          <span className="text-[0.6875rem] text-muted">Quantities are in each ingredient&apos;s own stock unit</span>
         </div>
         <div className="space-y-2">
           {ingredients.map((row) => {
@@ -714,8 +714,8 @@ function RecipeForm({
                   placeholder="Qty"
                   className="w-24 text-xs"
                 />
-                <span className="text-[11px] text-muted w-10">{inv?.unit ?? ''}</span>
-                <button onClick={() => removeIngredient(row.key)} className="text-danger text-[11px] underline">
+                <span className="text-[0.6875rem] text-muted w-10">{inv?.unit ?? ''}</span>
+                <button onClick={() => removeIngredient(row.key)} className="text-danger text-[0.6875rem] underline">
                   remove
                 </button>
               </div>

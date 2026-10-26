@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useDialogFocus } from '@/lib/useDialogFocus';
 import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { usePortalSupabase } from '@/components/PortalProvider';
@@ -80,8 +81,11 @@ export function CreateProductModal({
     onCreated(item.id);
   }
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef, true, onClose);
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add product" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-black text-sm">Add Product</h2>
@@ -110,7 +114,7 @@ export function CreateProductModal({
             {canManageRecipes && <RecipeLinkField recipes={linkableRecipes} value={recipeId} onChange={setRecipeId} />}
           </fieldset>
           {error && <p className="text-danger text-xs">{error}</p>}
-          <p className="text-[11px] text-muted">Creates the product with a &ldquo;Regular&rdquo; variant. Add image, description, sizes and modifiers next.</p>
+          <p className="text-[0.6875rem] text-muted">Creates the product with a &ldquo;Regular&rdquo; variant. Add image, description, sizes and modifiers next.</p>
           <div className="flex gap-2 pt-1">
             <Button type="submit" disabled={busy}>
               {busy ? 'Creating…' : createdId ? 'Continue to product' : 'Create Product'}

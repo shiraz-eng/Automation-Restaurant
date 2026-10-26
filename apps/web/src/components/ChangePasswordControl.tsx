@@ -58,7 +58,7 @@ export function ChangePasswordControl() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="text-left text-[11px] text-muted hover:text-body hover:underline"
+        className="text-left text-[0.6875rem] text-muted hover:text-body hover:underline"
       >
         Change password
       </button>
@@ -69,8 +69,8 @@ export function ChangePasswordControl() {
     <form onSubmit={submit} className="space-y-2 rounded border border-border bg-main p-3">
       {done ? (
         <>
-          <p className="text-ok text-[11px]">Password updated.</p>
-          <button type="button" onClick={close} className="text-[11px] font-semibold text-primary hover:underline">
+          <p className="text-ok text-[0.6875rem]">Password updated.</p>
+          <button type="button" onClick={close} className="text-[0.6875rem] font-semibold text-primary hover:underline">
             Close
           </button>
         </>
@@ -92,16 +92,16 @@ export function ChangePasswordControl() {
             onChange={(e) => setConfirm(e.target.value)}
             className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs outline-none focus:border-primary"
           />
-          {error && <p className="text-danger text-[11px]">{error}</p>}
+          {error && <p className="text-danger text-[0.6875rem]">{error}</p>}
           <div className="flex gap-2">
             <button
               type="submit"
               disabled={busy}
-              className="rounded bg-primary text-primary-fg px-2.5 py-1 text-[11px] font-semibold disabled:opacity-60"
+              className="rounded bg-primary text-primary-fg px-2.5 py-1 text-[0.6875rem] font-semibold disabled:opacity-60"
             >
               {busy ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" onClick={close} className="text-[11px] text-muted hover:text-body">
+            <button type="button" onClick={close} className="text-[0.6875rem] text-muted hover:text-body">
               Cancel
             </button>
           </div>

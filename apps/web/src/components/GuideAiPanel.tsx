@@ -19,7 +19,9 @@ import {
   BadgeDollarSign,
   ShieldCheck,
   ListChecks,
+  Languages,
 } from 'lucide-react';
+import { aiLanguage, aiModuleForPath, detectLanguage, isRtlLanguage } from '@automation-restaurant/shared';
 import {
   type GuideMsg,
   type GuideAction,
@@ -29,6 +31,9 @@ import {
   splitSuggestions,
   streamGuideMessage,
 } from '@/lib/guideAi';
+import { useAiVoice } from '@/lib/ai/useAiVoice';
+import { speak, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
+import { AiVoiceSettings, MicButton, SpeakControls, VoiceStatus } from '@/components/ai/VoiceControls';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +42,8 @@ type Message = GuideMsg & {
   actions?: GuideAction[];
   suggestions?: string[];
   streaming?: boolean;
+  /** The language the answer was written in (from the server), for direction and read-aloud. */
+  language?: string;
 };
 
 type Prompt = { label: string; text: string };
@@ -195,7 +202,7 @@ function inline(text: string, key: string): ReactNode[] {
     if (tok.startsWith('**')) out.push(<strong key={`${key}-${i++}`}>{tok.slice(2, -2)}</strong>);
     else if (tok.startsWith('`'))
       out.push(
-        <code key={`${key}-${i++}`} className="rounded bg-surface px-1 py-px text-[11px] font-mono">
+        <code key={`${key}-${i++}`} className="rounded bg-surface px-1 py-px text-[0.6875rem] font-mono">
           {tok.slice(1, -1)}
         </code>,
       );
@@ -234,7 +241,7 @@ function RichText({ text }: { text: string }) {
     blocks.push(
       <Tag
         key={`l${blocks.length}`}
-        className={`${list.ordered ? 'list-decimal' : 'list-disc'} pl-4 space-y-0.5 marker:text-muted`}
+        className={`${list.ordered ? 'list-decimal' : 'list-disc'} ps-4 space-y-0.5 marker:text-muted`}
       >
         {list.items.map((it, j) => (
           <li key={j}>{inline(it, `li${blocks.length}-${j}`)}</li>
@@ -259,7 +266,7 @@ function RichText({ text }: { text: string }) {
     const h = /^#{1,4}\s+(.*)$/.exec(line);
     if (h) {
       blocks.push(
-        <div key={`h${idx}`} className="font-bold text-[12px] pt-1">
+        <div key={`h${idx}`} className="font-bold text-[0.75rem] pt-1">
           {inline(h[1], `h${idx}`)}
         </div>,
       );
@@ -276,7 +283,7 @@ function RichText({ text }: { text: string }) {
 function ActionButtons({ actions }: { actions: GuideAction[] }) {
   if (!actions.length) return null;
   const base =
-    'inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 text-[11px] font-semibold transition-colors hover:border-gold/60';
+    'inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors hover:border-gold/60';
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
       {actions.map((a, i) => {
@@ -319,10 +326,17 @@ export interface GuideAiPanelProps {
   restaurantName?: string;
   planTier?: string;
   subscriptionStatus?: string;
-  /** Kept for API compatibility; the guide no longer needs a session token. */
+  /** The portal session token: loads this module's AI settings and server speech recognition. */
   getToken?: () => Promise<string | null>;
   onClose?: () => void;
   embedded?: boolean; // true → renders in page flow
+  /**
+   * Portal only: the data-aware Assistant (the person's own permissions,
+   * confirm-before-change) shown as a second tab. Omitted when they can't use it.
+   */
+  dataPanel?: ReactNode;
+  /** Focus the message box when the panel opens. */
+  autoFocus?: boolean;
 }
 
 export function GuideAiPanel({
@@ -332,8 +346,11 @@ export function GuideAiPanel({
   restaurantName,
   planTier,
   subscriptionStatus,
+  getToken,
   onClose,
   embedded = false,
+  dataPanel,
+  autoFocus = false,
 }: GuideAiPanelProps) {
   const storageKey = `guide_chat_${mode}_${slug ?? 'site'}`;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -341,10 +358,31 @@ export function GuideAiPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secretWarning, setSecretWarning] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tab, setTab] = useState<'help' | 'data'>('help');
+  // The last finished answer, for screen readers (the streaming text itself is not announced word by word).
+  const [announce, setAnnounce] = useState('');
   const sessionId = useRef('');
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const aiModule = mode === 'portal' ? aiModuleForPath(page) : 'global';
+  const voice = useAiVoice({ slug: mode === 'portal' ? slug : undefined, module: aiModule, getToken });
+  const mic = useSpeechInput({
+    language: voice.micLanguage,
+    server: voice.server,
+    preferServer: voice.prefs.serverSpeech,
+    onText: (text) => {
+      setInput((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+  });
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
+  // Never keep talking after the panel closes.
+  useEffect(() => () => stopSpeech(), []);
 
   // Keep the conversation while moving between pages (this browser tab only).
   useEffect(() => {
@@ -396,20 +434,23 @@ export function GuideAiPanel({
       const update = (patch: Partial<Message>) =>
         setMessages((ms) => ms.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
 
+      // Shown right-to-left from the first word when the answer language is known up front.
+      const expected = voice.answerChoice !== 'auto' ? voice.answerChoice : (detectLanguage(trimmed)?.code ?? 'en');
+      update({ language: expected });
       try {
-        const { actions, text: full } = await streamGuideMessage(
+        const { actions, text: full, language } = await streamGuideMessage(
           history.map(({ role, content }) => ({ role, content })),
-          { mode, page, slug, restaurantName, planTier, subscriptionStatus },
+          { mode, page, slug, restaurantName, planTier, subscriptionStatus, language: voice.answerChoice },
           (soFar) => update({ content: splitSuggestions(soFar).body }),
           controller.signal,
         );
         const { body, suggestions } = splitSuggestions(full);
-        update({
-          content: body || "Sorry — I couldn't put an answer together. Try asking another way.",
-          suggestions,
-          actions,
-          streaming: false,
-        });
+        const content = body || "Sorry — I couldn't put an answer together. Try asking another way.";
+        // With "Automatic", the answer is shown and read in the language it was actually written in.
+        const shown = voice.answerChoice !== 'auto' ? voice.answerChoice : (detectLanguage(content)?.code ?? language);
+        update({ content, suggestions, actions, streaming: false, language: shown });
+        setAnnounce(content);
+        if (voice.speakEnabled && voice.prefs.autoSpeak) speak(assistantId, content, shown, { voiceName: voice.voiceName, rate: voice.rate });
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           setMessages((ms) =>
@@ -425,7 +466,7 @@ export function GuideAiPanel({
         requestAnimationFrame(() => inputRef.current?.focus());
       }
     },
-    [busy, messages, mode, page, slug, restaurantName, planTier, subscriptionStatus],
+    [busy, messages, mode, page, slug, restaurantName, planTier, subscriptionStatus, voice],
   );
 
   const pick = (p: Prompt) => {
@@ -446,8 +487,8 @@ export function GuideAiPanel({
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
   const containerClass = embedded
-    ? 'relative flex flex-col bg-surface rounded-lg border border-border overflow-hidden h-[560px]'
-    : 'relative flex flex-col bg-surface overflow-hidden h-full';
+    ? 'relative flex flex-col bg-surface text-body rounded-lg border border-border overflow-hidden h-[560px]'
+    : 'relative flex flex-col bg-surface text-body overflow-hidden h-full';
 
   return (
     <div className={containerClass}>
@@ -457,34 +498,92 @@ export function GuideAiPanel({
           <ChefHat size={16} strokeWidth={2.4} />
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-bold leading-tight truncate">AI Guide</div>
-          <div className="text-[10px] text-ink-muted leading-tight truncate">
+          <div className="text-[0.8125rem] font-bold leading-tight truncate">AI Guide</div>
+          <div className="text-[0.625rem] text-ink-muted leading-tight truncate">
             {mode === 'portal' ? 'Setup help & answers for your portal' : 'Setup, Supabase & plans — answered in seconds'}
           </div>
         </div>
-        {messages.length > 0 && (
+        <button
+          onClick={() => setSettingsOpen((v) => !v)}
+          aria-expanded={settingsOpen}
+          aria-controls="guide-voice-settings"
+          className={`flex h-8 items-center gap-1 rounded-lg px-2 text-[0.6875rem] font-semibold hover:bg-white/10 ${settingsOpen ? 'bg-white/10 text-ink-fg' : 'text-ink-muted hover:text-ink-fg'}`}
+          aria-label={`Language and voice settings (answers: ${voice.answerChoice === 'auto' ? 'automatic' : (aiLanguage(voice.answerChoice)?.name ?? voice.answerChoice)})`}
+          title="Language & voice"
+        >
+          <Languages size={14} aria-hidden />
+          <span aria-hidden>{voice.answerChoice === 'auto' ? 'Auto' : (aiLanguage(voice.answerChoice)?.native ?? voice.answerChoice)}</span>
+        </button>
+        {messages.length > 0 && tab === 'help' && (
           <button
             onClick={clearChat}
-            className="grid h-7 w-7 place-items-center rounded-lg text-ink-muted hover:text-ink-fg hover:bg-white/10"
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-muted hover:text-ink-fg hover:bg-white/10"
             aria-label="Start a new conversation"
             title="New conversation"
           >
-            <RotateCcw size={13} />
+            <RotateCcw size={13} aria-hidden />
           </button>
         )}
         {onClose && (
           <button
             onClick={onClose}
-            className="grid h-7 w-7 place-items-center rounded-lg text-ink-muted hover:text-ink-fg hover:bg-white/10"
-            aria-label="Close guide"
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-muted hover:text-ink-fg hover:bg-white/10"
+            aria-label="Close AI Guide"
           >
-            <X size={15} />
+            <X size={15} aria-hidden />
           </button>
         )}
       </div>
 
+      {settingsOpen && (
+        <div id="guide-voice-settings" className="max-h-[55%] shrink-0 overflow-y-auto border-b border-border bg-main p-3">
+          <AiVoiceSettings
+            voice={voice}
+            answerLanguage={lastAnswerLanguage(messages) ?? (voice.answerChoice !== 'auto' ? voice.answerChoice : voice.micLanguage)}
+            onClose={() => setSettingsOpen(false)}
+          />
+        </div>
+      )}
+
+      {dataPanel && (
+        <div role="tablist" aria-label="What to ask" className="flex shrink-0 gap-1 border-b border-border bg-surface px-3 pt-2">
+          {(
+            [
+              ['help', 'How-to help'],
+              ['data', 'Your restaurant data'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              id={`guide-tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls={`guide-tabpanel-${key}`}
+              onClick={() => setTab(key)}
+              className={`-mb-px rounded-t-lg border-b-2 px-3 py-1.5 text-[0.75rem] font-semibold ${
+                tab === key ? 'border-gold text-body' : 'border-transparent text-muted hover:text-body'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {dataPanel && tab === 'data' && (
+        <div role="tabpanel" id="guide-tabpanel-data" aria-labelledby="guide-tab-data" className="flex min-h-0 flex-1 flex-col">
+          {dataPanel}
+        </div>
+      )}
+      <div
+        role={dataPanel ? 'tabpanel' : undefined}
+        id={dataPanel ? 'guide-tabpanel-help' : undefined}
+        aria-labelledby={dataPanel ? 'guide-tab-help' : undefined}
+        hidden={!!dataPanel && tab !== 'help'}
+        className={!!dataPanel && tab !== 'help' ? 'hidden' : 'relative flex min-h-0 flex-1 flex-col'}
+      >
+
       {mode === 'portal' && restaurantName && (
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-main border-b border-border text-[11px] shrink-0">
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-main border-b border-border text-[0.6875rem] shrink-0">
           <span className="h-1.5 w-1.5 rounded-full bg-ok shrink-0" />
           <span className="font-semibold text-body truncate">{restaurantName}</span>
           {planTier && (
@@ -494,7 +593,7 @@ export function GuideAiPanel({
           )}
           {subscriptionStatus && (
             <span
-              className={`shrink-0 rounded-full px-2 py-0.5 font-semibold capitalize text-[10px] ${
+              className={`shrink-0 rounded-full px-2 py-0.5 font-semibold capitalize text-[0.625rem] ${
                 subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
                   ? 'bg-ok/10 text-ok border border-ok/30'
                   : 'bg-danger/10 text-danger border border-danger/30'
@@ -537,21 +636,21 @@ export function GuideAiPanel({
         {messages.length === 0 && (
           <div className="space-y-3">
             <div className="rounded-xl bg-main border border-border p-3">
-              <div className="text-[13px] font-bold">
+              <div className="text-[0.8125rem] font-bold">
                 {mode === 'portal' ? `Hi${restaurantName ? `, ${restaurantName} team` : ''} 👋` : 'Hi, I’m your setup guide 👋'}
               </div>
-              <p className="text-[11px] text-muted mt-0.5 leading-snug">
+              <p className="text-[0.6875rem] text-muted mt-0.5 leading-snug">
                 {mode === 'portal'
                   ? 'Ask me how to set anything up, or tell me what’s not working — I’ll point you to the exact screen.'
                   : 'I’ll explain what you get, how setup and Supabase work, and help you pick a plan. No sign-up needed.'}
               </p>
-              <div className="mt-2 flex items-center gap-1 text-[10px] text-muted">
+              <div className="mt-2 flex items-center gap-1 text-[0.625rem] text-muted">
                 <ShieldCheck size={11} className="text-ok" /> I never need your passwords or keys.
               </div>
             </div>
             {groups.map((g) => (
               <div key={g.title}>
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-muted mb-1.5">
+                <div className="flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-1.5">
                   <span className="text-gold">{g.icon}</span>
                   {g.title}
                 </div>
@@ -561,7 +660,7 @@ export function GuideAiPanel({
                       key={p.text}
                       onClick={() => pick(p)}
                       disabled={busy}
-                      className="w-full text-left rounded-lg border border-border bg-surface px-3 py-2 text-[12px] hover:border-gold/60 hover:bg-main transition-colors"
+                      className="w-full text-left rounded-lg border border-border bg-surface px-3 py-2 text-[0.75rem] hover:border-gold/60 hover:bg-main transition-colors"
                     >
                       {p.label}
                     </button>
@@ -572,7 +671,7 @@ export function GuideAiPanel({
             {mode === 'public' && (
               <a
                 href="/get-started"
-                className="flex items-center justify-center gap-1.5 rounded-lg bg-gold text-ink px-3 py-2 text-[12px] font-bold hover:opacity-90"
+                className="flex items-center justify-center gap-1.5 rounded-lg bg-gold text-ink px-3 py-2 text-[0.75rem] font-bold hover:opacity-90"
               >
                 <Rocket size={13} /> Start setup — about 15 minutes
               </a>
@@ -580,33 +679,48 @@ export function GuideAiPanel({
           </div>
         )}
 
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-[88%] rounded-2xl px-3 py-2 text-[12.5px] leading-relaxed ${
-                m.role === 'user' ? 'bg-ink text-ink-fg rounded-br-md' : 'bg-main border border-border text-body rounded-bl-md'
-              }`}
-            >
-              {m.role === 'assistant' ? (
-                m.content ? (
-                  <>
-                    <RichText text={m.content} />
-                    {m.streaming && <span className="inline-block w-1.5 h-3.5 align-middle bg-muted/60 animate-pulse ml-0.5" />}
-                  </>
+        {messages.map((m) => {
+          // Each bubble carries its own language and direction, so Urdu and
+          // Arabic read right-to-left and English inside them stays readable.
+          const lang = m.role === 'assistant' ? m.language : detectLanguage(m.content)?.code;
+          const rtl = isRtlLanguage(lang);
+          return (
+            <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                lang={lang}
+                dir={m.role === 'assistant' ? (rtl ? 'rtl' : 'ltr') : 'auto'}
+                className={`max-w-[88%] rounded-2xl px-3 py-2 text-[0.78125rem] leading-relaxed text-start ${rtl ? 'leading-loose' : ''} ${
+                  m.role === 'user' ? 'bg-ink text-ink-fg rounded-ee-md' : 'bg-main border border-border text-body rounded-es-md'
+                }`}
+              >
+                <span className="sr-only">{m.role === 'user' ? 'You said: ' : 'AI Guide: '}</span>
+                {m.role === 'assistant' ? (
+                  m.content ? (
+                    <>
+                      <RichText text={m.content} />
+                      {m.streaming && <span className="inline-block w-1.5 h-3.5 align-middle bg-muted/60 motion-safe:animate-pulse ms-0.5" aria-hidden />}
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-muted" role="status">
+                      <span className="sr-only">Thinking…</span>
+                      <span className="h-1.5 w-1.5 rounded-full bg-muted motion-safe:animate-bounce [animation-delay:-0.2s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 rounded-full bg-muted motion-safe:animate-bounce [animation-delay:-0.1s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 rounded-full bg-muted motion-safe:animate-bounce" aria-hidden />
+                    </span>
+                  )
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-muted" aria-label="Thinking">
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce [animation-delay:-0.2s]" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce [animation-delay:-0.1s]" />
-                    <span className="h-1.5 w-1.5 rounded-full bg-muted animate-bounce" />
-                  </span>
-                )
-              ) : (
-                <span className="whitespace-pre-wrap">{m.content}</span>
-              )}
-              {m.actions && !m.streaming && <ActionButtons actions={m.actions} />}
+                  <span className="whitespace-pre-wrap">{m.content}</span>
+                )}
+                {m.actions && !m.streaming && <ActionButtons actions={m.actions} />}
+                {m.role === 'assistant' && m.content && !m.streaming && voice.speakEnabled && (
+                  <div className="mt-1 -ms-1.5" dir="ltr">
+                    <SpeakControls id={m.id} text={m.content} language={m.language ?? 'en'} voice={voice} />
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {!busy && lastAssistant?.suggestions && lastAssistant.suggestions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pl-1">
@@ -614,7 +728,7 @@ export function GuideAiPanel({
               <button
                 key={s}
                 onClick={() => pick({ label: s, text: s })}
-                className="rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1 text-[11px] font-semibold text-body hover:bg-gold/20 transition-colors"
+                className="rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1 text-[0.6875rem] font-semibold text-body hover:bg-gold/20 transition-colors"
               >
                 {s}
               </button>
@@ -623,18 +737,27 @@ export function GuideAiPanel({
         )}
 
         {error && (
-          <div className="text-xs text-danger bg-danger/10 rounded-lg px-3 py-2 border border-danger/30">{error}</div>
+          <div role="alert" className="text-xs text-danger bg-danger/10 rounded-lg px-3 py-2 border border-danger/30">
+            <strong>Couldn&rsquo;t get an answer: </strong>
+            {error}
+          </div>
         )}
         <div ref={bottomRef} />
+      </div>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {announce ? `AI Guide answered: ${announce}` : ''}
       </div>
 
       {/* Input */}
       <div className="border-t border-border p-3 shrink-0 bg-surface">
+        {voice.micEnabled && <VoiceStatus mic={mic} language={voice.micLanguage} />}
         <div className="flex items-end gap-2 rounded-xl border border-border bg-main px-2.5 py-1.5 focus-within:border-gold/60">
           <textarea
             ref={inputRef}
             value={input}
             rows={1}
+            dir="auto"
+            aria-label={mode === 'portal' ? 'Ask the AI Guide' : 'Ask the AI Guide about setup, Supabase or plans'}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && input.trim()) {
@@ -644,32 +767,40 @@ export function GuideAiPanel({
             }}
             placeholder={mode === 'portal' ? 'Ask how to set something up…' : 'Ask about setup, Supabase, plans…'}
             disabled={busy}
-            className="flex-1 min-w-0 resize-none bg-transparent py-1 text-[12.5px] outline-none disabled:opacity-60 placeholder:text-muted max-h-24"
+            className="flex-1 min-w-0 resize-none bg-transparent py-1 text-[0.78125rem] outline-none disabled:opacity-60 placeholder:text-muted max-h-24"
           />
+          {voice.micEnabled && !busy && <MicButton mic={mic} language={voice.micLanguage} />}
           {busy ? (
             <button
               onClick={() => abortRef.current?.abort()}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-border text-body hover:bg-surface shrink-0"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border text-body hover:bg-surface shrink-0"
               aria-label="Stop answering"
             >
-              <Square size={12} />
+              <Square size={12} aria-hidden />
             </button>
           ) : (
             <button
               onClick={() => void send(input)}
               disabled={!input.trim()}
-              className="grid h-8 w-8 place-items-center rounded-lg bg-ink text-ink-fg hover:opacity-85 disabled:opacity-35 transition-opacity shrink-0"
+              className="grid h-9 w-9 place-items-center rounded-lg bg-ink text-ink-fg hover:opacity-85 disabled:opacity-35 transition-opacity shrink-0"
               aria-label="Send"
             >
-              <Send size={13} />
+              <Send size={13} aria-hidden />
             </button>
           )}
         </div>
-        <div className="text-[9.5px] text-muted mt-1.5 text-center">
+        <div className="text-[0.59375rem] text-muted mt-1.5 text-center">
           AI can make mistakes — check anything important. Never share passwords or keys.
         </div>
       </div>
+      </div>
     </div>
   );
+}
+
+/** The language of the most recent answer, for picking a voice. */
+function lastAnswerLanguage(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.role === 'assistant' && messages[i]!.language) return messages[i]!.language;
+  return undefined;
 }
 

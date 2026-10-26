@@ -43,7 +43,7 @@ export function PricingComparison({ plans }: { plans: PlanRow[] }) {
   const ROWS = rowsFor(plans);
 
   return (
-    <div className="overflow-x-auto -mx-5 px-5 md:mx-0 md:px-0">
+    <div className="overflow-x-auto -mx-5 px-5 md:mx-0 md:px-0" tabIndex={0} role="group" aria-label="Table — scroll to see more">
       <table className="w-full min-w-[560px] border-separate border-spacing-0 text-sm">
         <thead>
           <tr>

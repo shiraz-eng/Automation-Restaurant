@@ -19,9 +19,9 @@ export function StatCard({
           : 'text-body';
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-5">
+    <div className="min-w-0 rounded-lg border border-border bg-surface p-5">
       <div className="text-muted text-xs font-semibold">{label}</div>
-      <div className={`mt-2 text-2xl font-black ${toneClass}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-black leading-tight [overflow-wrap:anywhere] ${toneClass}`}>{value}</div>
       {hint && <div className="mt-1 text-xs text-muted">{hint}</div>}
     </div>
   );

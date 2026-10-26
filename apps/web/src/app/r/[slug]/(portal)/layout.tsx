@@ -10,6 +10,7 @@ import { roleLabel } from '@/lib/portals';
 import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
 import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
+import { AccessibilityMenu } from '@/components/AccessibilityMenu';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 import { LayoutDashboard, type LucideIcon } from 'lucide-react';
@@ -166,17 +167,17 @@ export default async function PortalLayout({
   // The sidebar: the desktop column and, on phones, the drawer opened from the top bar.
   const sidebar = (
     <>
-      <div className="p-5 pb-4 pr-12 md:pr-5">
+      <div className="p-5 pb-4 pr-12 lg:pr-5">
         {logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-9 max-w-[9rem] object-contain mb-3" />
         )}
         <div className="font-black text-base leading-tight text-body">{t.config.restaurantName}</div>
-        <div className="text-muted text-[11px] mt-0.5">
+        <div className="text-muted text-[0.6875rem] mt-0.5">
           /{slug}
           {t.config.tier ? ` · ${t.config.tier}` : ''}
         </div>
-        <div className="text-[10px] font-bold uppercase tracking-wide text-primary mt-2">
+        <div className="text-[0.625rem] font-bold uppercase tracking-wide text-primary mt-2">
           {role === 'owner' ? 'Owner Admin' : `${roleLabel(role)} Portal`}
         </div>
         {showSwitcher && (
@@ -186,7 +187,7 @@ export default async function PortalLayout({
         )}
         {isBranchWorkspace && (
           <div className="mt-3 rounded border border-primary/30 bg-primary/10 px-3 py-2 space-y-1">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-muted">Branch workspace · {t.config.branchCode}</div>
+            <div className="text-[0.625rem] font-bold uppercase tracking-wide text-muted">Branch workspace · {t.config.branchCode}</div>
             {role === 'owner' && (
               <a href={`/r/${t.config.parentSlug}`} className="block text-xs font-semibold text-primary hover:underline">
                 ← Back to the owner panel
@@ -198,7 +199,7 @@ export default async function PortalLayout({
       <nav className="flex-1 flex flex-col gap-4 px-3 pb-5" aria-label="Main">
         {visibleGroups.map(([group, items]) => (
           <div key={group ?? 'modules'}>
-            {group && <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
+            {group && <div className="px-3 mb-1 text-[0.625rem] font-bold uppercase tracking-wider text-muted/70">{group}</div>}
             <div className="flex flex-col gap-0.5">
               {items.map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder, feature }) => {
                 const rawBadge = feature && !ent.isEntitled(feature) ? ent.requiredPlanName(feature) : null;
@@ -209,7 +210,7 @@ export default async function PortalLayout({
                       {Icon && <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden />}
                       <span className="flex-1 truncate">{label}</span>
                       {badge && (
-                        <span className="text-[9px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                        <span className="text-[0.5625rem] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
                           {badge}
                         </span>
                       )}
@@ -237,8 +238,11 @@ export default async function PortalLayout({
       expectedUserId={user.id}
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <div className="min-h-screen flex bg-main">
-        <aside className="hidden md:flex md:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
+        <aside aria-label="Sidebar" className="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
           {sidebar}
         </aside>
 
@@ -246,27 +250,28 @@ export default async function PortalLayout({
           <header className="flex items-center justify-between gap-3 sm:gap-4 border-b border-border bg-surface px-4 sm:px-6 md:px-10 h-16 shrink-0">
             <PortalMobileDrawer title={`${t.config.restaurantName} menu`}>{sidebar}</PortalMobileDrawer>
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] text-muted truncate">
+              <div className="text-[0.6875rem] text-muted truncate">
                 {t.config.restaurantName} / {roleLabel(role)}
               </div>
               <ModuleTrail slug={slug} fallback="Command Center" />
             </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-border bg-main px-3 py-1 text-[11px] font-semibold text-body">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <AccessibilityMenu />
+              <span className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-border bg-main px-3 py-1 text-[0.6875rem] font-semibold text-body">
                 <span className="h-1.5 w-1.5 rounded-full bg-ok" />
                 {t.config.subscriptionStatus ?? 'Active'}
                 {t.config.tier ? ` · ${t.config.tier}` : ''}
               </span>
-              <div className="hidden sm:flex items-center gap-2 rounded-full border border-border bg-main pl-1 pr-3 py-1">
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-fg text-[10px] font-bold uppercase">
+              <div className="hidden sm:flex min-w-0 items-center gap-2 rounded-full border border-border bg-main pl-1 pr-3 py-1">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-fg text-[0.625rem] font-bold uppercase">
                   {(user.email ?? '?').slice(0, 1)}
                 </span>
-                <span className="text-[11px] font-semibold text-body capitalize">{role}</span>
+                <span className="max-w-[7rem] truncate text-[0.6875rem] font-semibold text-body capitalize">{role}</span>
               </div>
             </div>
           </header>
-          {/* Phones: the sidebar is hidden, so the same entries scroll across under the top bar. */}
-          <nav aria-label="Main" className="md:hidden flex gap-1 overflow-x-auto no-scrollbar border-b border-border bg-surface px-4 py-2 text-sm">
+          {/* Phones and tablets (below 1024px): the sidebar is in the drawer, so the same entries scroll across under the top bar. */}
+          <nav aria-label="Main" className="lg:hidden flex gap-1 overflow-x-auto no-scrollbar border-b border-border bg-surface px-4 py-2 text-sm">
             {visibleGroups.flatMap(([, items]) => items).map(({ key, label, href: to, icon: Icon, exact, alsoActive, notUnder }) => (
               <NavLink key={key} href={to} exact={exact} alsoActive={alsoActive} notUnder={notUnder} revealWhenActive>
                 <span className="flex items-center gap-2 whitespace-nowrap">
@@ -278,7 +283,9 @@ export default async function PortalLayout({
           </nav>
           <ModuleSubNav slug={slug} navs={subNavs} />
           {/* Phones: room at the bottom so the floating AI Guide button never hides the last controls. */}
-          <main className="flex-1 min-w-0 p-4 pb-24 sm:p-6 sm:pb-24 md:p-10 bg-main">{children}</main>
+          <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 p-4 pb-24 sm:p-6 sm:pb-24 md:p-10 bg-main focus:outline-none">
+            {children}
+          </main>
         </div>
       </div>
       <PortalGuideAiWidget
@@ -286,6 +293,8 @@ export default async function PortalLayout({
         restaurantName={t.config.restaurantName}
         planTier={t.config.tier ?? undefined}
         subscriptionStatus={t.config.subscriptionStatus ?? undefined}
+        // Same gates as the Assistant page; the API checks them again on every question.
+        canUseAssistant={can(perms, role, 'ai.view') && ent.isEntitled('analytics.advanced')}
       />
     </PortalProvider>
   );

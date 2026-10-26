@@ -11,6 +11,9 @@ import { buildExcelWorkbook, EXCEL_DOMAIN_SHEETS } from '../lib/excelExport';
 import { extractPdfText, extractPlainText, wrapUntrustedDocument } from '../lib/aiDocumentEngine';
 import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPart, type Emitter } from '../lib/geminiStream';
 import { openConversation, saveExchange, compact } from '../lib/aiChatStore';
+import { isAiModuleKey, languageInstruction, moduleFocusInstruction, normalizeLanguageChoice, responseLanguageChoice, detectLanguage, type AiModuleKey } from '@automation-restaurant/shared';
+import { loadAiSettings } from '../lib/aiModuleSettings';
+import { chatTarget } from '../lib/aiRegistry';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -234,6 +237,10 @@ const bodySchema = z.object({
   stream: z.boolean().optional(),
   /** The saved chat to continue (omit to start a new one). */
   conversationId: z.string().uuid().optional(),
+  /** The portal module the person is working in (packages/shared aiConfig) — shapes focus, model and language, never access. */
+  module: z.string().max(32).optional(),
+  /** This device's chosen answer language ('auto' = follow the module setting / the message). */
+  responseLanguage: z.string().max(12).optional(),
 });
 type ChatMsg = z.infer<typeof bodySchema>['messages'][number];
 /** A file the viewer attached, loaded for the model; keyed by message index. */
@@ -463,6 +470,7 @@ export async function runGemini(
   actor: Actor,
   files: FilesByIndex = new Map(),
   emit: Emitter = noEmit,
+  model: string | null = null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -499,7 +507,7 @@ export async function runGemini(
       emit.delta(text);
     };
     // geminiTurn retries on 429/503 itself (never after text has streamed).
-    const content = await geminiTurn(contents, declared, system, onText);
+    const content = await geminiTurn(contents, declared, system, onText, undefined, model);
     const calls = content.parts.filter(
       (p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p,
     );
@@ -618,6 +626,7 @@ async function runAnthropic(
   actor: Actor,
   files: FilesByIndex = new Map(),
   emit: Emitter = noEmit,
+  model: string | null = null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -656,7 +665,7 @@ async function runAnthropic(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await withRetry(() =>
       anthropic.messages.create({
-        model: env.AI_MODEL,
+        model: model ?? env.AI_MODEL,
         max_tokens: 4096,
         system,
         tools: declared.map((t) => ({
@@ -769,20 +778,36 @@ aiRouter.post(
     const allowedActions = permits(permissions, role, 'ai.execute_write')
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
-    const [timeLine, workspace] = await Promise.all([currentTimeLine(admin), workspaceLine(req.tenant!.slug, role)]);
-    const system = SYSTEM_PROMPT(req.tenant!.slug, timeLine, workspace);
+    // The module's AI settings (tenant-migrations/0108) pick the model and the
+    // answer language; the tools above stay exactly what this person may use.
+    const aiModule: AiModuleKey = isAiModuleKey(parsed.data.module) ? parsed.data.module : 'global';
+    const [timeLine, workspace, aiSettings] = await Promise.all([
+      currentTimeLine(admin),
+      workspaceLine(req.tenant!.slug, role),
+      loadAiSettings(admin, aiModule),
+    ]);
+    const lastText = parsed.data.messages[parsed.data.messages.length - 1]!.content;
+    const langChoice = responseLanguageChoice(normalizeLanguageChoice(parsed.data.responseLanguage), aiSettings);
+    const answerLanguage = langChoice === 'auto' ? (detectLanguage(lastText)?.code ?? 'en') : langChoice;
+    const system = [SYSTEM_PROMPT(req.tenant!.slug, timeLine, workspace), moduleFocusInstruction(aiModule), languageInstruction(langChoice, lastText)]
+      .filter(Boolean)
+      .join('\n\n');
+    const target = chatTarget(aiSettings) ?? { provider: aiProvider!, model: null };
     const actor: Actor = { userId, email, role, permissions, tenantSlug: req.tenant!.slug };
     const run = (emit: Emitter) =>
-      aiProvider === 'gemini'
-        ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit)
-        : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, files, emit);
+      target.provider === 'gemini'
+        ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit, target.model)
+        : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, files, emit, target.model);
     // Saved chat (tenant-migrations/0081): this person's conversation, or a new one.
     const lastUser = parsed.data.messages[parsed.data.messages.length - 1]!;
     const conversationId = await openConversation(admin, { kind: 'staff', userId }, parsed.data.conversationId, lastUser.content);
     const payload = (result: AgentResult) => ({
       reply: result.reply,
       tools: result.trace,
-      provider: aiProvider,
+      provider: target.provider,
+      model: target.model ?? 'auto',
+      module: aiModule,
+      language: answerLanguage,
       pendingAction: result.pendingAction ?? null,
       profitCard: result.profitCard ?? null,
       orderCard: result.orderCard ?? null,

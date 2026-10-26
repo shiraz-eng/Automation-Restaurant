@@ -25,7 +25,7 @@ function ChartTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload?.[0]) return null;
   const b = payload[0].payload as RevenueExpenseBucket;
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2 text-[11px] shadow-lg space-y-0.5">
+    <div className="rounded-lg border border-border bg-surface px-3 py-2 text-[0.6875rem] shadow-lg space-y-0.5">
       <p className="font-bold text-body mb-1">{b.range}</p>
       <Row color={REVENUE} label="Revenue" cents={b.revenue_cents} />
       {b.cogs_cents != null && <Row color={COGS} label="Food cost" cents={b.cogs_cents} />}

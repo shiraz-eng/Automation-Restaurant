@@ -281,24 +281,24 @@ export function PromotionsManager({
                 className="w-20"
               />
             </Field>
-            <span className="text-[11px] text-muted pb-2">100% = free. The cheapest qualifying units are discounted first.</span>
+            <span className="text-[0.6875rem] text-muted pb-2">100% = free. The cheapest qualifying units are discounted first.</span>
           </div>
         )}
 
         <div className="mt-4 pt-3 border-t border-border">
-          <span className="text-[11px] font-semibold text-muted">
+          <span className="text-[0.6875rem] font-semibold text-muted">
             Schedule &amp; usage limit (optional)
           </span>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <div>
-              <span className="block text-[11px] text-muted mb-1">Days (blank = every day)</span>
+              <span className="block text-[0.6875rem] text-muted mb-1">Days (blank = every day)</span>
               <div className="flex flex-wrap gap-1">
                 {DOW_LABELS.map((label, d) => (
                   <button
                     key={d}
                     type="button"
                     onClick={() => toggleDay(d)}
-                    className={`w-9 h-7 rounded text-[11px] font-semibold border ${
+                    className={`w-9 h-7 rounded text-[0.6875rem] font-semibold border ${
                       days.has(d) ? 'bg-primary text-primary-fg border-primary' : 'border-border text-muted'
                     }`}
                   >
@@ -333,7 +333,7 @@ export function PromotionsManager({
       </Card>
       )}
 
-      <Card className="p-0 overflow-x-auto">
+      <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -363,7 +363,7 @@ export function PromotionsManager({
                   <td className="p-3 font-semibold">
                     {p.name}
                     {p.auto_apply && (
-                      <span className="ml-1.5 rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[10px] font-bold align-middle">
+                      <span className="ml-1.5 rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[0.625rem] font-bold align-middle">
                         AUTO
                       </span>
                     )}

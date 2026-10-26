@@ -21,7 +21,7 @@ const ICON: Record<AvailabilityStatus, typeof CheckCircle2> = {
 export function StatusPill({ status }: { status: AvailabilityStatus }) {
   const Icon = ICON[status];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONE[status]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold ${TONE[status]}`}>
       <Icon size={11} />
       {STATUS_LABEL[status]}
     </span>

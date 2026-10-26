@@ -120,7 +120,7 @@ export function AttendancePortalBoard({
         ).map(([label, n, tone]) => (
           <div key={label} className="rounded-lg border border-border bg-surface p-3">
             <div className={`text-2xl font-black ${tone}`}>{n}</div>
-            <div className="text-[11px] text-muted">{label}</div>
+            <div className="text-[0.6875rem] text-muted">{label}</div>
           </div>
         ))}
       </div>
@@ -143,7 +143,7 @@ export function AttendancePortalBoard({
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-semibold text-sm truncate">{r.full_name ?? '—'}</div>
-                  <div className="text-[11px] text-muted capitalize">
+                  <div className="text-[0.6875rem] text-muted capitalize">
                     {r.role} ·{' '}
                     <span className={STATUS_TONE[r.status] ?? ''}>
                       {r.status.replace('_', ' ')}
@@ -152,7 +152,7 @@ export function AttendancePortalBoard({
                     {r.expected_start ? ` · expected ${hhmm(r.expected_start)}` : ''}
                   </div>
                 </div>
-                <div className="text-[11px] text-muted text-right shrink-0">
+                <div className="text-[0.6875rem] text-muted text-right shrink-0">
                   <div>in {hhmm(r.clock_in)}</div>
                   <div>out {hhmm(r.clock_out)}</div>
                 </div>
@@ -200,7 +200,7 @@ export function AttendancePortalBoard({
                           }),
                         )
                       }
-                      className="rounded border border-border px-2 py-1 text-[11px] capitalize"
+                      className="rounded border border-border px-2 py-1 text-[0.6875rem] capitalize"
                     >
                       {label}
                     </button>

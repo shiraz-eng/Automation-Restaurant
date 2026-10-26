@@ -21,6 +21,7 @@ export type GuideContext = {
   mode: 'public' | 'portal';
   page?: string;       // current pathname for contextual prompts
   slug?: string;       // restaurant slug (portal mode only)
+  language?: string;   // answer language chosen on this device ('auto' = match the question)
 };
 
 export type GuideAction = {
@@ -195,7 +196,7 @@ export async function streamGuideMessage(
   context: GuideStreamContext,
   onText: (textSoFar: string) => void,
   signal?: AbortSignal,
-): Promise<{ actions: GuideAction[]; text: string }> {
+): Promise<{ actions: GuideAction[]; text: string; language: string }> {
   const res = await fetch('/api/guide-ai/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -212,6 +213,7 @@ export async function streamGuideMessage(
   } catch {
     actions = [];
   }
+  const language = res.headers.get('X-Guide-Lang') || 'en';
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -223,5 +225,5 @@ export async function streamGuideMessage(
   }
   text += decoder.decode();
   onText(text);
-  return { actions, text };
+  return { actions, text, language };
 }

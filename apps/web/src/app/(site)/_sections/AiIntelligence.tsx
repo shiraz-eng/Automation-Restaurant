@@ -59,8 +59,8 @@ export function AiIntelligence() {
                 <div className="grid h-10 w-10 place-items-center rounded-xl bg-gold/15 text-gold">
                   <l.icon size={18} strokeWidth={2} />
                 </div>
-                <div className="font-display font-bold text-[15px] mt-3.5">{l.title}</div>
-                <p className="text-ink-muted text-[13px] mt-1.5 leading-relaxed">{l.text}</p>
+                <div className="font-display font-bold text-[0.9375rem] mt-3.5">{l.title}</div>
+                <p className="text-ink-muted text-[0.8125rem] mt-1.5 leading-relaxed">{l.text}</p>
               </div>
             </Reveal>
           ))}

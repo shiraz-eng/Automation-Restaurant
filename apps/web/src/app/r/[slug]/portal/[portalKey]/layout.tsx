@@ -1,3 +1,4 @@
+import { AccessibilityMenu } from '@/components/AccessibilityMenu';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
@@ -59,6 +60,9 @@ export default async function PortalLayout({
       expectedUserId={user.id}
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <div className="min-h-screen flex flex-col bg-main">
         <header className="flex items-center justify-between gap-3 px-4 sm:px-5 h-14 border-b border-border bg-surface shrink-0">
           <div className="flex min-w-0 items-baseline gap-2 sm:gap-3">
@@ -71,15 +75,18 @@ export default async function PortalLayout({
               {portal.name}
             </span>
             {portal.status === 'disabled' && (
-              <span className="text-[10px] font-bold text-danger">DISABLED</span>
+              <span className="text-[0.625rem] font-bold text-danger">⚠ DISABLED</span>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-3 text-xs text-muted">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3 text-xs text-muted">
+            <AccessibilityMenu />
             <span className="hidden sm:inline">{user.email}</span>
             <SignOutButton redirectTo={`/r/${slug}/login`} />
           </div>
         </header>
-        <main className="flex-1 min-w-0 p-4 md:p-8">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1 min-w-0 p-4 md:p-8 focus:outline-none">
+          {children}
+        </main>
       </div>
     </PortalProvider>
   );

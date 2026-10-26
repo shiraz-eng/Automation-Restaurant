@@ -67,7 +67,7 @@ export function PaymentReconciliationPanel() {
       <div className="flex flex-wrap items-end justify-between gap-3 p-3 border-b border-border">
         <div>
           <h3 className="font-bold text-sm">Payment reconciliation</h3>
-          <p className="text-muted text-[11px]">Check each method&rsquo;s takings against your statement, then mark them reconciled.</p>
+          <p className="text-muted text-[0.6875rem]">Check each method&rsquo;s takings against your statement, then mark them reconciled.</p>
         </div>
         <Field label="Business day">
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />
@@ -80,7 +80,7 @@ export function PaymentReconciliationPanel() {
       ) : rows.length === 0 ? (
         <p className="p-3 text-muted text-xs">No payments on this day.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
@@ -203,7 +203,7 @@ export function CashCountPanel() {
   return (
     <Card>
       <h3 className="font-bold text-sm">Cash count</h3>
-      <p className="text-muted text-[11px] mb-3">Count the drawer — the difference is against opening float plus cash taken that day.</p>
+      <p className="text-muted text-[0.6875rem] mb-3">Count the drawer — the difference is against opening float plus cash taken that day.</p>
       <form onSubmit={submit} className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
         <Field label="Business day">
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -223,7 +223,7 @@ export function CashCountPanel() {
       </form>
       {error && <p className="text-danger text-xs mt-2">{error}</p>}
       {rows.length > 0 && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
           <table className="w-full text-left text-xs tabular-nums">
             <thead className="text-muted border-b border-border">
               <tr>

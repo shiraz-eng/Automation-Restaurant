@@ -22,7 +22,7 @@ export function MenuSummary({ stats }: { stats: SummaryStat[] }) {
           >
             {s.value}
           </div>
-          <div className="text-muted text-[11px] font-semibold mt-1">{s.label}</div>
+          <div className="text-muted text-[0.6875rem] font-semibold mt-1">{s.label}</div>
         </div>
       ))}
     </div>

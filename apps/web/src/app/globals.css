@@ -105,3 +105,201 @@ body {
     transform: none !important;
   }
 }
+
+/* ── Accessibility (lib/a11y.ts) ─────────────────────────────────────────
+   Preferences are data attributes on <html>, set before first paint by the
+   root layout and changed from the Accessibility menu. They change real
+   rendering: root text size (every rem-based size follows), colour tokens,
+   motion, link styling, text spacing and control sizes. */
+
+:root {
+  /* Focus ring: visible on every surface, in both themes. */
+  --focus: 37 99 235;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --focus: 96 165 250;
+  }
+}
+:root[data-theme='dark'] {
+  --focus: 96 165 250;
+}
+
+/* Keyboard focus is always visible (inputs that use outline-none included). */
+:focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
+}
+:root[data-a11y-contrast='high'] :focus-visible {
+  outline-width: 3px;
+}
+
+/* Visually hidden until focused: the "Skip to main content" link. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -10rem;
+  z-index: 100;
+  border-radius: 0.5rem;
+  background: rgb(var(--bg-surface));
+  color: rgb(var(--text-body));
+  padding: 0.5rem 0.875rem;
+  font-weight: 700;
+  font-size: 0.875rem;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+}
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+/* Text size. */
+:root[data-a11y-text='112'] {
+  font-size: 112.5%;
+}
+:root[data-a11y-text='125'] {
+  font-size: 125%;
+}
+:root[data-a11y-text='150'] {
+  font-size: 150%;
+}
+
+/* High contrast: darker text and muted text, stronger borders and status colours. */
+:root[data-a11y-contrast='high']:not([data-theme='dark']) {
+  --bg-main: 255 255 255;
+  --bg-surface: 255 255 255;
+  --border-color: 71 85 105;
+  --text-body: 0 0 0;
+  --text-muted: 30 41 59;
+  --ok: 4 108 78;
+  --warn: 146 64 14;
+  --danger: 176 17 54;
+  --ink-muted: 228 228 231;
+  --gold: 161 98 7;
+  --focus: 29 78 216;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-a11y-contrast='high']:not([data-theme='light']) {
+    --bg-main: 0 0 0;
+    --bg-surface: 10 10 12;
+    --border-color: 161 161 170;
+    --text-body: 255 255 255;
+    --text-muted: 228 228 231;
+    --ok: 74 222 128;
+    --warn: 251 191 36;
+    --danger: 251 113 133;
+    --ink-muted: 228 228 231;
+    --gold: 250 204 21;
+    --focus: 147 197 253;
+  }
+}
+:root[data-theme='dark'][data-a11y-contrast='high'] {
+  --bg-main: 0 0 0;
+  --bg-surface: 10 10 12;
+  --border-color: 161 161 170;
+  --text-body: 255 255 255;
+  --text-muted: 228 228 231;
+  --ok: 74 222 128;
+  --warn: 251 191 36;
+  --danger: 251 113 133;
+  --ink-muted: 228 228 231;
+  --gold: 250 204 21;
+  --focus: 147 197 253;
+}
+/* Faded helper text (opacity-60 etc.) is shown at full strength; disabled controls keep their cue. */
+:root[data-a11y-contrast='high'] :is(.opacity-50, .opacity-60, .opacity-70, .opacity-75, .opacity-80):not(:disabled):not([aria-disabled='true']) {
+  opacity: 1;
+}
+
+/* Reduced motion: the OS setting, or the in-app choice. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-a11y-motion='reduce'] *,
+:root[data-a11y-motion='reduce'] *::before,
+:root[data-a11y-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+:root[data-a11y-motion='reduce'] .site-reveal {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Underlined links. */
+:root[data-a11y-links='underline'] a[href] {
+  text-decoration-line: underline !important;
+  text-underline-offset: 0.18em;
+}
+
+/* Wider text spacing (WCAG 1.4.12 values). */
+:root[data-a11y-spacing='wide'] body {
+  letter-spacing: 0.06em;
+  word-spacing: 0.16em;
+}
+:root[data-a11y-spacing='wide'] :is(p, li, dd, td, label, blockquote) {
+  line-height: 1.6 !important;
+}
+
+/* Larger touch targets. */
+:root[data-a11y-targets='large']
+  :is(button, [role='button'], [role='tab'], select, summary, input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden'])) {
+  min-height: 2.75rem;
+}
+:root[data-a11y-targets='large'] :is(button, [role='button'], [role='tab']) {
+  min-width: 2.75rem;
+}
+:root[data-a11y-targets='large'] :is(input[type='checkbox'], input[type='radio']) {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+/* Readable text colours (WCAG AA 4.5:1). Fills and borders keep the brand and
+   status colours; text-primary / text-ok / text-warn / text-danger read these
+   (tailwind.config.ts textColor). --primary-text-light/-dark are computed from
+   the Brand Kit colour in lib/theme.ts. */
+:root {
+  --primary-text: var(--primary-text-light, var(--primary));
+  --ok-text: 4 120 87;
+  --warn-text: 180 83 9;
+  --danger-text: 190 18 60;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --primary-text: var(--primary-text-dark, 212 212 216);
+    --ok-text: 52 211 153;
+    --warn-text: 251 191 36;
+    --danger-text: 251 113 133;
+  }
+}
+:root[data-theme='dark'] {
+  --primary-text: var(--primary-text-dark, 212 212 216);
+  --ok-text: 52 211 153;
+  --warn-text: 251 191 36;
+  --danger-text: 251 113 133;
+}
+:root[data-a11y-contrast='high']:not([data-theme='dark']) {
+  --ok-text: 4 96 69;
+  --warn-text: 124 45 18;
+  --danger-text: 159 18 57;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-a11y-contrast='high']:not([data-theme='light']) {
+    --ok-text: 110 231 183;
+    --warn-text: 252 211 77;
+    --danger-text: 253 164 175;
+  }
+}
+:root[data-theme='dark'][data-a11y-contrast='high'] {
+  --ok-text: 110 231 183;
+  --warn-text: 252 211 77;
+  --danger-text: 253 164 175;
+}

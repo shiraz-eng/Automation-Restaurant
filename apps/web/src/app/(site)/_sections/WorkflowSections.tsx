@@ -34,13 +34,13 @@ export function OperationsKitchenSection() {
       visual={
         <PhotoWithMockup src="/images/kitchen-hero.jpg" alt="A chef working the line in a busy restaurant kitchen">
           <div className="p-3">
-            <div className="flex items-center justify-between text-[10px] font-bold mb-1.5">
+            <div className="flex items-center justify-between text-[0.625rem] font-bold mb-1.5">
               Kitchen Display
-              <span className="rounded-full bg-ok/20 text-ok px-1.5 py-0.5 text-[8.5px]">Live</span>
+              <span className="rounded-full bg-ok/20 text-ok px-1.5 py-0.5 text-[0.53125rem]">Live</span>
             </div>
             <ul className="space-y-1">
               {KDS_TICKETS.map((t) => (
-                <li key={t.table} className="flex items-center justify-between text-[10px]">
+                <li key={t.table} className="flex items-center justify-between text-[0.625rem]">
                   <span className="text-ink-muted">{t.table}</span>
                   <span className={`rounded px-1.5 py-0.5 font-semibold ${KDS_STATUS_CLS[t.status]}`}>{t.status}</span>
                 </li>
@@ -78,9 +78,9 @@ export function InventoryRecipesSection() {
       visual={
         <PhotoWithMockup src="/images/ingredients-prep.jpg" alt="Fresh ingredients being prepped in a restaurant kitchen">
           <div className="p-3">
-            <div className="flex items-center justify-between text-[10px] font-bold mb-1.5">
+            <div className="flex items-center justify-between text-[0.625rem] font-bold mb-1.5">
               Inventory
-              <span className="rounded-full bg-danger/25 text-danger px-1.5 py-0.5 text-[8.5px]">3 low</span>
+              <span className="rounded-full bg-danger/25 text-danger px-1.5 py-0.5 text-[0.53125rem]">3 low</span>
             </div>
             <ul className="space-y-1">
               {[
@@ -88,11 +88,12 @@ export function InventoryRecipesSection() {
                 { name: 'Cooking Oil (L)', qty: '9.93', status: 'ok' },
                 { name: 'Coke 500ml', qty: '40', status: 'ok' },
               ].map((r) => (
-                <li key={r.name} className="flex items-center justify-between text-[10px]">
+                <li key={r.name} className="flex items-center justify-between text-[0.625rem]">
                   <span className="text-ink-muted">{r.name}</span>
                   <span className="flex items-center gap-1.5">
                     <span className="font-mono text-ink-fg">{r.qty}</span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${r.status === 'low' ? 'bg-danger' : 'bg-ok'}`} />
+                    <span className={`h-1.5 w-1.5 rounded-full ${r.status === 'low' ? 'bg-danger' : 'bg-ok'}`} aria-hidden />
+                    <span className={r.status === 'low' ? 'font-bold text-danger' : 'sr-only'}>{r.status === 'low' ? 'low' : 'ok'}</span>
                   </span>
                 </li>
               ))}

@@ -33,7 +33,7 @@ export function ProductGridCard({
       </div>
       <div className="p-3">
         <div className="font-bold text-sm truncate">{item.name}</div>
-        {item.description && <p className="text-muted text-[11px] truncate mt-0.5">{item.description}</p>}
+        {item.description && <p className="text-muted text-[0.6875rem] truncate mt-0.5">{item.description}</p>}
         <div className="flex items-center justify-between mt-2">
           <span className="font-mono font-semibold text-sm">{hasChoices ? `from ${formatCents(price)}` : formatCents(price)}</span>
           <StatusPill status={status} />

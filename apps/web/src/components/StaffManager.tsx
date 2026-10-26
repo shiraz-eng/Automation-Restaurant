@@ -166,7 +166,7 @@ export function StaffManager({
               {busy ? 'Adding…' : 'Add'}
             </Button>
           </form>
-          <p className="text-muted text-[11px] mt-2">
+          <p className="text-muted text-[0.6875rem] mt-2">
             Shift start is this person&rsquo;s default expected clock-in time — used to mark them
             late if they check in after it (plus the configured grace period), on any day without
             an explicit shift scheduled. Leave blank if you always schedule shifts instead.
@@ -182,7 +182,7 @@ export function StaffManager({
         </div>
       )}
 
-      <Card className="p-0 overflow-x-auto">
+      <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
         <table className="w-full text-left text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
@@ -209,7 +209,7 @@ export function StaffManager({
                   <tr key={m.id} className="border-b border-border/60">
                     <td className="p-3">
                       <div className="font-semibold">{m.full_name ?? '—'}</div>
-                      {m.email && <div className="text-muted text-[11px]">{m.email}</div>}
+                      {m.email && <div className="text-muted text-[0.6875rem]">{m.email}</div>}
                     </td>
                     <td className="p-3">
                       {canEditShift && !isOwner ? (

@@ -16,7 +16,7 @@ export function HowItWorks() {
           <Reveal key={s.n} delay={i * 70}>
             <div>
               <div className="font-display text-3xl font-bold text-black/20">{s.n}</div>
-              <div className="font-display font-bold text-[15px] mt-2">{s.title}</div>
+              <div className="font-display font-bold text-[0.9375rem] mt-2">{s.title}</div>
               <p className="text-muted text-sm mt-1.5 leading-relaxed">{s.text}</p>
             </div>
           </Reveal>
