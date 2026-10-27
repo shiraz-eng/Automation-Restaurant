@@ -74,7 +74,7 @@ export function DealSheet({
           )}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 text-white grid place-items-center backdrop-blur"
+            className="absolute top-3 end-3 w-8 h-8 rounded-full bg-black/50 text-white grid place-items-center backdrop-blur"
             aria-label="Close"
           >
             <X size={16} />
@@ -111,7 +111,7 @@ export function DealSheet({
                       <button
                         key={o.id}
                         onClick={() => toggle(g, o.id)}
-                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-left transition-colors ${
+                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-start transition-colors ${
                           checked ? 'border-primary bg-primary/5' : 'border-border'
                         }`}
                       >

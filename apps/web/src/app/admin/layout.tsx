@@ -80,7 +80,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen flex bg-ink text-ink-fg">
-      <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-r border-white/10 bg-black/30">
+      <aside className="hidden md:flex md:flex-col w-60 shrink-0 border-e border-white/10 bg-black/30">
         <div className="p-5 pb-4">
           <Link href="/admin" className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold text-ink">

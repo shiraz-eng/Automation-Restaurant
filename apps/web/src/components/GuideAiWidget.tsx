@@ -50,7 +50,7 @@ export function GuideAiWidget({
   };
 
   return (
-    <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 flex flex-col items-end">
+    <div className="fixed bottom-4 end-4 sm:bottom-5 sm:end-5 z-50 flex flex-col items-end">
       {/* Expanded panel: a non-modal dialog — the page behind stays usable. */}
       {isOpen && (
         <div
@@ -97,7 +97,7 @@ export function GuideAiWidget({
           {isOpen ? <X size={16} strokeWidth={2.5} /> : <ChefHat size={16} strokeWidth={2.4} />}
         </span>
         {/* Phones: icon only, so the launcher covers as little of the page as possible. */}
-        <div className="hidden sm:flex flex-col text-left" aria-hidden>
+        <div className="hidden sm:flex flex-col text-start" aria-hidden>
           <span className="text-[0.75rem] font-bold tracking-tight text-white flex items-center gap-1">
             AI Guide
             <Sparkles size={11} className="text-gold" />

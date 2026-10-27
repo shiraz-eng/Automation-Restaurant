@@ -4,9 +4,9 @@ import { normalizeLanguageChoice, detectLanguage, isAiLanguageCode, type AiLangu
  * Per-module AI settings: one restaurant-wide default ('global') plus an
  * optional override for each module. Stored in the restaurant's own database
  * (tenant-migrations/0108, public.ai_module_settings) and only ever written
- * by the API after a permission check and model validation.
+ * by the API after a permission check.
  *
- * Settings shape what the assistant sounds like and which model answers —
+ * Settings shape the languages the assistant uses and whether voice is offered —
  * never what it may see or do. Data access is always the signed-in person's
  * own permissions, whatever a module's settings say.
  */
@@ -87,13 +87,7 @@ export function isAiModuleKey(v: unknown): v is AiModuleKey {
   return typeof v === 'string' && AI_MODULES.some((m) => m.key === v);
 }
 
-export type AiProviderId = 'gemini' | 'anthropic';
-
 export type AiModuleSettings = {
-  /** 'auto' = whichever configured provider the server prefers. */
-  provider: 'auto' | AiProviderId;
-  /** 'auto' = the provider's fastest available model (with backups). */
-  model: string;
   /** Language speech recognition listens for ('auto' = the person's own choice / browser language). */
   inputLanguage: AiLanguageChoice;
   /** Language answers are written in ('auto' = the language of the question). */
@@ -110,8 +104,6 @@ export type AiModuleSettings = {
 export type AiModuleOverride = Partial<AiModuleSettings>;
 
 export const DEFAULT_AI_SETTINGS: AiModuleSettings = {
-  provider: 'auto',
-  model: 'auto',
   inputLanguage: 'auto',
   responseLanguage: 'auto',
   autoDetect: true,
@@ -124,8 +116,6 @@ export const DEFAULT_AI_SETTINGS: AiModuleSettings = {
 export function sanitizeAiOverride(raw: unknown): AiModuleOverride {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: AiModuleOverride = {};
-  if (r.provider === 'auto' || r.provider === 'gemini' || r.provider === 'anthropic') out.provider = r.provider;
-  if (typeof r.model === 'string' && /^[a-z0-9][a-z0-9.\-]{0,79}$/i.test(r.model)) out.model = r.model;
   if (r.inputLanguage !== undefined && r.inputLanguage !== null) out.inputLanguage = normalizeLanguageChoice(r.inputLanguage);
   if (r.responseLanguage !== undefined && r.responseLanguage !== null) out.responseLanguage = normalizeLanguageChoice(r.responseLanguage);
   if (typeof r.autoDetect === 'boolean') out.autoDetect = r.autoDetect;

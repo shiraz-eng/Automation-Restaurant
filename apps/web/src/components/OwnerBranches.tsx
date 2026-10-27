@@ -629,12 +629,12 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
             {b.copy_status === 'failed' && <p className="mt-1 text-danger">Menu copy failed: {b.copy_error}</p>}
             {b.status === 'failed' && b.setup_error && <p className="mt-1 text-danger max-w-xs">{b.setup_error}</p>}
           </td>
-          <td className="p-2.5 text-right font-mono">{m ? m.orders : '—'}</td>
-          <td className="p-2.5 text-right font-mono">{m ? formatCents(m.net_sales_cents) : '—'}</td>
-          <td className="p-2.5 text-right font-mono">{m ? formatCents(m.net_sales_cents - m.cogs_cents - m.expenses_cents) : '—'}</td>
-          <td className="p-2.5 text-right font-mono">{m ? m.open_low_stock : '—'}</td>
-          <td className="p-2.5 text-right font-mono">{m ? formatCents(m.payables_outstanding_cents) : '—'}</td>
-          <td className="p-2.5 text-right whitespace-nowrap space-x-1">
+          <td className="p-2.5 text-end font-mono">{m ? m.orders : '—'}</td>
+          <td className="p-2.5 text-end font-mono">{m ? formatCents(m.net_sales_cents) : '—'}</td>
+          <td className="p-2.5 text-end font-mono">{m ? formatCents(m.net_sales_cents - m.cogs_cents - m.expenses_cents) : '—'}</td>
+          <td className="p-2.5 text-end font-mono">{m ? m.open_low_stock : '—'}</td>
+          <td className="p-2.5 text-end font-mono">{m ? formatCents(m.payables_outstanding_cents) : '—'}</td>
+          <td className="p-2.5 text-end whitespace-nowrap space-x-1">
             {isReady(b) && (
               <Button onClick={() => openBranch(supabase, slug, b).catch((e) => setActionError((e as Error).message))}>Open workspace</Button>
             )}
@@ -673,16 +673,16 @@ export function OwnerBranchesManager({ slug, canCreate }: { slug: string; canCre
 
   const table = (rows: OwnerBranch[]) => (
     <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-      <table className="w-full text-left text-xs">
+      <table className="w-full text-start text-xs">
         <thead className="text-muted border-b border-border">
           <tr>
             <th className="p-2.5 font-semibold">Branch</th>
             <th className="p-2.5 font-semibold">Status</th>
-            <th className="p-2.5 font-semibold text-right">Orders</th>
-            <th className="p-2.5 font-semibold text-right">Net sales</th>
-            <th className="p-2.5 font-semibold text-right">Operating profit</th>
-            <th className="p-2.5 font-semibold text-right">Low stock</th>
-            <th className="p-2.5 font-semibold text-right">Owed</th>
+            <th className="p-2.5 font-semibold text-end">Orders</th>
+            <th className="p-2.5 font-semibold text-end">Net sales</th>
+            <th className="p-2.5 font-semibold text-end">Operating profit</th>
+            <th className="p-2.5 font-semibold text-end">Low stock</th>
+            <th className="p-2.5 font-semibold text-end">Owed</th>
             <th className="p-2.5" />
           </tr>
         </thead>
@@ -834,7 +834,7 @@ export function BranchComparison({ slug }: { slug: string }) {
             {l}
           </Button>
         ))}
-        <label className="ml-2">
+        <label className="ms-2">
           <span className="block text-muted mb-1">From</span>
           <Input type="date" value={range.from} onChange={(e) => (setPreset('custom'), setRange((r) => ({ ...r, from: e.target.value })))} />
         </label>
@@ -858,21 +858,21 @@ export function BranchComparison({ slug }: { slug: string }) {
             </p>
           )}
           <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs tabular-nums">
+            <table className="w-full text-start text-xs tabular-nums">
               <thead className="text-muted border-b border-border">
                 <tr>
                   <th className="p-2.5 font-semibold">Branch</th>
-                  <th className="p-2.5 font-semibold text-right">Orders</th>
+                  <th className="p-2.5 font-semibold text-end">Orders</th>
                   <th className="p-2.5 font-semibold">Net sales</th>
-                  <th className="p-2.5 font-semibold text-right">Food cost</th>
-                  <th className="p-2.5 font-semibold text-right">Food cost %</th>
-                  <th className="p-2.5 font-semibold text-right">Expenses</th>
-                  <th className="p-2.5 font-semibold text-right">Operating profit</th>
-                  <th className="p-2.5 font-semibold text-right">Margin</th>
-                  <th className="p-2.5 font-semibold text-right">Avg order</th>
-                  <th className="p-2.5 font-semibold text-right">Low stock</th>
-                  <th className="p-2.5 font-semibold text-right">Owed</th>
-                  <th className="p-2.5 font-semibold text-right">Days not closed</th>
+                  <th className="p-2.5 font-semibold text-end">Food cost</th>
+                  <th className="p-2.5 font-semibold text-end">Food cost %</th>
+                  <th className="p-2.5 font-semibold text-end">Expenses</th>
+                  <th className="p-2.5 font-semibold text-end">Operating profit</th>
+                  <th className="p-2.5 font-semibold text-end">Margin</th>
+                  <th className="p-2.5 font-semibold text-end">Avg order</th>
+                  <th className="p-2.5 font-semibold text-end">Low stock</th>
+                  <th className="p-2.5 font-semibold text-end">Owed</th>
+                  <th className="p-2.5 font-semibold text-end">Days not closed</th>
                 </tr>
               </thead>
               <tbody>
@@ -883,7 +883,7 @@ export function BranchComparison({ slug }: { slug: string }) {
                       <td className="p-2.5">
                         <span className="font-semibold">{r.label}</span> {r.code && <span className="font-mono text-muted">{r.code}</span>}
                       </td>
-                      <td className="p-2.5 text-right font-mono">{r.m.orders}</td>
+                      <td className="p-2.5 text-end font-mono">{r.m.orders}</td>
                       <td className="p-2.5 min-w-[11rem]">
                         <div className="flex items-center gap-2">
                           <div className="h-2 flex-1 rounded bg-main">
@@ -892,15 +892,15 @@ export function BranchComparison({ slug }: { slug: string }) {
                           <span className="font-mono">{formatCents(r.m.net_sales_cents)}</span>
                         </div>
                       </td>
-                      <td className="p-2.5 text-right font-mono">{formatCents(r.m.cogs_cents)}</td>
-                      <td className="p-2.5 text-right font-mono">{pct(r.m.cogs_cents, r.m.net_sales_cents)}</td>
-                      <td className="p-2.5 text-right font-mono">{formatCents(r.m.expenses_cents)}</td>
-                      <td className={`p-2.5 text-right font-mono font-semibold ${op < 0 ? 'text-danger' : ''}`}>{formatCents(op)}</td>
-                      <td className="p-2.5 text-right font-mono">{pct(op, r.m.net_sales_cents)}</td>
-                      <td className="p-2.5 text-right font-mono">{r.m.orders ? formatCents(Math.round(r.m.net_sales_cents / r.m.orders)) : '—'}</td>
-                      <td className={`p-2.5 text-right font-mono ${r.m.open_low_stock ? 'text-danger' : ''}`}>{r.m.open_low_stock}</td>
-                      <td className="p-2.5 text-right font-mono">{formatCents(r.m.payables_outstanding_cents)}</td>
-                      <td className={`p-2.5 text-right font-mono ${r.m.unclosed_days ? 'text-warn' : ''}`}>{r.m.unclosed_days}</td>
+                      <td className="p-2.5 text-end font-mono">{formatCents(r.m.cogs_cents)}</td>
+                      <td className="p-2.5 text-end font-mono">{pct(r.m.cogs_cents, r.m.net_sales_cents)}</td>
+                      <td className="p-2.5 text-end font-mono">{formatCents(r.m.expenses_cents)}</td>
+                      <td className={`p-2.5 text-end font-mono font-semibold ${op < 0 ? 'text-danger' : ''}`}>{formatCents(op)}</td>
+                      <td className="p-2.5 text-end font-mono">{pct(op, r.m.net_sales_cents)}</td>
+                      <td className="p-2.5 text-end font-mono">{r.m.orders ? formatCents(Math.round(r.m.net_sales_cents / r.m.orders)) : '—'}</td>
+                      <td className={`p-2.5 text-end font-mono ${r.m.open_low_stock ? 'text-danger' : ''}`}>{r.m.open_low_stock}</td>
+                      <td className="p-2.5 text-end font-mono">{formatCents(r.m.payables_outstanding_cents)}</td>
+                      <td className={`p-2.5 text-end font-mono ${r.m.unclosed_days ? 'text-warn' : ''}`}>{r.m.unclosed_days}</td>
                     </tr>
                   );
                 })}
@@ -909,17 +909,17 @@ export function BranchComparison({ slug }: { slug: string }) {
                 <tfoot className="border-t border-border font-bold">
                   <tr>
                     <td className="p-2.5">All branches</td>
-                    <td className="p-2.5 text-right font-mono">{total.orders}</td>
+                    <td className="p-2.5 text-end font-mono">{total.orders}</td>
                     <td className="p-2.5 font-mono">{formatCents(total.net)}</td>
-                    <td className="p-2.5 text-right font-mono">{formatCents(total.cogs)}</td>
-                    <td className="p-2.5 text-right font-mono">{pct(total.cogs, total.net)}</td>
-                    <td className="p-2.5 text-right font-mono">{formatCents(total.exp)}</td>
-                    <td className="p-2.5 text-right font-mono">{formatCents(total.net - total.cogs - total.exp)}</td>
-                    <td className="p-2.5 text-right font-mono">{pct(total.net - total.cogs - total.exp, total.net)}</td>
-                    <td className="p-2.5 text-right font-mono">{total.orders ? formatCents(Math.round(total.net / total.orders)) : '—'}</td>
-                    <td className="p-2.5 text-right font-mono">{total.low}</td>
-                    <td className="p-2.5 text-right font-mono">{formatCents(total.owed)}</td>
-                    <td className="p-2.5 text-right font-mono">{total.unclosed}</td>
+                    <td className="p-2.5 text-end font-mono">{formatCents(total.cogs)}</td>
+                    <td className="p-2.5 text-end font-mono">{pct(total.cogs, total.net)}</td>
+                    <td className="p-2.5 text-end font-mono">{formatCents(total.exp)}</td>
+                    <td className="p-2.5 text-end font-mono">{formatCents(total.net - total.cogs - total.exp)}</td>
+                    <td className="p-2.5 text-end font-mono">{pct(total.net - total.cogs - total.exp, total.net)}</td>
+                    <td className="p-2.5 text-end font-mono">{total.orders ? formatCents(Math.round(total.net / total.orders)) : '—'}</td>
+                    <td className="p-2.5 text-end font-mono">{total.low}</td>
+                    <td className="p-2.5 text-end font-mono">{formatCents(total.owed)}</td>
+                    <td className="p-2.5 text-end font-mono">{total.unclosed}</td>
                   </tr>
                 </tfoot>
               )}

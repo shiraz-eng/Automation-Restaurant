@@ -652,7 +652,7 @@ export function ExpensesManager({
             />
             <button
               onClick={() => setDrilldownLevel('gross_profit')}
-              className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
+              className="text-start rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
               <StatCard
                 label="Gross Profit ↴"
@@ -663,7 +663,7 @@ export function ExpensesManager({
             </button>
             <button
               onClick={() => setDrilldownLevel('expenses')}
-              className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
+              className="text-start rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
               <StatCard
                 label="Operating Expenses ↴"
@@ -674,7 +674,7 @@ export function ExpensesManager({
             </button>
             <button
               onClick={() => setDrilldownLevel('net_profit')}
-              className="text-left rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
+              className="text-start rounded-lg hover:ring-2 hover:ring-primary/40 transition-shadow"
             >
               <StatCard
                 label="Net Profit ↴"
@@ -911,52 +911,52 @@ export function ExpensesManager({
             </Button>
           </div>
           <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead className="text-muted border-b border-border bg-main/50">
                 <tr>
                   <th className="p-3 font-semibold">Financial Line</th>
-                  <th className="p-3 font-semibold text-right">Amount</th>
-                  <th className="p-3 font-semibold text-right">% of Net Sales</th>
+                  <th className="p-3 font-semibold text-end">Amount</th>
+                  <th className="p-3 font-semibold text-end">% of Net Sales</th>
                 </tr>
               </thead>
               <tbody>
                 <tr className="border-b border-border/50">
                   <td className="p-3 font-semibold text-body">Operating Revenue (Net Sales)</td>
-                  <td className="p-3 font-mono font-bold text-right">{formatCents(profit.net_sales_cents)}</td>
-                  <td className="p-3 font-mono text-right text-muted">100.0%</td>
+                  <td className="p-3 font-mono font-bold text-end">{formatCents(profit.net_sales_cents)}</td>
+                  <td className="p-3 font-mono text-end text-muted">100.0%</td>
                 </tr>
                 <tr className="border-b border-border/50 bg-main/20">
-                  <td className="p-3 pl-6 text-muted">Less: Cost of Goods Sold (Theoretical COGS)</td>
-                  <td className="p-3 font-mono text-right text-muted">-{formatCents(profit.theoretical_cogs_cents)}</td>
-                  <td className="p-3 font-mono text-right text-muted">
+                  <td className="p-3 ps-6 text-muted">Less: Cost of Goods Sold (Theoretical COGS)</td>
+                  <td className="p-3 font-mono text-end text-muted">-{formatCents(profit.theoretical_cogs_cents)}</td>
+                  <td className="p-3 font-mono text-end text-muted">
                     -{profit.net_sales_cents > 0 ? ((profit.theoretical_cogs_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
                   </td>
                 </tr>
                 <tr className="border-b border-border/80 font-bold bg-ok/5">
                   <td className="p-3 text-ok">Gross Profit</td>
-                  <td className="p-3 font-mono text-right text-ok">{formatCents(profit.gross_profit_cents)}</td>
-                  <td className="p-3 font-mono text-right text-ok">{pct(profit.gross_margin_pct)}</td>
+                  <td className="p-3 font-mono text-end text-ok">{formatCents(profit.gross_profit_cents)}</td>
+                  <td className="p-3 font-mono text-end text-ok">{pct(profit.gross_margin_pct)}</td>
                 </tr>
                 {categoryTotals.map((c) => (
                   <tr key={c.category} className="border-b border-border/30">
-                    <td className="p-3 pl-6 text-muted">Less: {c.category}</td>
-                    <td className="p-3 font-mono text-right text-muted">-{formatCents(c.cents)}</td>
-                    <td className="p-3 font-mono text-right text-muted">
+                    <td className="p-3 ps-6 text-muted">Less: {c.category}</td>
+                    <td className="p-3 font-mono text-end text-muted">-{formatCents(c.cents)}</td>
+                    <td className="p-3 font-mono text-end text-muted">
                       -{profit.net_sales_cents > 0 ? ((c.cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
                     </td>
                   </tr>
                 ))}
                 <tr className="border-b border-border/80 font-bold bg-warn/5">
                   <td className="p-3 text-warn">Total Operating Expenses</td>
-                  <td className="p-3 font-mono text-right text-warn">-{formatCents(profit.expenses_cents)}</td>
-                  <td className="p-3 font-mono text-right text-warn">
+                  <td className="p-3 font-mono text-end text-warn">-{formatCents(profit.expenses_cents)}</td>
+                  <td className="p-3 font-mono text-end text-warn">
                     -{profit.net_sales_cents > 0 ? ((profit.expenses_cents / profit.net_sales_cents) * 100).toFixed(1) : 0}%
                   </td>
                 </tr>
                 <tr className={`font-black text-sm ${profit.net_profit_cents >= 0 ? 'bg-ok/10 text-ok' : 'bg-danger/10 text-danger'}`}>
                   <td className="p-4">Net Profit</td>
-                  <td className="p-4 font-mono text-right">{formatCents(profit.net_profit_cents)}</td>
-                  <td className="p-4 font-mono text-right">{pct(profit.net_profit_margin_pct)}</td>
+                  <td className="p-4 font-mono text-end">{formatCents(profit.net_profit_cents)}</td>
+                  <td className="p-4 font-mono text-end">{pct(profit.net_profit_margin_pct)}</td>
                 </tr>
               </tbody>
             </table>
@@ -1015,7 +1015,7 @@ export function ExpensesManager({
             <button
               type="button"
               onClick={() => setStatusFilter('submitted')}
-              className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-left"
+              className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-start"
             >
               <span className="font-bold text-warn">{pending.awaiting} awaiting approval</span>
               <span className="text-muted"> · {formatCents(pending.awaitingCents)} — not in profit yet</span>
@@ -1025,7 +1025,7 @@ export function ExpensesManager({
             <button
               type="button"
               onClick={() => setStatusFilter('approved')}
-              className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-left"
+              className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-start"
             >
               <span className="font-bold text-primary">{pending.unpaid} approved, not yet paid</span>
               <span className="text-muted"> · {formatCents(pending.unpaidCents)}</span>
@@ -1083,7 +1083,7 @@ export function ExpensesManager({
                 type="file"
                 accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
                 onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
-                className="block w-full text-[0.6875rem] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+                className="block w-full text-[0.6875rem] text-muted file:me-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
               />
             </Field>
             <div className="flex flex-wrap gap-2 sm:col-span-4">
@@ -1197,14 +1197,14 @@ export function ExpensesManager({
 
         <Card className="p-0 overflow-hidden">
           <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
                   <th className="p-3 font-semibold">Date</th>
                   <th className="p-3 font-semibold">Category</th>
                   <th className="p-3 font-semibold">Description</th>
                   <th className="p-3 font-semibold">Status</th>
-                  <th className="p-3 font-semibold text-right">Amount</th>
+                  <th className="p-3 font-semibold text-end">Amount</th>
                   <th className="p-3" />
                 </tr>
               </thead>
@@ -1229,7 +1229,7 @@ export function ExpensesManager({
                           <td colSpan={4} className="p-2.5 font-bold">
                             {monthLabel(ym)} <span className="font-normal text-muted">· {mt.count} expense{mt.count === 1 ? '' : 's'}</span>
                           </td>
-                          <td className="p-2.5 text-right font-mono font-bold">{formatCents(mt.postedCents)}</td>
+                          <td className="p-2.5 text-end font-mono font-bold">{formatCents(mt.postedCents)}</td>
                           <td className="p-2.5 text-[0.625rem] text-muted">approved / paid{mt.cents !== mt.postedCents ? ` · ${formatCents(mt.cents)} incl. pending` : ''}</td>
                         </tr>
                       )}
@@ -1238,9 +1238,9 @@ export function ExpensesManager({
                         <td className="p-3 font-semibold">{ex.category}</td>
                         <td className="p-3 text-muted">
                           {ex.description ?? '—'}
-                          {ex.vendor && <span className="text-[0.625rem] ml-1.5">· {ex.vendor}</span>}
+                          {ex.vendor && <span className="text-[0.625rem] ms-1.5">· {ex.vendor}</span>}
                           {ex.supplier_id && (
-                            <span className="text-primary text-[0.625rem] font-semibold ml-1.5">
+                            <span className="text-primary text-[0.625rem] font-semibold ms-1.5">
                               · {suppliers.find((s) => s.id === ex.supplier_id)?.name ?? 'supplier'}
                             </span>
                           )}
@@ -1248,7 +1248,7 @@ export function ExpensesManager({
                             <button
                               type="button"
                               onClick={() => void openReceipt(ex.attachment_path!)}
-                              className="ml-1.5 text-[0.625rem] font-semibold text-primary underline"
+                              className="ms-1.5 text-[0.625rem] font-semibold text-primary underline"
                             >
                               receipt
                             </button>
@@ -1269,10 +1269,10 @@ export function ExpensesManager({
                         <td className="p-3 whitespace-nowrap">
                           <span className={`rounded px-1.5 py-0.5 text-[0.625rem] font-bold ${STATUS_TONE[st]}`}>{STATUS_LABEL[st]}</span>
                         </td>
-                        <td className={`p-3 text-right font-mono ${isPostedExpense(ex) ? '' : 'text-muted'}`}>
+                        <td className={`p-3 text-end font-mono ${isPostedExpense(ex) ? '' : 'text-muted'}`}>
                           {formatCents(ex.amount_cents)}
                         </td>
-                        <td className="p-3 text-right whitespace-nowrap space-x-1">
+                        <td className="p-3 text-end whitespace-nowrap space-x-1">
                           {canWrite && (st === 'draft' || st === 'rejected') && (
                             <Button variant="ghost" disabled={busy} onClick={() => void act('submit_expense', { p_id: ex.id })}>
                               Submit
@@ -1340,7 +1340,7 @@ export function ExpensesManager({
                       {[statusFilter && STATUS_LABEL[statusFilter], categoryFilter].filter(Boolean).join(' · ') || 'Total'} (
                       {filtered.length})
                     </td>
-                    <td className="p-3 text-right font-mono font-bold">{formatCents(filteredTotal)}</td>
+                    <td className="p-3 text-end font-mono font-bold">{formatCents(filteredTotal)}</td>
                     <td className="p-3" />
                   </tr>
                 </tfoot>

@@ -143,7 +143,7 @@ export function OrdersClient({
     const active = sort.key === key;
     return (
       <th
-        className={`p-3 font-semibold ${right ? 'text-right' : ''}`}
+        className={`p-3 font-semibold ${right ? 'text-end' : ''}`}
         aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
       >
         <button type="button" onClick={() => sortBy(key)} className={`hover:text-body ${active ? 'text-body' : ''}`}>
@@ -449,7 +449,7 @@ export function OrdersClient({
           <option value="status:asc">Status: kitchen to paid</option>
           <option value="items:desc">Most items</option>
         </Select>
-        <span className="text-muted ml-auto">
+        <span className="text-muted ms-auto">
           {visible.length} of {orders.length}
         </span>
       </div>
@@ -485,7 +485,7 @@ export function OrdersClient({
         ))}
       </ul>
       <div className="hidden sm:block overflow-x-auto" tabIndex={0} role="group" aria-label="Orders table">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               {sortHeader('number', '#')}
@@ -530,11 +530,11 @@ export function OrdersClient({
                     {o.customer_name ? ` · ${o.customer_name}` : ''}
                   </td>
                   <td className="p-3 text-muted">{o.order_lines?.length ?? 0}</td>
-                  <td className="p-3 text-right font-bold">{formatCents(o.total_cents)}</td>
+                  <td className="p-3 text-end font-bold">{formatCents(o.total_cents)}</td>
                   <td className="p-3" onClick={(e) => e.stopPropagation()}>
                     {statusControls(o)}
                   </td>
-                  <td className="p-3 text-right text-muted">{formatDateTime(o.created_at)}</td>
+                  <td className="p-3 text-end text-muted">{formatDateTime(o.created_at)}</td>
                 </tr>
                 {expanded === o.id && (
                   <tr className="border-b border-border/60 bg-main/30">

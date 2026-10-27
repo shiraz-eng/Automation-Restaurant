@@ -152,7 +152,7 @@ export function AttendancePortalBoard({
                     {r.expected_start ? ` · expected ${hhmm(r.expected_start)}` : ''}
                   </div>
                 </div>
-                <div className="text-[0.6875rem] text-muted text-right shrink-0">
+                <div className="text-[0.6875rem] text-muted text-end shrink-0">
                   <div>in {hhmm(r.clock_in)}</div>
                   <div>out {hhmm(r.clock_out)}</div>
                 </div>

@@ -303,3 +303,23 @@ body {
   --warn-text: 252 211 77;
   --danger-text: 253 164 175;
 }
+
+/* ── Screen language (lib/i18n) ──────────────────────────────────────────
+   Restaurant pages can be shown in Urdu (and other languages) right to left.
+   Layouts use logical classes (ms-/me-/ps-/pe-/start-/end-/text-start), so
+   they mirror by themselves; these rules cover what classes can't. */
+
+/* Hidden only until the first translation pass (max 1.5 s, see uiLanguageScript.ts). */
+html[data-ui-pending] body {
+  opacity: 0;
+}
+
+/* Urdu, Arabic, Persian and Pashto in a font made for the script. */
+html:is([lang='ur'], [lang='ar'], [lang='fa'], [lang='ps'], [lang='sd']) body {
+  font-family: var(--font-arabic-script), 'Segoe UI', Tahoma, sans-serif;
+}
+
+/* space-x-* spaces from the left; in right-to-left it must space from the right. */
+[dir='rtl'] [class*='space-x-'] > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+}

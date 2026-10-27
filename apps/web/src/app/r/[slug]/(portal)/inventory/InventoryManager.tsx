@@ -424,16 +424,16 @@ export function InventoryManager({
 
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               <th className="p-3 font-semibold">Ingredient</th>
-              <th className="p-3 font-semibold text-right">On hand</th>
-              <th className="p-3 font-semibold text-right">Min</th>
-              {canManageAutomation && <th className="p-3 font-semibold text-right">Target</th>}
+              <th className="p-3 font-semibold text-end">On hand</th>
+              <th className="p-3 font-semibold text-end">Min</th>
+              {canManageAutomation && <th className="p-3 font-semibold text-end">Target</th>}
               {canManageAutomation && <th className="p-3 font-semibold">Preferred supplier</th>}
-              {canViewCost && <th className="p-3 font-semibold text-right">Cost</th>}
-              {canViewCost && <th className="p-3 font-semibold text-right">Value</th>}
+              {canViewCost && <th className="p-3 font-semibold text-end">Cost</th>}
+              {canViewCost && <th className="p-3 font-semibold text-end">Value</th>}
               <th className="p-3 font-semibold">Record</th>
             </tr>
           </thead>
@@ -451,14 +451,14 @@ export function InventoryManager({
                   <tr key={it.id} className="border-b border-border/60">
                     <td className="p-3 font-semibold">
                       {it.name}
-                      {low && <span className="ml-2 text-danger">low</span>}
+                      {low && <span className="ms-2 text-danger">low</span>}
                     </td>
-                    <td className="p-3 text-right font-mono">
+                    <td className="p-3 text-end font-mono">
                       {it.stock_qty} {it.unit}
                     </td>
-                    <td className="p-3 text-right text-muted">{it.min_threshold}</td>
+                    <td className="p-3 text-end text-muted">{it.min_threshold}</td>
                     {canManageAutomation && (
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-end">
                         <button onClick={() => setTarget(it)} className="font-mono text-primary underline decoration-dotted">
                           {it.target_stock_qty != null ? it.target_stock_qty : 'set'}
                         </button>
@@ -495,14 +495,14 @@ export function InventoryManager({
                       </td>
                     )}
                     {canViewCost && (
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-end">
                         <button onClick={() => setCost(it)} className="font-mono text-primary underline decoration-dotted">
                           {formatCents(Math.round(it.cost_cents_per_base_unit))}/{it.unit}
                         </button>
                       </td>
                     )}
                     {canViewCost && (
-                      <td className="p-3 text-right font-mono text-muted">
+                      <td className="p-3 text-end font-mono text-muted">
                         {formatCents(Math.round(Number(it.stock_qty) * Number(it.cost_cents_per_base_unit)))}
                       </td>
                     )}

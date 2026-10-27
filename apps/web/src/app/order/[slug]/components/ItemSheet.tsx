@@ -96,7 +96,7 @@ export function ItemSheet({
           )}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 text-white grid place-items-center backdrop-blur"
+            className="absolute top-3 end-3 w-8 h-8 rounded-full bg-black/50 text-white grid place-items-center backdrop-blur"
             aria-label="Close"
           >
             <X size={16} />
@@ -124,7 +124,7 @@ export function ItemSheet({
                         key={v.id}
                         onClick={() => !disabled && setVariantId(v.id)}
                         disabled={disabled}
-                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-left transition-colors ${
+                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-start transition-colors ${
                           disabled ? 'border-border opacity-50 cursor-not-allowed' : checked ? 'border-primary bg-primary/5' : 'border-border'
                         }`}
                       >
@@ -171,7 +171,7 @@ export function ItemSheet({
                       <button
                         key={o.id}
                         onClick={() => toggle(g, o.id)}
-                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-left transition-colors ${
+                        className={`w-full flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm text-start transition-colors ${
                           checked ? 'border-primary bg-primary/5' : 'border-border'
                         }`}
                       >
@@ -204,10 +204,10 @@ export function ItemSheet({
                   <button
                     key={d.id}
                     onClick={() => onPickDeal(d)}
-                    className="w-full flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 px-3.5 py-2.5 text-left"
+                    className="w-full flex items-center justify-between rounded-xl border border-primary/30 bg-primary/5 px-3.5 py-2.5 text-start"
                   >
                     <span className="text-sm font-semibold">{d.name}</span>
-                    <span className="text-primary text-xs font-black shrink-0 ml-2">{formatCents(d.price_cents)}</span>
+                    <span className="text-primary text-xs font-black shrink-0 ms-2">{formatCents(d.price_cents)}</span>
                   </button>
                 ))}
               </div>
@@ -222,7 +222,7 @@ export function ItemSheet({
                   <button
                     key={r.id}
                     onClick={() => onPickRelated(r)}
-                    className="shrink-0 w-28 text-left rounded-xl border border-border overflow-hidden hover:border-primary/40 transition-colors"
+                    className="shrink-0 w-28 text-start rounded-xl border border-border overflow-hidden hover:border-primary/40 transition-colors"
                   >
                     <div className="w-28 h-20">
                       {r.image_url ? (

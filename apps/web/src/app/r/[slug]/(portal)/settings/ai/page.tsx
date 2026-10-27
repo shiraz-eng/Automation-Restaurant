@@ -18,9 +18,9 @@ export default async function AiSettingsPage({ params }: { params: Promise<{ slu
       <div>
         <h1 className="text-xl font-black">AI &amp; Voice</h1>
         <p className="text-muted text-xs mt-1">
-          Which AI model answers in each module, the languages it listens for and answers in, and whether voice is
-          offered. These settings never change what anyone can see or do — the assistant always works with the
-          signed-in person&apos;s own permissions.
+          The languages the AI listens for and answers in, and whether voice is offered, for every module or each one.
+          These settings never change what anyone can see or do — the assistant always works with the signed-in
+          person&apos;s own permissions.
         </p>
       </div>
       <AiSettingsManager slug={slug} canEdit={can(perms, role, 'settings.update')} />

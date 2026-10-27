@@ -240,7 +240,7 @@ export function CustomerAiChat({
       {!hideTrigger && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-24 lg:bottom-6 right-4 lg:right-[404px] z-40 rounded-full bg-primary text-primary-fg w-[52px] h-[52px] shadow-lg shadow-black/20 grid place-items-center text-xl font-bold active:scale-95 transition-transform"
+          className="fixed bottom-24 lg:bottom-6 end-4 lg:end-[404px] z-40 rounded-full bg-primary text-primary-fg w-[52px] h-[52px] shadow-lg shadow-black/20 grid place-items-center text-xl font-bold active:scale-95 transition-transform"
           aria-label="Ask the ordering assistant"
         >
           ✦
@@ -272,7 +272,7 @@ export function CustomerAiChat({
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="block w-full text-left rounded-xl border border-border px-3.5 py-2.5 text-xs hover:border-primary/40 transition-colors"
+                    className="block w-full text-start rounded-xl border border-border px-3.5 py-2.5 text-xs hover:border-primary/40 transition-colors"
                   >
                     {s}
                   </button>

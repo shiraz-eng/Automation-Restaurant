@@ -54,15 +54,15 @@ export function PortalMobileDrawer({ title, children }: { title: string; childre
           aria-modal="true"
           aria-label={title}
           inert={!open}
-          className={`absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col overflow-y-auto border-r border-border bg-surface shadow-xl transition-transform motion-reduce:transition-none ${
-            open ? 'translate-x-0' : '-translate-x-full'
+          className={`absolute inset-y-0 start-0 flex w-[min(18rem,85vw)] flex-col overflow-y-auto border-e border-border bg-surface shadow-xl transition-transform motion-reduce:transition-none ${
+            open ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'
           }`}
         >
           <button
             type="button"
             aria-label="Close menu"
             onClick={() => setOpen(false)}
-            className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-main hover:text-body"
+            className="absolute end-3 top-3 grid h-8 w-8 place-items-center rounded-lg text-muted hover:bg-main hover:text-body"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>

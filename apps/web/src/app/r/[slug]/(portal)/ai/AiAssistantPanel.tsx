@@ -67,7 +67,7 @@ export function AiAssistantPanel({
   return (
     <button
       onClick={() => setOpen(true)}
-      className="w-full text-left rounded-lg border-2 border-primary/60 bg-primary/10 hover:border-primary p-3 text-xs flex items-center gap-2"
+      className="w-full text-start rounded-lg border-2 border-primary/60 bg-primary/10 hover:border-primary p-3 text-xs flex items-center gap-2"
     >
       <span className="text-base">✨</span>
       <span>

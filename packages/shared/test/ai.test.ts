@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   detectLanguage,
   languageInstruction,
+  fitsLanguageScript,
+  samePlaceholders,
   normalizeLanguageChoice,
   isRtlLanguage,
   resolveResponseLanguage,
@@ -83,11 +85,11 @@ test('prompt instruction names the fixed language and keeps figures intact', () 
 });
 
 test('module settings inherit global, then built-in defaults', () => {
-  const s = resolveAiSettings({ responseLanguage: 'ur', voiceOutput: false }, { voiceOutput: true, model: 'gemini-3.5-flash' });
+  const s = resolveAiSettings({ responseLanguage: 'ur', voiceOutput: false }, { voiceOutput: true, inputLanguage: 'ur' });
   assert.equal(s.responseLanguage, 'ur');
   assert.equal(s.voiceOutput, true);
-  assert.equal(s.model, 'gemini-3.5-flash');
-  assert.equal(s.provider, DEFAULT_AI_SETTINGS.provider);
+  assert.equal(s.inputLanguage, 'ur');
+  assert.equal(s.autoDetect, DEFAULT_AI_SETTINGS.autoDetect);
   assert.deepEqual(resolveAiSettings(null, null), DEFAULT_AI_SETTINGS);
 });
 
@@ -120,4 +122,13 @@ test('paths map to the module that owns the screen', () => {
   assert.equal(aiModuleForPath('/r/bbq/ai'), 'global');
   assert.equal(aiModuleForPath('/order/bbq'), 'customer');
   assert.equal(aiModuleForPath('/pricing'), 'global');
+});
+
+test('screen translations keep placeholders and their own script', () => {
+  assert.ok(samePlaceholders('{0} of {1} items', '{1} میں سے {0} اشیاء'));
+  assert.ok(!samePlaceholders('{0} of {1} items', 'کچھ اشیاء'));
+  assert.ok(fitsLanguageScript('ur', 'POS اور آرڈرز'));
+  assert.ok(!fitsLanguageScript('ur', 'اونر প্যানেল'));
+  assert.ok(fitsLanguageScript('hi', 'स्टॉक (kg)'));
+  assert.ok(!fitsLanguageScript('fr', 'Stock اسٹاک'));
 });

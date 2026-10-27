@@ -225,7 +225,7 @@ export function SupplierPriceImportPanel({
                     </div>
                     <div className="text-[0.6875rem] text-muted">
                       {row.price_cents != null && (
-                        <span className="mr-2">
+                        <span className="me-2">
                           {row.existing_price_cents != null && row.existing_price_cents !== row.price_cents ? (
                             <>
                               <span className="line-through">{formatCents(row.existing_price_cents)}</span> →{' '}
@@ -237,8 +237,8 @@ export function SupplierPriceImportPanel({
                           {row.purchase_unit_label ? ` / ${row.purchase_unit_label}` : ''}
                         </span>
                       )}
-                      {row.moq != null && <span className="mr-2">MOQ {row.moq}</span>}
-                      {row.lead_time_days != null && <span className="mr-2">{row.lead_time_days}d lead time</span>}
+                      {row.moq != null && <span className="me-2">MOQ {row.moq}</span>}
+                      {row.lead_time_days != null && <span className="me-2">{row.lead_time_days}d lead time</span>}
                     </div>
                     {row.issues.length > 0 && <div className="text-[0.6875rem] text-danger">{row.issues.join(' · ')}</div>}
                   </div>
@@ -264,7 +264,7 @@ export function SupplierPriceImportPanel({
       {stage === 'done' && applyResult && (
         <div className="space-y-2 text-xs">
           <p className="text-ok font-semibold">Supplier price import applied.</p>
-          <ul className="list-disc pl-4 text-muted">
+          <ul className="list-disc ps-4 text-muted">
             <li>{applyResult.catalog_entries_created} new catalog entr{applyResult.catalog_entries_created === 1 ? 'y' : 'ies'} created</li>
             <li>{applyResult.prices_updated} price(s) updated</li>
           </ul>

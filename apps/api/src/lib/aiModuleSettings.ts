@@ -16,8 +16,6 @@ import {
 
 type Row = {
   module: string;
-  provider: string | null;
-  model: string | null;
   input_language: string | null;
   response_language: string | null;
   auto_detect: boolean | null;
@@ -27,13 +25,11 @@ type Row = {
   updated_at?: string;
 };
 
-const COLUMNS = 'module, provider, model, input_language, response_language, auto_detect, voice_input, voice_output, voice_name, updated_at';
+const COLUMNS = 'module, input_language, response_language, auto_detect, voice_input, voice_output, voice_name, updated_at';
 
 export function rowToOverride(r: Partial<Row> | null | undefined): AiModuleOverride {
   if (!r) return {};
   return sanitizeAiOverride({
-    provider: r.provider ?? undefined,
-    model: r.model ?? undefined,
     inputLanguage: r.input_language ?? undefined,
     responseLanguage: r.response_language ?? undefined,
     autoDetect: r.auto_detect ?? undefined,
@@ -46,8 +42,6 @@ export function rowToOverride(r: Partial<Row> | null | undefined): AiModuleOverr
 export function overrideToRow(module: AiModuleKey, o: AiModuleOverride, userId: string | null): Row & { updated_by: string | null; updated_at: string } {
   return {
     module,
-    provider: o.provider ?? null,
-    model: o.model ?? null,
     input_language: o.inputLanguage ?? null,
     response_language: o.responseLanguage ?? null,
     auto_detect: o.autoDetect ?? null,

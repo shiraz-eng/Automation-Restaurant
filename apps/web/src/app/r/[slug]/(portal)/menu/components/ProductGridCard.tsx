@@ -21,7 +21,7 @@ export function ProductGridCard({
   return (
     <button
       onClick={onEdit}
-      className="text-left rounded-lg border border-border bg-surface overflow-hidden hover:border-primary/40 transition-colors"
+      className="text-start rounded-lg border border-border bg-surface overflow-hidden hover:border-primary/40 transition-colors"
     >
       <div className="aspect-[4/3]">
         {item.image_url ? (

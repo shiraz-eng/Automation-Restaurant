@@ -276,13 +276,13 @@ export function SchedulingClient({
         )}
 
         <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="p-3 font-semibold">Staff</th>
                 <th className="p-3 font-semibold">In</th>
                 <th className="p-3 font-semibold">Out</th>
-                <th className="p-3 font-semibold text-right">Hours</th>
+                <th className="p-3 font-semibold text-end">Hours</th>
               </tr>
             </thead>
             <tbody>
@@ -300,7 +300,7 @@ export function SchedulingClient({
                     <td className="p-3 text-muted">
                       {a.clock_out ? formatDateTime(a.clock_out) : <span className="text-ok">on shift</span>}
                     </td>
-                    <td className="p-3 text-right font-mono">
+                    <td className="p-3 text-end font-mono">
                       {a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : '—'}
                     </td>
                   </tr>

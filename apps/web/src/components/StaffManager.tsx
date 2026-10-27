@@ -183,7 +183,7 @@ export function StaffManager({
       )}
 
       <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               <th className="p-3 font-semibold">Name</th>
@@ -267,7 +267,7 @@ export function StaffManager({
                       <span className={m.status === 'active' ? 'text-ok' : 'text-muted'}>{m.status}</span>
                     </td>
                     {canRemove && (
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-end">
                         {!isOwner && (
                           <button
                             type="button"

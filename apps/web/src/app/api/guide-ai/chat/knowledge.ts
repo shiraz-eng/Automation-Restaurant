@@ -41,8 +41,7 @@ Why owners pick it (use these honestly, never exaggerate):
   In the portal the AI Guide has a **Your restaurant data** tab that answers from live data with the person's own
   permissions; anything that changes data is only proposed, with Confirm / Cancel.
 - **Settings → AI & Voice** (needs settings permission): per module (POS, Kitchen, Inventory, Finance, …) choose the
-  AI provider and model the server can really use, the answer and listening languages, auto-detect, and whether
-  voice input and spoken answers are offered. It never changes what anyone may see or do.
+  answer and listening languages, auto-detect, and whether voice input and spoken answers are offered. It never changes what anyone may see or do.
 - **Accessibility button** (♿ in every header): text size up to 150%, high contrast, reduce motion, underline
   links, wider text spacing and larger touch targets — saved on that device for every page.
 

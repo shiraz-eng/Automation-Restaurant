@@ -182,7 +182,7 @@ export function ApprovalsPanel({ slug }: { slug: string }) {
               {item.profitCard && (
                 <button
                   onClick={() => setDrilldownCard(item.profitCard!)}
-                  className="w-full block rounded-lg border border-primary/40 bg-main hover:border-primary p-2.5 text-left"
+                  className="w-full block rounded-lg border border-primary/40 bg-main hover:border-primary p-2.5 text-start"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted font-semibold">{item.profitCard.period}</span>

@@ -334,16 +334,16 @@ export function PromotionsManager({
       )}
 
       <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               <th className="p-3 font-semibold">Promotion</th>
               <th className="p-3 font-semibold">Discount</th>
               <th className="p-3 font-semibold">Code</th>
-              <th className="p-3 font-semibold text-right">Min. subtotal</th>
+              <th className="p-3 font-semibold text-end">Min. subtotal</th>
               <th className="p-3 font-semibold">Schedule</th>
               <th className="p-3 font-semibold">Usage</th>
-              <th className="p-3 font-semibold text-right">Revenue</th>
+              <th className="p-3 font-semibold text-end">Revenue</th>
               <th className="p-3 font-semibold">Status</th>
               <th className="p-3" />
             </tr>
@@ -363,19 +363,19 @@ export function PromotionsManager({
                   <td className="p-3 font-semibold">
                     {p.name}
                     {p.auto_apply && (
-                      <span className="ml-1.5 rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[0.625rem] font-bold align-middle">
+                      <span className="ms-1.5 rounded bg-ok/15 text-ok px-1.5 py-0.5 text-[0.625rem] font-bold align-middle">
                         AUTO
                       </span>
                     )}
                   </td>
                   <td className="p-3">{describeValue(p, menuItems)}</td>
                   <td className="p-3 font-mono">{p.code ?? '—'}</td>
-                  <td className="p-3 text-right text-muted">
+                  <td className="p-3 text-end text-muted">
                     {p.min_subtotal_cents ? formatCents(p.min_subtotal_cents) : '—'}
                   </td>
                   <td className="p-3 text-muted">{describeSchedule(p)}</td>
                   <td className="p-3 text-muted">{describeUsage(p)}</td>
-                  <td className="p-3 text-right text-muted">
+                  <td className="p-3 text-end text-muted">
                     {perf ? formatCents(perf.total_discount_cents) + ' given' : '—'}
                   </td>
                   <td className="p-3">
@@ -383,7 +383,7 @@ export function PromotionsManager({
                       {p.active ? 'active' : 'paused'}
                     </span>
                   </td>
-                  <td className="p-3 text-right whitespace-nowrap">
+                  <td className="p-3 text-end whitespace-nowrap">
                     {canEdit && (
                     <>
                     <Button
@@ -402,7 +402,7 @@ export function PromotionsManager({
                     </Button>
                     <Button
                       variant="danger"
-                      className="ml-1.5"
+                      className="ms-1.5"
                       disabled={busy}
                       onClick={() =>
                         run(() => supabase.from('promotions').delete().eq('id', p.id))

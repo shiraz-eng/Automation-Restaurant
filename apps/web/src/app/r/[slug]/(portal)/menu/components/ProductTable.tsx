@@ -40,16 +40,16 @@ export function ProductTable({
   return (
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
       <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-      <table className="w-full text-left text-xs border-collapse">
+      <table className="w-full text-start text-xs border-collapse">
         <thead>
           <tr className="border-b border-border text-muted">
             <th className="p-3 font-semibold">Product</th>
             <th className="p-3 font-semibold hidden md:table-cell">Category</th>
-            <th className="p-3 font-semibold text-right">Price</th>
+            <th className="p-3 font-semibold text-end">Price</th>
             <th className="p-3 font-semibold">Availability</th>
             <th className="p-3 font-semibold hidden lg:table-cell">Modifiers</th>
             <th className="p-3 font-semibold hidden xl:table-cell">Recipe</th>
-            {canViewCost && <th className="p-3 font-semibold text-right hidden xl:table-cell">Food Cost</th>}
+            {canViewCost && <th className="p-3 font-semibold text-end hidden xl:table-cell">Food Cost</th>}
             <th className="p-3 font-semibold hidden lg:table-cell">Deal</th>
             <th className="p-3" />
           </tr>
@@ -92,7 +92,7 @@ export function ProductTable({
                   </div>
                 </td>
                 <td className="p-3 hidden md:table-cell text-muted">{categoryName(it.category_id)}</td>
-                <td className="p-3 text-right font-mono font-semibold whitespace-nowrap">
+                <td className="p-3 text-end font-mono font-semibold whitespace-nowrap">
                   {hasChoices ? `from ${formatCents(price)}` : formatCents(price)}
                 </td>
                 <td className="p-3">
@@ -110,7 +110,7 @@ export function ProductTable({
                   {recipe ? <span className="text-ok font-semibold">Linked</span> : <span className="text-muted">None</span>}
                 </td>
                 {canViewCost && (
-                  <td className="p-3 text-right hidden xl:table-cell font-mono">
+                  <td className="p-3 text-end hidden xl:table-cell font-mono">
                     {cost?.foodCostPct != null ? (
                       <span className={cost.foodCostPct > 35 ? 'text-warn font-semibold' : 'text-body'}>
                         {cost.foodCostPct}%
@@ -127,7 +127,7 @@ export function ProductTable({
                     <span className="text-muted">—</span>
                   )}
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

@@ -73,7 +73,7 @@ export function BillingAiChat({ slug, restaurantName }: { slug: string; restaura
       {messages.length > 0 && (
         <div className="space-y-2 mb-3 max-h-64 overflow-y-auto">
           {messages.map((m, i) => (
-            <div key={i} className={`text-xs rounded-lg px-3 py-2 max-w-[85%] ${m.role === 'user' ? 'ml-auto bg-primary text-primary-fg' : 'bg-surface border border-border'}`}>
+            <div key={i} className={`text-xs rounded-lg px-3 py-2 max-w-[85%] ${m.role === 'user' ? 'ms-auto bg-primary text-primary-fg' : 'bg-surface border border-border'}`}>
               {m.content}
             </div>
           ))}

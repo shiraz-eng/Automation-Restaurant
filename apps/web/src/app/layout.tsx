@@ -1,9 +1,14 @@
 import type { Metadata } from 'next';
+import { Noto_Sans_Arabic } from 'next/font/google';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { A11Y_NO_FLASH } from '@/lib/a11yScript';
+import { UI_LANG_NO_FLASH } from '@/lib/i18n/uiLanguageScript';
 import './globals.css';
 
 const SITE_URL = 'https://automationrestaurant.app';
+
+// Urdu / Arabic screen text (lib/i18n). Not preloaded: it downloads only when such text is shown.
+const arabicScript = Noto_Sans_Arabic({ subsets: ['arabic'], weight: ['400', '600', '700', '800'], variable: '--font-arabic-script', preload: false, display: 'swap' });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -72,10 +77,11 @@ try {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={arabicScript.variable} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: noFlash }} />
         <script dangerouslySetInnerHTML={{ __html: A11Y_NO_FLASH }} />
+        <script dangerouslySetInnerHTML={{ __html: UI_LANG_NO_FLASH }} />
       </head>
       <body className="min-h-screen antialiased text-[0.875rem]">
         <ThemeProvider>{children}</ThemeProvider>

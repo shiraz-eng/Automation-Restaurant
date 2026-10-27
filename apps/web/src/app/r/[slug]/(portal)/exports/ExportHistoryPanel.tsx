@@ -126,7 +126,7 @@ export function ExportHistoryPanel({ slug }: { slug: string }) {
 
   return (
     <div className="rounded-lg border border-border bg-surface overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-      <table className="w-full text-left text-xs">
+      <table className="w-full text-start text-xs">
         <thead className="text-muted bg-main">
           <tr className="border-b border-border">
             <th className="p-3 font-semibold">Report</th>
@@ -163,7 +163,7 @@ export function ExportHistoryPanel({ slug }: { slug: string }) {
                   </span>
                 )}
               </td>
-              <td className="p-3 text-right">
+              <td className="p-3 text-end">
                 {r.storage_path ? (
                   <button
                     onClick={() => handleDownload(r.id)}

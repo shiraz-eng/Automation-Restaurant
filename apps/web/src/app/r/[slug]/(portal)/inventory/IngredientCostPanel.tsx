@@ -81,11 +81,11 @@ export function IngredientCostPanel() {
         <p className="p-3 text-muted text-xs">No ingredients.</p>
       ) : (
         <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
                 <th className="p-2.5 font-semibold">Ingredient</th>
-                <th className="p-2.5 font-semibold text-right">Current cost / unit</th>
+                <th className="p-2.5 font-semibold text-end">Current cost / unit</th>
                 <th className="p-2.5 font-semibold">New cost / unit</th>
                 <th className="p-2.5" />
               </tr>
@@ -94,7 +94,7 @@ export function IngredientCostPanel() {
               {shown.map((r) => (
                 <tr key={r.id} className="border-b border-border/60 last:border-0">
                   <td className="p-2.5 font-semibold">{r.name}</td>
-                  <td className="p-2.5 text-right font-mono tabular-nums">
+                  <td className="p-2.5 text-end font-mono tabular-nums">
                     {r.cost_cents_per_base_unit == null
                       ? '—'
                       : `${(Number(r.cost_cents_per_base_unit) / 100).toFixed(4)} / ${r.unit}`}
@@ -109,7 +109,7 @@ export function IngredientCostPanel() {
                       className="w-28"
                     />
                   </td>
-                  <td className="p-2.5 text-right">
+                  <td className="p-2.5 text-end">
                     <Button disabled={busyId === r.id || !(draft[r.id] ?? '').trim()} onClick={() => save(r)}>
                       Save
                     </Button>

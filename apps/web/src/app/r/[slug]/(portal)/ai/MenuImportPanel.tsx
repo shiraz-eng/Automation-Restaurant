@@ -266,7 +266,7 @@ export function MenuImportPanel({
                   {cat.name}
                   <span className={`text-[0.625rem] font-bold uppercase px-1.5 py-0.5 rounded ${STATUS_STYLE[cat.status]}`}>{cat.status}</span>
                 </div>
-                <div className="space-y-1 pl-3">
+                <div className="space-y-1 ps-3">
                   {cat.items.map((item, ii) => {
                     const key = `${ci}-${ii}`;
                     const hasAnyPrice = item.variants.some((v) => v.price_cents != null);
@@ -286,7 +286,7 @@ export function MenuImportPanel({
                           </div>
                           <div className="text-[0.6875rem] text-muted">
                             {item.variants.map((v, vi) => (
-                              <span key={vi} className="mr-2">
+                              <span key={vi} className="me-2">
                                 {v.name}:{' '}
                                 {v.price_cents == null ? (
                                   <span className="text-danger font-semibold">missing price</span>
@@ -364,7 +364,7 @@ export function MenuImportPanel({
       {stage === 'done' && applyResult && (
         <div className="space-y-2 text-xs">
           <p className="text-ok font-semibold">Menu import applied.</p>
-          <ul className="list-disc pl-4 text-muted">
+          <ul className="list-disc ps-4 text-muted">
             <li>
               {applyResult.categories_created} categor{applyResult.categories_created === 1 ? 'y' : 'ies'} created
             </li>

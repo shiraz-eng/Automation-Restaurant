@@ -1,4 +1,6 @@
 import { AccessibilityMenu } from '@/components/AccessibilityMenu';
+import { LanguageMenu } from '@/components/LanguageMenu';
+import { UiTranslator } from '@/components/UiTranslator';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
@@ -60,6 +62,7 @@ export default async function PortalLayout({
       expectedUserId={user.id}
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+      <UiTranslator slug={slug} />
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
@@ -70,7 +73,7 @@ export default async function PortalLayout({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-8 max-w-[6rem] shrink-0 self-center object-contain" />
             )}
-            <span className="min-w-0 truncate font-black">{t.config.restaurantName}</span>
+            <span translate="no" className="min-w-0 truncate font-black">{t.config.restaurantName}</span>
             <span className="min-w-0 truncate text-xs font-bold uppercase tracking-wider text-primary">
               {portal.name}
             </span>
@@ -79,6 +82,7 @@ export default async function PortalLayout({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3 text-xs text-muted">
+            <LanguageMenu />
             <AccessibilityMenu />
             <span className="hidden sm:inline">{user.email}</span>
             <SignOutButton redirectTo={`/r/${slug}/login`} />

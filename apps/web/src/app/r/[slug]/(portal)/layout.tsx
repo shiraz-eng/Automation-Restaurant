@@ -11,6 +11,8 @@ import { can } from '@/lib/permissions';
 import { fetchPortalTheme } from '@/lib/theme';
 import { PortalGuideAiWidget } from '@/components/PortalGuideAiWidget';
 import { AccessibilityMenu } from '@/components/AccessibilityMenu';
+import { LanguageMenu } from '@/components/LanguageMenu';
+import { UiTranslator } from '@/components/UiTranslator';
 import { getTenantEntitlement } from '@/lib/entitlements';
 import type { FeatureKey } from '@automation-restaurant/shared';
 import { LayoutDashboard, type LucideIcon } from 'lucide-react';
@@ -167,12 +169,12 @@ export default async function PortalLayout({
   // The sidebar: the desktop column and, on phones, the drawer opened from the top bar.
   const sidebar = (
     <>
-      <div className="p-5 pb-4 pr-12 lg:pr-5">
+      <div className="p-5 pb-4 pe-12 lg:pe-5">
         {logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoUrl} alt={`${t.config.restaurantName} logo`} className="h-9 max-w-[9rem] object-contain mb-3" />
         )}
-        <div className="font-black text-base leading-tight text-body">{t.config.restaurantName}</div>
+        <div translate="no" className="font-black text-base leading-tight text-body">{t.config.restaurantName}</div>
         <div className="text-muted text-[0.6875rem] mt-0.5">
           /{slug}
           {t.config.tier ? ` · ${t.config.tier}` : ''}
@@ -238,11 +240,12 @@ export default async function PortalLayout({
       expectedUserId={user.id}
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
+      <UiTranslator slug={slug} />
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
       <div className="min-h-screen flex bg-main">
-        <aside aria-label="Sidebar" className="hidden lg:flex lg:flex-col w-64 shrink-0 border-r border-border bg-surface overflow-y-auto">
+        <aside aria-label="Sidebar" className="hidden lg:flex lg:flex-col w-64 shrink-0 border-e border-border bg-surface overflow-y-auto">
           {sidebar}
         </aside>
 
@@ -251,18 +254,19 @@ export default async function PortalLayout({
             <PortalMobileDrawer title={`${t.config.restaurantName} menu`}>{sidebar}</PortalMobileDrawer>
             <div className="min-w-0 flex-1">
               <div className="text-[0.6875rem] text-muted truncate">
-                {t.config.restaurantName} / {roleLabel(role)}
+                <span translate="no">{t.config.restaurantName}</span> / <span>{roleLabel(role)}</span>
               </div>
               <ModuleTrail slug={slug} fallback="Command Center" />
             </div>
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <LanguageMenu />
               <AccessibilityMenu />
               <span className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-border bg-main px-3 py-1 text-[0.6875rem] font-semibold text-body">
                 <span className="h-1.5 w-1.5 rounded-full bg-ok" />
                 {t.config.subscriptionStatus ?? 'Active'}
                 {t.config.tier ? ` · ${t.config.tier}` : ''}
               </span>
-              <div className="hidden sm:flex min-w-0 items-center gap-2 rounded-full border border-border bg-main pl-1 pr-3 py-1">
+              <div className="hidden sm:flex min-w-0 items-center gap-2 rounded-full border border-border bg-main ps-1 pe-3 py-1">
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-fg text-[0.625rem] font-bold uppercase">
                   {(user.email ?? '?').slice(0, 1)}
                 </span>

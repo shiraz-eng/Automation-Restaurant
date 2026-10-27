@@ -55,7 +55,7 @@ export default async function CmsSectionRevisionsPage({ params }: { params: Prom
         <AdminCard>No revisions recorded yet.</AdminCard>
       ) : (
         <AdminCard className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-ink-muted border-b border-white/10">
               <tr>
                 <th className="p-3 font-semibold">When</th>

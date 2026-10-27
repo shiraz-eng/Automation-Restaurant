@@ -16,7 +16,7 @@ export function MobileCartBar({ count, total, onOpen }: { count: number; total: 
         <span className="flex items-center gap-2 text-sm font-bold">
           <span className="relative">
             <ShoppingBag size={18} />
-            <span className="absolute -top-1.5 -right-1.5 bg-primary-fg text-primary text-[0.5625rem] font-black rounded-full w-4 h-4 grid place-items-center">
+            <span className="absolute -top-1.5 -end-1.5 bg-primary-fg text-primary text-[0.5625rem] font-black rounded-full w-4 h-4 grid place-items-center">
               {count}
             </span>
           </span>

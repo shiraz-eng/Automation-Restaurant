@@ -94,7 +94,7 @@ export default async function AdminAuditLogsPage({
         <AdminCard>No activity recorded yet.</AdminCard>
       ) : (
         <AdminCard className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-ink-muted border-b border-white/10">
               <tr>
                 <th className="p-3 font-semibold">When</th>
@@ -114,7 +114,7 @@ export default async function AdminAuditLogsPage({
                   <td className="p-3">
                     <span className="font-semibold">{r.entity.replace(/_/g, ' ')}</span>
                     <span
-                      className={`ml-1.5 text-[0.625rem] font-bold ${
+                      className={`ms-1.5 text-[0.625rem] font-bold ${
                         r.action === 'DELETE' ? 'text-red-400' : r.action === 'INSERT' ? 'text-emerald-400' : 'text-gold'
                       }`}
                     >

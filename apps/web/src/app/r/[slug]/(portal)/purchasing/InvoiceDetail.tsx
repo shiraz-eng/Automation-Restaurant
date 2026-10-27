@@ -166,15 +166,15 @@ export function InvoiceDetail({
       </div>
 
       <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left">
+        <table className="w-full text-start">
           <thead className="text-muted border-b border-border">
             <tr>
-              <th className="py-1.5 pr-3 font-semibold">Line</th>
-              <th className="py-1.5 pr-3 font-semibold text-right">Billed qty</th>
-              <th className="py-1.5 pr-3 font-semibold text-right">Ordered / accepted</th>
-              <th className="py-1.5 pr-3 font-semibold text-right">Billed price</th>
-              <th className="py-1.5 pr-3 font-semibold text-right">PO price</th>
-              <th className="py-1.5 font-semibold text-right">Line total</th>
+              <th className="py-1.5 pe-3 font-semibold">Line</th>
+              <th className="py-1.5 pe-3 font-semibold text-end">Billed qty</th>
+              <th className="py-1.5 pe-3 font-semibold text-end">Ordered / accepted</th>
+              <th className="py-1.5 pe-3 font-semibold text-end">Billed price</th>
+              <th className="py-1.5 pe-3 font-semibold text-end">PO price</th>
+              <th className="py-1.5 font-semibold text-end">Line total</th>
             </tr>
           </thead>
           <tbody>
@@ -185,16 +185,16 @@ export function InvoiceDetail({
               const priceOff = pol != null && l.unit_cost_cents !== pol.unit_cost_cents;
               return (
                 <tr key={l.id} className="border-b border-border/50 last:border-0">
-                  <td className="py-1.5 pr-3">{l.description}</td>
-                  <td className={`py-1.5 pr-3 text-right font-mono ${qtyOff ? 'text-danger font-bold' : ''}`}>{Number(l.qty)}</td>
-                  <td className="py-1.5 pr-3 text-right font-mono text-muted">
+                  <td className="py-1.5 pe-3">{l.description}</td>
+                  <td className={`py-1.5 pe-3 text-end font-mono ${qtyOff ? 'text-danger font-bold' : ''}`}>{Number(l.qty)}</td>
+                  <td className="py-1.5 pe-3 text-end font-mono text-muted">
                     {pol ? `${Number(pol.qty)} / ${accepted}` : 'no PO line'}
                   </td>
-                  <td className={`py-1.5 pr-3 text-right font-mono ${priceOff ? 'text-danger font-bold' : ''}`}>
+                  <td className={`py-1.5 pe-3 text-end font-mono ${priceOff ? 'text-danger font-bold' : ''}`}>
                     {formatCents(l.unit_cost_cents)}
                   </td>
-                  <td className="py-1.5 pr-3 text-right font-mono text-muted">{pol ? formatCents(pol.unit_cost_cents) : '—'}</td>
-                  <td className="py-1.5 text-right font-mono">{formatCents(l.line_total_cents)}</td>
+                  <td className="py-1.5 pe-3 text-end font-mono text-muted">{pol ? formatCents(pol.unit_cost_cents) : '—'}</td>
+                  <td className="py-1.5 text-end font-mono">{formatCents(l.line_total_cents)}</td>
                 </tr>
               );
             })}
@@ -205,8 +205,8 @@ export function InvoiceDetail({
             {inv.delivery_fee_cents > 0 && <Row label="Delivery" cents={inv.delivery_fee_cents} />}
             {inv.discount_cents > 0 && <Row label="Discount" cents={-inv.discount_cents} />}
             <tr>
-              <td colSpan={5} className="pt-1 text-right font-bold text-body">Invoice total</td>
-              <td className="pt-1 text-right font-mono font-bold text-body">{formatCents(inv.total_cents)}</td>
+              <td colSpan={5} className="pt-1 text-end font-bold text-body">Invoice total</td>
+              <td className="pt-1 text-end font-mono font-bold text-body">{formatCents(inv.total_cents)}</td>
             </tr>
           </tfoot>
         </table>
@@ -227,9 +227,9 @@ export function InvoiceDetail({
               }`}
             >
               <div>
-                <span className="mr-2 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">{HOLD_LABEL[h.kind] ?? h.kind}</span>
+                <span className="me-2 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">{HOLD_LABEL[h.kind] ?? h.kind}</span>
                 {h.reason}
-                {h.status === 'resolved' && h.resolution_note && <span className="ml-1">— resolved: {h.resolution_note}</span>}
+                {h.status === 'resolved' && h.resolution_note && <span className="ms-1">— resolved: {h.resolution_note}</span>}
               </div>
               {h.status === 'open' && canResolve && (
                 <Button
@@ -315,10 +315,10 @@ function Info({ label, value, strong }: { label: string; value: string; strong?:
 function Row({ label, cents }: { label: string; cents: number }) {
   return (
     <tr>
-      <td colSpan={5} className="pt-1 text-right">
+      <td colSpan={5} className="pt-1 text-end">
         {label}
       </td>
-      <td className="pt-1 text-right font-mono">{formatCents(cents)}</td>
+      <td className="pt-1 text-end font-mono">{formatCents(cents)}</td>
     </tr>
   );
 }

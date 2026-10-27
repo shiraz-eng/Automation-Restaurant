@@ -61,12 +61,12 @@ export function InvoicesClient() {
       ) : invoices.length === 0 ? (
         <p className="text-ink-muted text-xs">No invoices yet.</p>
       ) : (
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-ink-muted">
             <tr className="border-b border-white/10">
               <th className="pb-2 font-semibold">Date</th>
               <th className="pb-2 font-semibold">Status</th>
-              <th className="pb-2 font-semibold text-right">Amount paid</th>
+              <th className="pb-2 font-semibold text-end">Amount paid</th>
               <th className="pb-2 font-semibold"></th>
             </tr>
           </thead>
@@ -75,8 +75,8 @@ export function InvoicesClient() {
               <tr key={inv.id} className="border-b border-white/10 last:border-0">
                 <td className="py-2 text-ink-muted">{new Date(inv.created * 1000).toLocaleDateString()}</td>
                 <td className="py-2 font-semibold capitalize">{inv.status}</td>
-                <td className="py-2 text-right font-bold">{formatCents(inv.amount_paid_cents)}</td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-end font-bold">{formatCents(inv.amount_paid_cents)}</td>
+                <td className="py-2 text-end">
                   {inv.hosted_invoice_url && (
                     <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-gold hover:underline">
                       View

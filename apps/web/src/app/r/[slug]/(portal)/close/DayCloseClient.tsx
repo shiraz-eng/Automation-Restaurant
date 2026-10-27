@@ -304,17 +304,17 @@ export function DayCloseClient({
           <p className="text-muted text-xs mb-3">No pay-ins, pay-outs or bank drops recorded for this day.</p>
         ) : (
           <div className="overflow-x-auto mb-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <tbody>
                 {movements.map((m) => (
                   <tr key={m.id} className="border-b border-border/60 last:border-0">
-                    <td className="py-1.5 pr-2 text-muted whitespace-nowrap">{formatDateTime(m.created_at)}</td>
-                    <td className="py-1.5 pr-2 font-semibold">{KIND_LABEL[m.kind] ?? m.kind}</td>
-                    <td className="py-1.5 pr-2">
+                    <td className="py-1.5 pe-2 text-muted whitespace-nowrap">{formatDateTime(m.created_at)}</td>
+                    <td className="py-1.5 pe-2 font-semibold">{KIND_LABEL[m.kind] ?? m.kind}</td>
+                    <td className="py-1.5 pe-2">
                       {m.reason}
                       {m.reference && <span className="text-muted"> · {m.reference}</span>}
                     </td>
-                    <td className={`py-1.5 text-right font-mono ${m.signed_cents < 0 ? 'text-danger' : 'text-ok'}`}>
+                    <td className={`py-1.5 text-end font-mono ${m.signed_cents < 0 ? 'text-danger' : 'text-ok'}`}>
                       {m.signed_cents > 0 ? '+' : ''}
                       {formatCents(m.signed_cents)}
                     </td>
@@ -351,14 +351,14 @@ export function DayCloseClient({
       </Card>
 
       <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               <th className="p-3 font-semibold">Date</th>
               <th className="p-3 font-semibold">Status</th>
-              <th className="p-3 font-semibold text-right">Net sales</th>
-              <th className="p-3 font-semibold text-right">Expected / counted</th>
-              <th className="p-3 font-semibold text-right">Difference</th>
+              <th className="p-3 font-semibold text-end">Net sales</th>
+              <th className="p-3 font-semibold text-end">Expected / counted</th>
+              <th className="p-3 font-semibold text-end">Difference</th>
               <th className="p-3 font-semibold">Note</th>
             </tr>
           </thead>
@@ -380,11 +380,11 @@ export function DayCloseClient({
                   <td className="p-3">
                     <span className={c.status === 'closed' ? 'text-ok' : 'text-warn'}>{c.status === 'closed' ? 'closed' : 'reopened'}</span>
                   </td>
-                  <td className="p-3 text-right">{formatCents(c.net_sales_cents)}</td>
-                  <td className="p-3 text-right font-mono">
+                  <td className="p-3 text-end">{formatCents(c.net_sales_cents)}</td>
+                  <td className="p-3 text-end font-mono">
                     {formatCents(c.expected_cash_cents ?? 0)} / {c.closing_cash_cents == null ? '—' : formatCents(c.closing_cash_cents)}
                   </td>
-                  <td className={`p-3 text-right font-mono ${c.difference_cents ? 'text-danger' : ''}`}>
+                  <td className={`p-3 text-end font-mono ${c.difference_cents ? 'text-danger' : ''}`}>
                     {c.difference_cents == null ? '—' : formatCents(c.difference_cents)}
                   </td>
                   <td className="p-3 text-muted">{c.note ?? ''}</td>

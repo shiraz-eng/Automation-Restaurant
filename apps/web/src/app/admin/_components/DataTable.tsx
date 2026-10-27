@@ -92,13 +92,13 @@ export function DataTable<T>({
         ) : (
           <>
             <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-ink-muted border-b border-white/10">
                   <tr>
                     {columns.map((c) => (
                       <th
                         key={c.key}
-                        className={`p-3 font-semibold whitespace-nowrap ${c.align === 'right' ? 'text-right' : ''} ${c.sortValue ? 'cursor-pointer select-none hover:text-ink-fg' : ''}`}
+                        className={`p-3 font-semibold whitespace-nowrap ${c.align === 'right' ? 'text-end' : ''} ${c.sortValue ? 'cursor-pointer select-none hover:text-ink-fg' : ''}`}
                         onClick={c.sortValue ? () => toggleSort(c.key) : undefined}
                       >
                         {c.label}
@@ -115,7 +115,7 @@ export function DataTable<T>({
                       onClick={onRowClick ? () => onRowClick(row) : undefined}
                     >
                       {columns.map((c) => (
-                        <td key={c.key} className={`p-3 ${c.align === 'right' ? 'text-right' : ''}`}>
+                        <td key={c.key} className={`p-3 ${c.align === 'right' ? 'text-end' : ''}`}>
                           {c.render(row)}
                         </td>
                       ))}

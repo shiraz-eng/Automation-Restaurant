@@ -488,7 +488,7 @@ export function DealEditor({
                       Remove
                     </button>
                   )}
-                  {deal?.ref_code && <span className="text-[0.6875rem] text-muted font-mono ml-auto">Ref {deal.ref_code}</span>}
+                  {deal?.ref_code && <span className="text-[0.6875rem] text-muted font-mono ms-auto">Ref {deal.ref_code}</span>}
                 </div>
               </div>
             )}
@@ -523,7 +523,7 @@ export function DealEditor({
                               const q = Math.max(1, parseInt(e.target.value, 10) || 1);
                               setDraft((d) => ({ ...d, components: d.components.map((x, j) => (j === i ? { ...x, qty: q } : x)) }));
                             }}
-                            className="w-16 text-right"
+                            className="w-16 text-end"
                           />
                           <button
                             onClick={() => setDraft((d) => ({ ...d, components: d.components.filter((_, j) => j !== i) }))}
@@ -614,7 +614,7 @@ export function DealEditor({
                           </Field>
                           <button
                             onClick={() => setDraft((d) => ({ ...d, groups: d.groups.filter((_, j) => j !== gi) }))}
-                            className="ml-auto text-muted hover:text-danger pb-2"
+                            className="ms-auto text-muted hover:text-danger pb-2"
                             aria-label="Remove group"
                           >
                             <Trash2 size={14} />
@@ -643,7 +643,7 @@ export function DealEditor({
                                   ),
                                 }))
                               }
-                              className="w-20 text-right"
+                              className="w-20 text-end"
                             />
                             <label className="flex items-center gap-1 text-[0.6875rem]">
                               <input
@@ -739,7 +739,7 @@ export function DealEditor({
                           min="0"
                           value={draft.price}
                           onChange={(e) => set('price', e.target.value)}
-                          className="w-32 text-right font-bold"
+                          className="w-32 text-end font-bold"
                         />
                       </dd>
                     </div>
@@ -975,7 +975,7 @@ export function DealEditor({
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-3">
                       <dt className="text-muted">{k}</dt>
-                      <dd className="font-semibold text-right">{v}</dd>
+                      <dd className="font-semibold text-end">{v}</dd>
                     </div>
                   ))}
                 </dl>
@@ -993,7 +993,7 @@ export function DealEditor({
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-3">
                       <dt className="text-muted">{k}</dt>
-                      <dd className="font-semibold text-right">{v}</dd>
+                      <dd className="font-semibold text-end">{v}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1042,7 +1042,7 @@ export function DealEditor({
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted">Schedule</dt>
-                <dd className="font-semibold text-right">
+                <dd className="font-semibold text-end">
                   {validityLabel({ starts_at: startsAtIso, ends_at: endsAtIso, active_days: draft.all_days ? null : draft.active_days })}
                 </dd>
               </div>

@@ -44,7 +44,7 @@ function Row({ color, label, cents }: { color: string; label: string; cents: num
   return (
     <p className="flex items-center gap-1.5 text-muted">
       <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden />
-      {label} <span className="ml-auto pl-3 font-mono text-body">{formatCents(cents)}</span>
+      {label} <span className="ms-auto ps-3 font-mono text-body">{formatCents(cents)}</span>
     </p>
   );
 }

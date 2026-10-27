@@ -373,7 +373,7 @@ export function ProductEditor({
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Edit ${item.name}`} className="fixed inset-0 z-40 bg-black/50 flex justify-end" onClick={onClose}>
-      <div className="w-full lg:w-[900px] h-full bg-main border-l border-border overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full lg:w-[900px] h-full bg-main border-s border-border overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 bg-main border-b border-border px-5 py-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Edit Product</div>
@@ -432,7 +432,7 @@ export function ProductEditor({
                       <button
                         onClick={() => run(() => supabase.from('menu_items').update({ image_url: null }).eq('id', item.id))}
                         disabled={busy}
-                        className="text-xs font-semibold text-danger text-left"
+                        className="text-xs font-semibold text-danger text-start"
                       >
                         Remove image
                       </button>
@@ -518,11 +518,11 @@ export function ProductEditor({
               <h3 className="font-bold text-sm mb-3">Variants</h3>
               {item.menu_variants.length > 0 && (
                 <div className="overflow-x-auto mb-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-start text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
                       <th className="p-2 font-semibold">Variant</th>
-                      <th className="p-2 font-semibold text-right">Price</th>
+                      <th className="p-2 font-semibold text-end">Price</th>
                       <th className="p-2 font-semibold">SKU</th>
                       <th className="p-2 font-semibold">Recipe</th>
                       <th className="p-2 font-semibold">Status</th>
@@ -536,7 +536,7 @@ export function ProductEditor({
                       .map((v) => (
                         <tr key={v.id} className="border-b border-border/50 last:border-0">
                           <td className="p-2 font-semibold">{v.name}</td>
-                          <td className="p-2 text-right font-mono">{formatCents(v.price_cents)}</td>
+                          <td className="p-2 text-end font-mono">{formatCents(v.price_cents)}</td>
                           <td className="p-2 font-mono text-muted">{v.sku ?? '—'}</td>
                           <td className="p-2">
                             {(() => {
@@ -547,7 +547,7 @@ export function ProductEditor({
                                   <span className="whitespace-nowrap">
                                     <span className="font-semibold">{sizeLink.recipe.name}</span>
                                     {canManageRecipes && (
-                                      <button onClick={() => unlinkItemRecipe(sizeLink)} disabled={busy} className="text-danger text-[0.6875rem] underline ml-2">
+                                      <button onClick={() => unlinkItemRecipe(sizeLink)} disabled={busy} className="text-danger text-[0.6875rem] underline ms-2">
                                         Unlink
                                       </button>
                                     )}
@@ -578,7 +578,7 @@ export function ProductEditor({
                             <span className={v.is_available ? 'text-ok' : 'text-muted'}>{v.is_available ? 'on sale' : 'off'}</span>
                           </td>
                           {canEdit && (
-                            <td className="p-2 text-right whitespace-nowrap">
+                            <td className="p-2 text-end whitespace-nowrap">
                               <Button
                                 variant="ghost"
                                 disabled={busy}
@@ -587,7 +587,7 @@ export function ProductEditor({
                                 {v.is_available ? 'Off' : 'On'}
                               </Button>
                               {item.menu_variants.length > 1 && (
-                                <Button variant="danger" className="ml-1" disabled={busy} onClick={() => run(() => supabase.from('menu_variants').delete().eq('id', v.id))}>
+                                <Button variant="danger" className="ms-1" disabled={busy} onClick={() => run(() => supabase.from('menu_variants').delete().eq('id', v.id))}>
                                   <Trash2 size={11} />
                                 </Button>
                               )}
@@ -623,7 +623,7 @@ export function ProductEditor({
                     </Field>
                   )}
                   <Button variant="ghost" disabled={busy} onClick={addVariant}>
-                    <PlusIcon size={12} className="inline mr-1" /> Add Variant
+                    <PlusIcon size={12} className="inline me-1" /> Add Variant
                   </Button>
                 </div>
               )}
@@ -874,7 +874,7 @@ export function ProductEditor({
                       <div key={ing.id} className="flex items-center justify-between text-xs">
                         <span className={isBottleneck ? 'font-semibold' : ''}>
                           {ing.name}
-                          {isBottleneck && <span className="text-danger ml-1">(bottleneck)</span>}
+                          {isBottleneck && <span className="text-danger ms-1">(bottleneck)</span>}
                         </span>
                         <span className="flex items-center gap-2">
                           {cap !== undefined && <span className="font-mono text-muted">{cap} portions</span>}

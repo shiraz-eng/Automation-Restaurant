@@ -206,7 +206,7 @@ function PlanEditor({ plan, onDone }: { plan: PlanDbRow; onDone: () => void }) {
           Cancel
         </AdminButton>
         {!isNew && draft.is_active && (
-          <button onClick={deactivate} disabled={busy} className="text-red-400 text-xs font-semibold ml-auto">
+          <button onClick={deactivate} disabled={busy} className="text-red-400 text-xs font-semibold ms-auto">
             Deactivate
           </button>
         )}

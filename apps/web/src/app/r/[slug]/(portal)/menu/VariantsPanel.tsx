@@ -250,13 +250,13 @@ export function VariantsPanel({
           <p className="p-3 text-muted text-xs">No variants.</p>
         ) : (
           <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead className="text-muted border-b border-border sticky top-0 bg-surface">
                 <tr>
                   <th className="p-2.5 font-semibold">Item</th>
                   <th className="p-2.5 font-semibold">Variant</th>
                   <th className="p-2.5 font-semibold">SKU</th>
-                  <th className="p-2.5 font-semibold text-right">Price</th>
+                  <th className="p-2.5 font-semibold text-end">Price</th>
                   {canLinkRecipes && <th className="p-2.5 font-semibold">Recipe</th>}
                   <th className="p-2.5 font-semibold">Status</th>
                   <th className="p-2.5" />
@@ -278,11 +278,11 @@ export function VariantsPanel({
                       </td>
                       {canLinkRecipes && <td className="p-2.5" />}
                       <td className="p-2.5" />
-                      <td className="p-2.5 text-right whitespace-nowrap">
+                      <td className="p-2.5 text-end whitespace-nowrap">
                         <Button disabled={busy} onClick={saveEdit}>
                           Save
                         </Button>
-                        <Button variant="ghost" className="ml-1.5" onClick={() => setEditId(null)}>
+                        <Button variant="ghost" className="ms-1.5" onClick={() => setEditId(null)}>
                           Cancel
                         </Button>
                       </td>
@@ -292,7 +292,7 @@ export function VariantsPanel({
                       <td className="p-2.5 font-semibold">{itemName(r)}</td>
                       <td className="p-2.5">{r.name}</td>
                       <td className="p-2.5 font-mono text-muted">{r.sku ?? '—'}</td>
-                      <td className="p-2.5 text-right tabular-nums">{formatCents(r.price_cents)}</td>
+                      <td className="p-2.5 text-end tabular-nums">{formatCents(r.price_cents)}</td>
                       {canLinkRecipes && (
                         <td className="p-2.5">
                           {(() => {
@@ -301,7 +301,7 @@ export function VariantsPanel({
                               return (
                                 <span className="whitespace-nowrap">
                                   <span className="font-semibold">{own.name}</span>
-                                  <button onClick={() => unlink(own, r.menu_item_id, r.id)} disabled={busy} className="text-danger text-[0.6875rem] underline ml-2">
+                                  <button onClick={() => unlink(own, r.menu_item_id, r.id)} disabled={busy} className="text-danger text-[0.6875rem] underline ms-2">
                                     Unlink
                                   </button>
                                 </span>
@@ -332,7 +332,7 @@ export function VariantsPanel({
                       <td className="p-2.5">
                         <span className={r.is_available ? 'text-ok' : 'text-muted'}>{r.is_available ? 'on sale' : 'archived'}</span>
                       </td>
-                      <td className="p-2.5 text-right whitespace-nowrap">
+                      <td className="p-2.5 text-end whitespace-nowrap">
                         {canUpdate && (
                           <Button variant="ghost" disabled={busy} onClick={() => startEdit(r)}>
                             Edit
@@ -341,7 +341,7 @@ export function VariantsPanel({
                         {canArchive && (
                           <Button
                             variant={r.is_available ? 'danger' : 'ghost'}
-                            className="ml-1.5"
+                            className="ms-1.5"
                             disabled={busy}
                             onClick={() =>
                               run(() => supabase.rpc('set_variant_archived', { p_variant_id: r.id, p_archived: r.is_available }))

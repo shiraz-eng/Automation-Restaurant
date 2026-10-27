@@ -206,14 +206,14 @@ export default async function DashboardPage({
             <p className="text-muted text-xs">No orders yet.</p>
           ) : (
             <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">
                     <th className="pb-2 font-semibold">#</th>
                     <th className="pb-2 font-semibold">Where</th>
                     <th className="pb-2 font-semibold">Status</th>
-                    <th className="pb-2 font-semibold text-right">Total</th>
-                    <th className="pb-2 font-semibold text-right">Time</th>
+                    <th className="pb-2 font-semibold text-end">Total</th>
+                    <th className="pb-2 font-semibold text-end">Time</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -235,8 +235,8 @@ export default async function DashboardPage({
                         <td className={`py-2 font-semibold ${STATUS_TONE[o.status] ?? 'text-body'}`}>
                           {o.status.replace('_', ' ')}
                         </td>
-                        <td className="py-2 text-right font-bold">{formatCents(o.total_cents)}</td>
-                        <td className="py-2 text-right text-muted">
+                        <td className="py-2 text-end font-bold">{formatCents(o.total_cents)}</td>
+                        <td className="py-2 text-end text-muted">
                           {formatDateTime(o.created_at)}
                         </td>
                       </tr>
@@ -279,13 +279,13 @@ export default async function DashboardPage({
             <p className="text-muted text-xs">No inventory items.</p>
           ) : (
             <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">
                     <th className="pb-2 font-semibold">Item</th>
-                    <th className="pb-2 font-semibold text-right">On hand</th>
-                    <th className="pb-2 font-semibold text-right">Min</th>
-                    <th className="pb-2 font-semibold text-right">State</th>
+                    <th className="pb-2 font-semibold text-end">On hand</th>
+                    <th className="pb-2 font-semibold text-end">Min</th>
+                    <th className="pb-2 font-semibold text-end">State</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -301,12 +301,12 @@ export default async function DashboardPage({
                       return (
                         <tr key={i.id} className="border-b border-border/60 last:border-0">
                           <td className="py-2 font-semibold">{i.name}</td>
-                          <td className="py-2 text-right">
+                          <td className="py-2 text-end">
                             {i.stock_qty} {i.unit}
                           </td>
-                          <td className="py-2 text-right text-muted">{i.min_threshold}</td>
+                          <td className="py-2 text-end text-muted">{i.min_threshold}</td>
                           <td
-                            className={`py-2 text-right font-semibold ${low ? 'text-danger' : 'text-ok'}`}
+                            className={`py-2 text-end font-semibold ${low ? 'text-danger' : 'text-ok'}`}
                           >
                             {low ? 'low' : 'ok'}
                           </td>
@@ -353,7 +353,7 @@ export default async function DashboardPage({
             <p className="text-muted text-xs">No portals created yet.</p>
           ) : (
             <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted">
                   <tr className="border-b border-border">
                     <th className="pb-2 font-semibold">Portal</th>

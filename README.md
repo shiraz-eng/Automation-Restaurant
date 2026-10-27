@@ -190,9 +190,10 @@ menu and Finance. Logos and personal data are blurred.</sub>
 ## Languages, voice and accessibility
 
 **Multilingual AI.** The AI Guide, the Assistant and the customer menu's AI
-answer in the language you write or speak in. This includes English, Urdu (right
-to left), Roman Urdu, Hindi, Arabic, Punjabi, Pashto, Persian, Bengali, Turkish,
-French, Spanish, German, Chinese and Malay.
+answer in the language you write or speak in: 44 languages are listed, including
+English, Urdu (right to left), Roman Urdu, Hindi, Arabic, Punjabi, Sindhi, Pashto,
+Persian, Bengali, Tamil, Turkish, French, Spanish, Chinese, Japanese, Korean,
+Russian and Indonesian, and the AI also understands languages not on the list.
 - The **文A / Auto** button (Language & voice) fixes the answer language. For
   example, ask in Urdu and get the answer in English.
 - Figures, prices, currency, dates, dish and supplier names, and screen names
@@ -201,16 +202,19 @@ French, Spanish, German, Chinese and Malay.
   read right to left and English inside them stays readable.
 
 **Voice.**
-- **Speaking:** tap the microphone and speak. The browser's own speech
-  recognition is used where it exists. Otherwise the recording goes to the API,
-  which transcribes it with Gemini (`POST /api/ai/transcribe`), rate-limited and
-  for signed-in staff only.
+- **Speaking:** tap the microphone and speak in any language. With the listening
+  language on **Automatic**, the recording goes to the API, which recognises
+  whatever language is spoken (Gemini, `POST /api/ai/transcribe`, staff only and
+  rate-limited). With a fixed language, the browser's own recogniser is used
+  where it exists.
 - **Nothing is sent by voice alone.** The words appear in the message box to
   check before sending. Anything that changes data is still only proposed, with
   Confirm / Cancel.
-- **Listening:** **Listen** reads an answer aloud with the device's voices, with
-  Pause, Resume, Stop and Replay. If the device has no voice for that language,
-  it says so, and the answer is always on screen as text.
+- **Listening:** **Listen** reads an answer aloud with Pause, Resume, Stop and
+  Replay. The device's own voice is used when it has one for the language;
+  otherwise (for example Urdu on Windows) the AI voice reads it, in any language
+  (Gemini speech, `POST /api/ai/speak`). **AI voice for every language** uses it
+  always. The answer is always on screen as text too.
 
 **The AI Guide in the portal** has a **Your restaurant data** tab. It is the
 same permission-checked Assistant: for example, ask in Urdu on the Inventory
@@ -220,8 +224,6 @@ suggested questions.
 **Settings → AI & Voice** (settings permission) sets, for all modules or for
 POS, Kitchen, Menu, Marketing, Inventory, Suppliers, Finance, Staff, Manager,
 Admin and Customer:
-- the AI provider;
-- the model, which is checked live against what the server's key can use;
 - the answer and listening languages, and automatic language detection;
 - whether voice input and spoken answers are offered.
 
@@ -229,6 +231,25 @@ Settings live in the restaurant's own database (`ai_module_settings`, tenant
 migration 0108) and are only written by the API, after validation, with an
 audit entry. They never widen access: the assistant always works with the
 signed-in person's own permissions.
+
+**The portal in Urdu (and any language).** The **🌐 language** button in the portal,
+kiosk portal and sign-in headers switches every screen: menus, buttons,
+forms, tables and messages. Urdu, Arabic, Persian, Pashto, Sindhi and Hebrew
+are laid out right to left.
+- Urdu ships with a dictionary of 2,477 screen texts.
+- Text it doesn't have yet, such as dish names or new messages, and every
+  other language are translated by the AI the first time they appear
+  (`POST /api/ai/translate-ui`), then cached on the device.
+- With the screen in Urdu, the AI answers in Urdu too.
+
+![Urdu portal, any-language AI and voice](docs/screenshots/urdu-voice-ui.jpg)
+
+<sub>Inventory and sign-in in Urdu, the AI Guide answering in Urdu from live
+stock data, and Language & voice with the microphone on "Automatic — any
+language". Logos blurred.</sub>
+
+All screenshots are also in one PDF:
+[docs/Automation-Restaurant-Screenshots.pdf](docs/Automation-Restaurant-Screenshots.pdf).
 
 **Accessibility.** The ♿ button in every header (website, portals, kiosk
 portals, customer menu and admin) offers:
@@ -372,16 +393,9 @@ live deployment uses Gemini.
 | `/api/public/ai/chat` | Customer AI on the guest menu (read-only, rate-limited per visitor) |
 | `/api/public/guide-ai/chat`, `/api/guide-ai/chat` | AI Guide (public and signed-in) |
 | `/api/saas-ai/chat` | Billing assistant (owner only) |
-| `/api/ai/config` | AI settings per module: effective settings for any staff login; the live provider/model registry and edits for `settings.update` (validated, audited) |
+| `/api/ai/config` | AI settings per module (languages, voice): effective settings for any staff login; edits for `settings.update` (audited) |
 | `/api/ai/transcribe` | Voice input for browsers without speech recognition (Gemini audio → text; staff only, rate-limited, module must allow voice) |
 | Import routes (menu, recipe, inventory, supplier, supplier price, supplier invoice, PO, staff, table) | AI document import into reviewable drafts |
-
-**Per-module model choice.** Settings → AI & Voice can pin a provider and model
-for each module. The choices come from the provider's own model list for the
-server's key (`apps/api/src/lib/aiRegistry.ts`, checked live and cached), never
-from a hard-coded list. A pinned Gemini model is tried first, and the usual
-fast models still back it up. A choice that stops being available falls back to
-the server default.
 
 **Reliability**
 - **Model racing:** if a Gemini model hasn't started answering quickly, or

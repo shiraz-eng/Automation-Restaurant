@@ -492,7 +492,7 @@ export function CheckoutClient({
           <button
             key={b.id}
             onClick={() => setOpen(b.id)}
-            className={`w-full text-left rounded-lg border p-3 ${
+            className={`w-full text-start rounded-lg border p-3 ${
               open === b.id ? 'border-primary bg-primary/5' : 'border-border bg-surface'
             }`}
           >

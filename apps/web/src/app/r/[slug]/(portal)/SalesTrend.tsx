@@ -315,15 +315,15 @@ export function SalesTrend({ initialMonth, initialDays }: { initialMonth: string
                 <p className="text-muted text-xs">No orders this day.</p>
               ) : (
                 <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-start text-xs">
                     <tbody>
                       {dayOrders.map((o) => (
                         <tr key={o.order_id} className="border-b border-border/50 last:border-0">
                           <td className="py-1.5 font-mono font-bold">#{o.order_number}</td>
                           <td className="py-1.5 text-muted">{o.table_label ?? o.channel.replace('_', ' ')}</td>
                           <td className="py-1.5 text-muted">{o.status.replace('_', ' ')}</td>
-                          <td className="py-1.5 text-right font-bold">{formatCents(o.total_cents)}</td>
-                          <td className="py-1.5 text-right text-muted">{formatDateTime(o.event_at)}</td>
+                          <td className="py-1.5 text-end font-bold">{formatCents(o.total_cents)}</td>
+                          <td className="py-1.5 text-end text-muted">{formatDateTime(o.event_at)}</td>
                         </tr>
                       ))}
                     </tbody>

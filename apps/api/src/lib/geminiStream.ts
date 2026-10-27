@@ -121,9 +121,8 @@ async function geminiStreamOnce(model: string, body: object, signal: AbortSignal
  *  the current one hasn't produced anything after HEDGE_MS or fails; the
  *  first to stream anything wins and the others are cancelled. onText only
  *  ever receives the winner's text. */
-function geminiTurnOnce(contents: GContent[], tools: GTool[], system: string, onText: (text: string) => void, generationConfig?: object, preferredModel?: string | null): Promise<GContent> {
-  // A model chosen in AI settings goes first; the usual fast models still back it up.
-  const models = preferredModel ? [preferredModel, ...GEMINI_CHAT_MODELS.filter((m) => m !== preferredModel)] : GEMINI_CHAT_MODELS;
+function geminiTurnOnce(contents: GContent[], tools: GTool[], system: string, onText: (text: string) => void, generationConfig?: object): Promise<GContent> {
+  const models = GEMINI_CHAT_MODELS;
   const decls = tools.map((t) => ({
     name: t.name,
     description: t.description,
@@ -207,7 +206,6 @@ export async function geminiTurn(
   system: string,
   onText: (text: string) => void,
   generationConfig?: object,
-  preferredModel?: string | null,
 ): Promise<GContent> {
   let emitted = false;
   const track = (t: string) => {
@@ -216,7 +214,7 @@ export async function geminiTurn(
   };
   for (let attempt = 0; ; attempt++) {
     try {
-      return await geminiTurnOnce(contents, tools, system, track, generationConfig, preferredModel);
+      return await geminiTurnOnce(contents, tools, system, track, generationConfig);
     } catch (err) {
       const status = (err as { status?: number }).status;
       if (emitted || attempt >= 2 || (status !== 429 && status !== 503)) throw err;

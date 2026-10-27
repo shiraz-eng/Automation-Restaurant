@@ -52,7 +52,7 @@ export function CustomerChats() {
 
   return (
     <section className="rounded-lg border border-border bg-surface">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-4 py-3 text-left">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-4 py-3 text-start">
         <span>
           <span className="font-bold text-sm">Customer chats</span>
           <span className="block text-muted text-[0.6875rem]">What guests asked the ordering assistant on your online menu</span>
@@ -81,7 +81,7 @@ export function CustomerChats() {
                       key={c.id}
                       type="button"
                       onClick={() => show(c.id)}
-                      className={`block w-full text-left px-2.5 py-2 border-b border-border/60 last:border-0 ${selected === c.id ? 'bg-primary/10' : 'hover:bg-main'}`}
+                      className={`block w-full text-start px-2.5 py-2 border-b border-border/60 last:border-0 ${selected === c.id ? 'bg-primary/10' : 'hover:bg-main'}`}
                     >
                       <div className="text-xs font-semibold truncate">{c.title}</div>
                       <div className="text-[0.625rem] text-muted">
@@ -98,9 +98,9 @@ export function CustomerChats() {
                   <p className="text-muted text-xs">Loading…</p>
                 ) : (
                   messages.map((m, i) => (
-                    <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
+                    <div key={i} className={m.role === 'user' ? 'text-end' : ''}>
                       <div
-                        className={`inline-block max-w-[90%] rounded-lg px-3 py-2 text-xs text-left ${
+                        className={`inline-block max-w-[90%] rounded-lg px-3 py-2 text-xs text-start ${
                           m.role === 'user' ? 'bg-primary text-primary-fg whitespace-pre-wrap' : 'bg-main border border-border'
                         }`}
                       >

@@ -28,7 +28,7 @@ export function ProductCard({
       <button
         type="button"
         onClick={onOpenSheet}
-        className="relative block w-full aspect-[4/3] overflow-hidden text-left"
+        className="relative block w-full aspect-[4/3] overflow-hidden text-start"
         aria-label={`View ${item.name}`}
       >
         {item.image_url ? (
@@ -47,14 +47,14 @@ export function ProductCard({
           <ImageFallback className="w-full h-full" />
         )}
         {unavailable && (
-          <span className="absolute top-2 left-2 rounded-full bg-black/70 text-white text-[0.625rem] font-bold uppercase tracking-wide px-2 py-0.5">
+          <span className="absolute top-2 start-2 rounded-full bg-black/70 text-white text-[0.625rem] font-bold uppercase tracking-wide px-2 py-0.5">
             Unavailable
           </span>
         )}
       </button>
 
       <div className="p-3 flex flex-col flex-1">
-        <button type="button" onClick={onOpenSheet} className="text-left flex-1">
+        <button type="button" onClick={onOpenSheet} className="text-start flex-1">
           <div className="font-bold text-sm leading-snug line-clamp-1">{item.name}</div>
           {item.description && (
             <p className="text-muted text-[0.71875rem] leading-snug mt-0.5 line-clamp-2">{item.description}</p>

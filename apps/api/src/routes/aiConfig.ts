@@ -5,13 +5,15 @@ import {
   detectLanguage,
   aiLanguage,
   isAiModuleKey,
-  resolveAiSettings,
+  isAiLanguageCode,
   sanitizeAiOverride,
+  samePlaceholders,
+  fitsLanguageScript,
+  uiTranslationPrompt,
   type AiModuleKey,
 } from '@automation-restaurant/shared';
 import { env, aiProvider } from '../env';
 import { requirePortalPerm, permits } from '../middleware/portalAuth';
-import { aiRegistry, validateModelChoice } from '../lib/aiRegistry';
 import { loadAiSettings, loadAllAiOverrides, overrideToRow, isMissingTable } from '../lib/aiModuleSettings';
 import { GEMINI_CHAT_MODELS } from '../lib/geminiStream';
 
@@ -20,10 +22,13 @@ import { GEMINI_CHAT_MODELS } from '../lib/geminiStream';
  *
  *   GET  /api/ai/config?slug=&module=      any signed-in member: the effective
  *        settings for that module (voice on/off, languages). With &full=1 and
- *        settings.update: every module's stored override plus the providers
- *        and models this server can really use (checked live).
+ *        settings.update: every module's stored override.
  *   PUT  /api/ai/config                    settings.update: save (or clear) one
- *        module's override, after validating provider and model. Audited.
+ *        module's override. Audited.
+ *   POST /api/ai/translate-ui              any signed-in member, rate limited:
+ *        screen text the bundled dictionary lacks → the chosen language.
+ *   POST /api/ai/speak                     any signed-in member, rate limited:
+ *        an answer read aloud in any language (Gemini speech).
  *   POST /api/ai/transcribe                any signed-in member, rate limited:
  *        a short voice recording → text, for browsers without built-in speech
  *        recognition. Only when the module allows voice input.
@@ -56,16 +61,16 @@ aiConfigRouter.get('/config', requirePortalPerm(ANY_MEMBER), async (req: Request
     aiConfigured: aiProvider !== null,
     // Server transcription needs Gemini (Claude doesn't take audio).
     serverTranscription: Boolean(env.GEMINI_API_KEY),
+    // Spoken answers in any language (Gemini speech), for devices without a voice for it.
+    serverVoice: Boolean(env.GEMINI_API_KEY),
   };
   if (req.query.full !== '1' || !canEdit) return res.json(base);
-  const [stored, providers] = await Promise.all([loadAllAiOverrides(admin), aiRegistry(req.query.refresh === '1')]);
+  const stored = await loadAllAiOverrides(admin);
   return res.json({
     ...base,
     stored: stored.stored,
     overrides: stored.overrides,
     modules: AI_MODULES.map(({ key, label }) => ({ key, label })),
-    providers,
-    defaultProvider: aiProvider,
   });
 });
 
@@ -82,7 +87,6 @@ aiConfigRouter.put('/config', express.json(), requirePortalPerm('settings.update
   const { admin, userId, email, role } = req.tenant!;
   const module = parsed.data.module as AiModuleKey;
   const override = sanitizeAiOverride(parsed.data.override ?? {});
-  // A model only makes sense with its provider; validate the pair as it will be used.
   const all = await loadAllAiOverrides(admin);
   if (!all.stored) {
     return res.status(503).json({
@@ -90,10 +94,6 @@ aiConfigRouter.put('/config', express.json(), requirePortalPerm('settings.update
       message: "This restaurant's database needs the latest update (AI settings per module) before settings can be saved.",
     });
   }
-  const effective = resolveAiSettings(module === 'global' ? override : all.overrides.global, module === 'global' ? null : override);
-  const problem = await validateModelChoice(effective.provider, override.model ?? (override.provider ? 'auto' : undefined));
-  if (problem) return res.status(422).json({ error: 'invalid_model', message: problem });
-
   const before = all.overrides[module] ?? null;
   const { error } = await admin.from('ai_module_settings').upsert(overrideToRow(module, override, userId), { onConflict: 'module' });
   if (error) {
@@ -233,4 +233,185 @@ aiConfigRouter.post('/transcribe', express.json({ limit: '6mb' }), requirePortal
       .status(status === 429 ? 429 : 502)
       .json({ error: 'transcription_failed', message: status === 429 ? 'The speech service is busy — try again in a minute.' : 'The recording could not be transcribed — try again, or type your question.' });
   }
+});
+
+// ── Screen translation ───────────────────────────────────────────────────────
+// The portal can be shown in Urdu (and other languages). The bundled
+// dictionary covers the app's own text; this translates what it doesn't have
+// yet (dish names, new messages) in small batches. Staff only, rate limited,
+// cached per server instance so the same text isn't translated twice.
+
+const translateSchema = z.object({
+  slug: z.string().min(1),
+  language: z.string().refine(isAiLanguageCode, 'unknown language'),
+  strings: z.array(z.string().min(1).max(400)).min(1).max(80),
+});
+
+const uiCache = new Map<string, string>();
+const UI_CACHE_MAX = 50_000;
+const uiHits = new Map<string, number[]>();
+function uiLimited(key: string): boolean {
+  const now = Date.now();
+  const list = (uiHits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  list.push(now);
+  uiHits.set(key, list);
+  if (uiHits.size > 5000) for (const [k, l] of uiHits) if (l.every((t) => now - t >= WINDOW_MS)) uiHits.delete(k);
+  return list.length > 60;
+}
+
+async function translateUi(language: string, strings: string[]): Promise<string[]> {
+  const body = {
+    systemInstruction: { parts: [{ text: uiTranslationPrompt(language) }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(strings) }] }],
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: { type: 'ARRAY', items: { type: 'STRING' } } },
+  };
+  let lastErr: Error = new Error('translation unavailable');
+  for (const model of GEMINI_CHAT_MODELS.slice(0, 4)) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(25_000),
+      });
+      const j = (await r.json().catch(() => ({}))) as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[]; error?: { message?: string } };
+      if (!r.ok) {
+        lastErr = Object.assign(new Error(j.error?.message ?? `gemini ${r.status}`), { status: r.status });
+        continue;
+      }
+      const text = (j.candidates?.[0]?.content?.parts ?? []).filter((p) => !p.thought).map((p) => p.text ?? '').join('');
+      const arr = JSON.parse(text) as unknown;
+      if (Array.isArray(arr) && arr.length === strings.length) return arr.map((x) => String(x ?? ''));
+      lastErr = new Error('translation came back incomplete');
+    } catch (e) {
+      lastErr = e as Error;
+    }
+  }
+  throw lastErr;
+}
+
+aiConfigRouter.post('/translate-ui', express.json({ limit: '64kb' }), requirePortalPerm(ANY_MEMBER), async (req: Request, res: Response) => {
+  if (!isStaff(req)) return res.status(403).json({ error: 'forbidden' });
+  const parsed = translateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+  if (!env.GEMINI_API_KEY) return res.status(503).json({ error: 'translation_unavailable', message: 'Translation is not set up on this server.' });
+  if (uiLimited(`${req.tenant!.slug}:${req.tenant!.userId}`)) return res.status(429).json({ error: 'rate_limited' });
+
+  const { language } = parsed.data;
+  const strings = [...new Set(parsed.data.strings)];
+  const translations: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const s of strings) {
+    const hit = uiCache.get(`${language}\u0000${s}`);
+    if (hit !== undefined) translations[s] = hit;
+    else missing.push(s);
+  }
+  if (missing.length) {
+    try {
+      const out = await translateUi(language, missing);
+      missing.forEach((s, i) => {
+        const t = out[i]!.trim();
+        // A translation that lost a {0} placeholder would show wrong figures, and one with letters of
+        // another script is a model slip: keep the English instead.
+        if (!t || !samePlaceholders(s, t) || !fitsLanguageScript(language, t)) return;
+        translations[s] = t;
+        if (uiCache.size >= UI_CACHE_MAX) uiCache.delete(uiCache.keys().next().value as string);
+        uiCache.set(`${language}\u0000${s}`, t);
+      });
+    } catch (err) {
+      console.warn('[ai] ui translation failed:', (err as Error).message?.slice(0, 160));
+      if (!Object.keys(translations).length) return res.status(502).json({ error: 'translation_failed' });
+    }
+  }
+  return res.json({ translations });
+});
+
+// ── Spoken answers ───────────────────────────────────────────────────────────
+// Reads an answer aloud in any language with Gemini's speech models, for
+// devices that have no voice of their own for that language (most computers
+// have no Urdu or Arabic voice). The text is the answer already on screen;
+// the audio is only a reading of it.
+
+const speakSchema = z.object({
+  slug: z.string().min(1),
+  module: z.string().optional(),
+  text: z.string().min(1).max(1500),
+  language: z.string().max(12).optional(),
+});
+const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-2.5-flash-preview-tts'];
+const speakHits = new Map<string, number[]>();
+const speakCache = new Map<string, { mimeType: string; data: string }>();
+
+/** Raw 16-bit PCM (what some speech models return) wrapped as a playable WAV. */
+function pcmToWav(pcmBase64: string, rate: number): string {
+  const pcm = Buffer.from(pcmBase64, 'base64');
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write('WAVE', 8);
+  h.write('fmt ', 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * 2, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write('data', 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]).toString('base64');
+}
+
+aiConfigRouter.post('/speak', express.json({ limit: '32kb' }), requirePortalPerm(ANY_MEMBER), async (req: Request, res: Response) => {
+  if (!isStaff(req)) return res.status(403).json({ error: 'forbidden' });
+  const parsed = speakSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(422).json({ error: 'invalid_request' });
+  if (!env.GEMINI_API_KEY) return res.status(503).json({ error: 'voice_unavailable', message: 'Spoken answers need a speech service that is not set up on this server.' });
+  const { admin, userId } = req.tenant!;
+  const now = Date.now();
+  const hitsList = (speakHits.get(userId) ?? []).filter((t) => now - t < WINDOW_MS);
+  hitsList.push(now);
+  speakHits.set(userId, hitsList);
+  if (hitsList.length > 60) return res.status(429).json({ error: 'rate_limited', message: 'Too many spoken answers in a few minutes — wait a moment.' });
+  const settings = await loadAiSettings(admin, moduleParam(parsed.data.module));
+  if (!settings.voiceOutput) return res.status(403).json({ error: 'voice_disabled', message: 'Spoken answers are switched off for this module in AI settings.' });
+
+  const text = parsed.data.text.trim();
+  const cacheKey = `${parsed.data.language ?? ''}\u0000${text}`;
+  const cached = speakCache.get(cacheKey);
+  if (cached) return res.json({ audioBase64: cached.data, mimeType: cached.mimeType });
+
+  const lang = parsed.data.language ? aiLanguage(parsed.data.language) : undefined;
+  const body = {
+    // The speech models read the text as written; a short style line keeps the accent right for the language.
+    contents: [{ parts: [{ text: lang && lang.code !== 'en' ? `Read this clearly and naturally in ${lang.name}: ${text}` : text }] }],
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
+  };
+  for (const model of TTS_MODELS) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY as string },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!r.ok) continue;
+      const j = (await r.json()) as { candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[] };
+      const audio = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
+      if (!audio?.data) continue;
+      let mimeType = (audio.mimeType ?? 'audio/wav').toLowerCase();
+      let data = audio.data;
+      const pcm = /audio\/l16.*rate=(\d+)/.exec(mimeType);
+      if (pcm) {
+        data = pcmToWav(data, Number(pcm[1]));
+        mimeType = 'audio/wav';
+      }
+      if (speakCache.size > 300) speakCache.delete(speakCache.keys().next().value as string);
+      speakCache.set(cacheKey, { mimeType, data });
+      return res.json({ audioBase64: data, mimeType });
+    } catch {
+      /* next model */
+    }
+  }
+  return res.status(502).json({ error: 'voice_failed', message: 'The answer could not be read aloud right now — it is all on screen.' });
 });

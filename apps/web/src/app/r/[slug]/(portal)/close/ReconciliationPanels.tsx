@@ -81,14 +81,14 @@ export function PaymentReconciliationPanel() {
         <p className="p-3 text-muted text-xs">No payments on this day.</p>
       ) : (
         <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="p-2.5 font-semibold">Method</th>
-                <th className="p-2.5 font-semibold text-right">Payments</th>
-                <th className="p-2.5 font-semibold text-right">Taken</th>
-                <th className="p-2.5 font-semibold text-right">Refunded</th>
-                <th className="p-2.5 font-semibold text-right">Net</th>
+                <th className="p-2.5 font-semibold text-end">Payments</th>
+                <th className="p-2.5 font-semibold text-end">Taken</th>
+                <th className="p-2.5 font-semibold text-end">Refunded</th>
+                <th className="p-2.5 font-semibold text-end">Net</th>
                 <th className="p-2.5 font-semibold">Status</th>
                 <th className="p-2.5" />
               </tr>
@@ -97,10 +97,10 @@ export function PaymentReconciliationPanel() {
               {rows.map((r) => (
                 <tr key={r.method} className="border-b border-border/60 last:border-0">
                   <td className="p-2.5 font-semibold capitalize">{r.method}</td>
-                  <td className="p-2.5 text-right">{r.payment_count}</td>
-                  <td className="p-2.5 text-right">{formatCents(Number(r.captured_cents))}</td>
-                  <td className="p-2.5 text-right text-warn">{Number(r.refunded_cents) ? `−${formatCents(Number(r.refunded_cents))}` : '—'}</td>
-                  <td className="p-2.5 text-right font-bold">{formatCents(Number(r.net_cents))}</td>
+                  <td className="p-2.5 text-end">{r.payment_count}</td>
+                  <td className="p-2.5 text-end">{formatCents(Number(r.captured_cents))}</td>
+                  <td className="p-2.5 text-end text-warn">{Number(r.refunded_cents) ? `−${formatCents(Number(r.refunded_cents))}` : '—'}</td>
+                  <td className="p-2.5 text-end font-bold">{formatCents(Number(r.net_cents))}</td>
                   <td className="p-2.5">
                     {Number(r.unreconciled_count) === 0 ? (
                       <span className="text-ok">reconciled</span>
@@ -108,7 +108,7 @@ export function PaymentReconciliationPanel() {
                       <span className="text-warn">{r.unreconciled_count} open</span>
                     )}
                   </td>
-                  <td className="p-2.5 text-right">
+                  <td className="p-2.5 text-end">
                     {Number(r.unreconciled_count) > 0 && (
                       <Button disabled={busy === r.method} onClick={() => reconcile(r.method)}>
                         Mark reconciled
@@ -121,7 +121,7 @@ export function PaymentReconciliationPanel() {
                 <td className="p-2.5" colSpan={4}>
                   Total
                 </td>
-                <td className="p-2.5 text-right">{formatCents(total)}</td>
+                <td className="p-2.5 text-end">{formatCents(total)}</td>
                 <td colSpan={2} />
               </tr>
             </tbody>
@@ -224,14 +224,14 @@ export function CashCountPanel() {
       {error && <p className="text-danger text-xs mt-2">{error}</p>}
       {rows.length > 0 && (
         <div className="mt-4 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs tabular-nums">
+          <table className="w-full text-start text-xs tabular-nums">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="py-2 font-semibold">Counted at</th>
-                <th className="py-2 font-semibold text-right">Expected</th>
-                <th className="py-2 font-semibold text-right">Counted</th>
-                <th className="py-2 font-semibold text-right">Difference</th>
-                <th className="py-2 font-semibold pl-3">By</th>
+                <th className="py-2 font-semibold text-end">Expected</th>
+                <th className="py-2 font-semibold text-end">Counted</th>
+                <th className="py-2 font-semibold text-end">Difference</th>
+                <th className="py-2 font-semibold ps-3">By</th>
               </tr>
             </thead>
             <tbody>
@@ -241,17 +241,17 @@ export function CashCountPanel() {
                     {formatDateTime(r.created_at)}
                     {r.note ? <span className="text-muted"> · {r.note}</span> : null}
                   </td>
-                  <td className="py-2 text-right">{formatCents(r.expected_cents)}</td>
-                  <td className="py-2 text-right">{formatCents(r.counted_cents)}</td>
+                  <td className="py-2 text-end">{formatCents(r.expected_cents)}</td>
+                  <td className="py-2 text-end">{formatCents(r.counted_cents)}</td>
                   <td
-                    className={`py-2 text-right font-bold ${
+                    className={`py-2 text-end font-bold ${
                       r.difference_cents === 0 ? 'text-ok' : r.difference_cents < 0 ? 'text-danger' : 'text-warn'
                     }`}
                   >
                     {r.difference_cents > 0 ? '+' : ''}
                     {formatCents(r.difference_cents)}
                   </td>
-                  <td className="py-2 pl-3 text-muted">{r.counted_by_email ?? '—'}</td>
+                  <td className="py-2 ps-3 text-muted">{r.counted_by_email ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

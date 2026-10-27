@@ -62,7 +62,7 @@ export default async function AdminSubscriptionsPage() {
         {rows.length === 0 ? (
           <p className="text-ink-muted text-xs">No subscriptions yet.</p>
         ) : (
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-ink-muted">
               <tr className="border-b border-white/10">
                 <th className="pb-2 font-semibold">Restaurant</th>

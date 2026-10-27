@@ -186,14 +186,14 @@ export default async function LedgerPage({
           <p className="text-xs text-muted">No ledger entries in this period.</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
                   <th className="p-2 font-semibold">When</th>
                   <th className="p-2 font-semibold">Business day</th>
                   <th className="p-2 font-semibold">Event</th>
                   <th className="p-2 font-semibold">Category</th>
-                  <th className="p-2 font-semibold text-right">Amount</th>
+                  <th className="p-2 font-semibold text-end">Amount</th>
                   <th className="p-2 font-semibold">Source</th>
                 </tr>
               </thead>
@@ -208,7 +208,7 @@ export default async function LedgerPage({
                     {newMonth && (
                       <tr className="bg-main/60 border-b border-border">
                         <td colSpan={4} className="p-2 font-bold">{monthLabel(ym)}</td>
-                        <td className="p-2 text-right font-mono font-bold">{formatCents(monthNet.get(ym) ?? 0)}</td>
+                        <td className="p-2 text-end font-mono font-bold">{formatCents(monthNet.get(ym) ?? 0)}</td>
                         <td className="p-2 text-muted">net for the month</td>
                       </tr>
                     )}
@@ -222,7 +222,7 @@ export default async function LedgerPage({
                       </td>
                       <td className="p-2">{CATEGORY_LABEL[e.category] ?? e.category}</td>
                       <td
-                        className={`p-2 text-right font-mono whitespace-nowrap ${
+                        className={`p-2 text-end font-mono whitespace-nowrap ${
                           e.sign > 0 ? '' : e.sign < 0 ? 'text-danger' : 'text-muted'
                         }`}
                       >

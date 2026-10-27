@@ -34,7 +34,7 @@ export function Drawer({
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-full max-w-md h-full bg-ink border-l border-white/10 overflow-y-auto">
+      <div className="relative w-full max-w-md h-full bg-ink border-s border-white/10 overflow-y-auto">
         <div className="sticky top-0 bg-ink/95 backdrop-blur border-b border-white/10 p-4 flex items-start justify-between gap-3 z-10">
           <div>
             <div className="font-black text-sm">{title}</div>

@@ -89,8 +89,10 @@ export function useSpeechInput(opts: {
   onText: (text: string, language?: string | null) => void;
   server?: ServerTranscriber | null;
   preferServer?: boolean;
+  /** Language hint for the server ('auto' = recognise whatever is spoken). */
+  serverLanguage?: string;
 }) {
-  const { language, onText, server, preferServer } = opts;
+  const { language, onText, server, preferServer, serverLanguage } = opts;
   const [state, setState] = useState<SpeechInputState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [interim, setInterim] = useState('');
@@ -155,7 +157,7 @@ export function useSpeechInput(opts: {
       }
       setState('processing');
       try {
-        const out = await server(blob, type, language);
+        const out = await server(blob, type, serverLanguage ?? language);
         setState('idle');
         onTextRef.current(out.text, out.language);
       } catch (err) {
@@ -165,7 +167,7 @@ export function useSpeechInput(opts: {
     };
     rec.start();
     setState('listening');
-  }, [server, language]);
+  }, [server, language, serverLanguage]);
 
   const startBrowser = useCallback(() => {
     const Ctor = recognitionCtor();
@@ -317,7 +319,7 @@ function chunks(text: string, max = 220): string[] {
   return out.filter(Boolean);
 }
 
-type SpeechSnapshot = { id: string | null; paused: boolean };
+type SpeechSnapshot = { id: string | null; paused: boolean; loading?: boolean };
 let snapshot: SpeechSnapshot = { id: null, paused: false };
 const speechListeners = new Set<() => void>();
 function setSnapshot(s: SpeechSnapshot) {
@@ -382,6 +384,12 @@ export function speak(id: string, text: string, code: string, opts: { voiceName?
   const voice = matching.find((v) => v.name === opts.voiceName) ?? matching[0];
   // Some browsers report no voices until first use; let them try with the language tag alone.
   if (!voice && all.length > 0) return 'no_voice';
+  // One voice at a time: an AI-voice answer that is still playing stops first.
+  if (audioEl) {
+    audioEl.pause();
+    audioEl = null;
+    audioDone?.();
+  }
   speechSynthesis.cancel();
   const gen = ++generation;
   const parts = chunks(stripForSpeech(text));
@@ -404,20 +412,113 @@ export function speak(id: string, text: string, code: string, opts: { voiceName?
 }
 
 export function pauseSpeech() {
-  if (!ttsSupported() || !snapshot.id) return;
-  speechSynthesis.pause();
+  if (!snapshot.id) return;
+  if (audioEl) audioEl.pause();
+  else if (ttsSupported()) speechSynthesis.pause();
   setSnapshot({ ...snapshot, paused: true });
 }
 export function resumeSpeech() {
-  if (!ttsSupported() || !snapshot.id) return;
-  speechSynthesis.resume();
+  if (!snapshot.id) return;
+  if (audioEl) void audioEl.play();
+  else if (ttsSupported()) speechSynthesis.resume();
   setSnapshot({ ...snapshot, paused: false });
 }
 export function stopSpeech() {
-  if (!ttsSupported()) return;
   generation++;
-  speechSynthesis.cancel();
+  if (audioEl) {
+    audioEl.pause();
+    audioEl = null;
+  }
+  audioDone?.();
+  audioDone = null;
+  if (ttsSupported()) speechSynthesis.cancel();
   setSnapshot({ id: null, paused: false });
+}
+
+// ── AI voice (any language) ──────────────────────────────────────────────────
+// Devices only speak the languages they have voices for — most computers have
+// no Urdu or Arabic voice. In the portal, answers can be read by the server's
+// speech model instead (POST /api/ai/speak), in any language.
+
+export type ServerSpeaker = (text: string, language: string) => Promise<Blob>;
+
+let audioEl: HTMLAudioElement | null = null;
+let audioDone: (() => void) | null = null;
+
+export function apiSpeaker(api: string, slug: string, module: string, getToken: () => Promise<string | null>): ServerSpeaker {
+  return async (text, language) => {
+    const token = await getToken();
+    if (!token) throw new Error('Sign in again to hear answers.');
+    const res = await fetch(`${api}/api/ai/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ slug, module, text, language }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { audioBase64?: string; mimeType?: string; message?: string };
+    if (!res.ok || !j.audioBase64) throw new Error(j.message ?? 'The answer could not be read aloud.');
+    const bin = atob(j.audioBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: j.mimeType ?? 'audio/wav' });
+  };
+}
+
+/** Reads `text` with the AI voice, a few sentences at a time (the next part is fetched while one plays). */
+export async function speakWithServer(id: string, text: string, code: string, server: ServerSpeaker, rate = 1): Promise<'ok' | 'error'> {
+  stopSpeech();
+  const gen = ++generation;
+  const parts = chunks(stripForSpeech(text), 600);
+  if (!parts.length) return 'ok';
+  setSnapshot({ id, paused: false, loading: true });
+  try {
+    let next = server(parts[0]!, code);
+    for (let i = 0; i < parts.length; i++) {
+      const blob = await next;
+      if (gen !== generation) return 'ok';
+      if (i + 1 < parts.length) next = server(parts[i + 1]!, code);
+      const url = URL.createObjectURL(blob);
+      const el = new Audio(url);
+      el.playbackRate = rate;
+      audioEl = el;
+      setSnapshot({ id, paused: false });
+      await new Promise<void>((resolve) => {
+        audioDone = resolve;
+        el.onended = () => resolve();
+        el.onerror = () => resolve();
+        el.play().catch(() => resolve());
+      });
+      URL.revokeObjectURL(url);
+      if (gen !== generation) return 'ok';
+    }
+    audioEl = null;
+    setSnapshot({ id: null, paused: false });
+    return 'ok';
+  } catch {
+    if (gen === generation) setSnapshot({ id: null, paused: false });
+    return 'error';
+  }
+}
+
+/** True when this device has a voice for the language. */
+export function hasDeviceVoice(code: string): boolean {
+  return ttsSupported() && voicesFor(speechSynthesis.getVoices(), code).length > 0;
+}
+
+/**
+ * Reads an answer aloud the best available way: the device's own voice for
+ * the language, else (or when chosen) the AI voice. Resolves 'no_voice' only
+ * when neither can.
+ */
+export async function speakAnswer(
+  id: string,
+  text: string,
+  code: string,
+  opts: { voiceName?: string | null; rate?: number; speaker?: ServerSpeaker | null; preferAiVoice?: boolean },
+): Promise<'ok' | 'no_voice' | 'unsupported' | 'error'> {
+  if (opts.speaker && (opts.preferAiVoice || !hasDeviceVoice(code))) return speakWithServer(id, text, code, opts.speaker, opts.rate);
+  const r = speak(id, text, code, opts);
+  if (r !== 'ok' && opts.speaker) return speakWithServer(id, text, code, opts.speaker, opts.rate);
+  return r;
 }
 
 /** What is playing now (one answer at a time across the whole page). */

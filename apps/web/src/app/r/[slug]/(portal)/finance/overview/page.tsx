@@ -229,16 +229,16 @@ export default async function FinanceOverviewPage({
         <section>
           <h2 className="font-bold text-sm mb-2">Month by month</h2>
           <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-start text-xs">
               <thead className="text-muted border-b border-border">
                 <tr>
                   <th className="p-2.5 font-semibold">Month</th>
-                  <th className="p-2.5 font-semibold text-right">Net sales</th>
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost</th>}
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Gross profit</th>}
-                  <th className="p-2.5 font-semibold text-right">Expenses</th>
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Operating profit</th>}
-                  {canCogs && <th className="p-2.5 font-semibold text-right">Food cost %</th>}
+                  <th className="p-2.5 font-semibold text-end">Net sales</th>
+                  {canCogs && <th className="p-2.5 font-semibold text-end">Food cost</th>}
+                  {canCogs && <th className="p-2.5 font-semibold text-end">Gross profit</th>}
+                  <th className="p-2.5 font-semibold text-end">Expenses</th>
+                  {canCogs && <th className="p-2.5 font-semibold text-end">Operating profit</th>}
+                  {canCogs && <th className="p-2.5 font-semibold text-end">Food cost %</th>}
                 </tr>
               </thead>
               <tbody>
@@ -255,7 +255,7 @@ export default async function FinanceOverviewPage({
                     <Money c={m.expenses} />
                     {canCogs && <Money c={m.operating} bold />}
                     {canCogs && (
-                      <td className="p-2.5 text-right font-mono">{m.revenue > 0 ? `${Math.round((m.cogs / m.revenue) * 1000) / 10}%` : '—'}</td>
+                      <td className="p-2.5 text-end font-mono">{m.revenue > 0 ? `${Math.round((m.cogs / m.revenue) * 1000) / 10}%` : '—'}</td>
                     )}
                   </tr>
                 ))}
@@ -273,16 +273,16 @@ export default async function FinanceOverviewPage({
             <p className="text-xs text-muted">Nothing owed to suppliers.</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>
                     <th className="p-2.5 font-semibold">Supplier</th>
-                    <th className="p-2.5 font-semibold text-right">Not yet due</th>
-                    <th className="p-2.5 font-semibold text-right">1–30 days</th>
-                    <th className="p-2.5 font-semibold text-right">31–60</th>
-                    <th className="p-2.5 font-semibold text-right">61–90</th>
-                    <th className="p-2.5 font-semibold text-right">90+</th>
-                    <th className="p-2.5 font-semibold text-right">Total</th>
+                    <th className="p-2.5 font-semibold text-end">Not yet due</th>
+                    <th className="p-2.5 font-semibold text-end">1–30 days</th>
+                    <th className="p-2.5 font-semibold text-end">31–60</th>
+                    <th className="p-2.5 font-semibold text-end">61–90</th>
+                    <th className="p-2.5 font-semibold text-end">90+</th>
+                    <th className="p-2.5 font-semibold text-end">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -327,15 +327,15 @@ export default async function FinanceOverviewPage({
             <p className="text-xs text-muted">Every costed dish is within the {targetPct}% target and no recipe cost has risen in the last 30 days.</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>
                     <th className="p-2.5 font-semibold">Dish</th>
-                    <th className="p-2.5 font-semibold text-right">Price</th>
-                    <th className="p-2.5 font-semibold text-right">Cost now</th>
-                    <th className="p-2.5 font-semibold text-right">Food cost</th>
-                    <th className="p-2.5 font-semibold text-right">Change (30 days)</th>
-                    <th className="p-2.5 font-semibold text-right">Margin</th>
+                    <th className="p-2.5 font-semibold text-end">Price</th>
+                    <th className="p-2.5 font-semibold text-end">Cost now</th>
+                    <th className="p-2.5 font-semibold text-end">Food cost</th>
+                    <th className="p-2.5 font-semibold text-end">Change (30 days)</th>
+                    <th className="p-2.5 font-semibold text-end">Margin</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -344,10 +344,10 @@ export default async function FinanceOverviewPage({
                       <td className="p-2.5 font-semibold">{w.name}</td>
                       <Money c={w.price_cents} />
                       <Money c={w.cost_cents} />
-                      <td className={`p-2.5 text-right font-mono ${w.over_target ? 'text-danger font-bold' : ''}`}>
+                      <td className={`p-2.5 text-end font-mono ${w.over_target ? 'text-danger font-bold' : ''}`}>
                         {w.food_cost_pct == null ? '—' : `${Number(w.food_cost_pct)}%`}
                       </td>
-                      <td className={`p-2.5 text-right font-mono ${w.rising ? 'text-danger' : 'text-muted'}`}>
+                      <td className={`p-2.5 text-end font-mono ${w.rising ? 'text-danger' : 'text-muted'}`}>
                         {w.change_pts == null ? '—' : `${Number(w.change_pts) > 0 ? '+' : ''}${Number(w.change_pts)} pts`}
                       </td>
                       <Money c={w.price_cents - w.cost_cents} bold />
@@ -391,7 +391,7 @@ function Kpi({
 function Money({ c, warn, bold }: { c: number; warn?: boolean; bold?: boolean }) {
   const v = Number(c);
   return (
-    <td className={`p-2.5 text-right font-mono ${warn && v > 0 ? 'text-danger' : ''} ${bold ? 'font-bold' : ''} ${v === 0 ? 'text-muted' : ''}`}>
+    <td className={`p-2.5 text-end font-mono ${warn && v > 0 ? 'text-danger' : ''} ${bold ? 'font-bold' : ''} ${v === 0 ? 'text-muted' : ''}`}>
       {formatCents(v)}
     </td>
   );

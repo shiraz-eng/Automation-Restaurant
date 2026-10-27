@@ -198,7 +198,7 @@ export function SuppliersManager({
       )}
 
       <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-start text-xs">
           <thead className="text-muted border-b border-border">
             <tr>
               <th className="p-3 font-semibold">Supplier</th>
@@ -222,7 +222,7 @@ export function SuppliersManager({
                     <div className="font-semibold">
                       {s.name}
                       {s.branch_label && (
-                        <span className="ml-1.5 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold text-muted">{s.branch_label}</span>
+                        <span className="ms-1.5 rounded bg-main px-1.5 py-0.5 text-[0.625rem] font-bold text-muted">{s.branch_label}</span>
                       )}
                     </div>
                     {s.address && <div className="text-muted">{s.address}</div>}
@@ -239,7 +239,7 @@ export function SuppliersManager({
                     {s.is_active ? 'Active' : 'Inactive'}
                   </td>
                   {(canManage || canEdit) && (
-                    <td className="p-3 text-right whitespace-nowrap">
+                    <td className="p-3 text-end whitespace-nowrap">
                       {s.locked && <span className="text-[0.6875rem] text-muted">Shared · managed by the owner</span>}
                       {canEdit && !s.locked && (
                         <Button variant="ghost" disabled={busy} onClick={() => startEdit(s)}>
@@ -247,14 +247,14 @@ export function SuppliersManager({
                         </Button>
                       )}
                       {canEdit && !s.locked && (
-                        <Button variant="ghost" className="ml-1.5" disabled={busy} onClick={() => toggleActive(s)}>
+                        <Button variant="ghost" className="ms-1.5" disabled={busy} onClick={() => toggleActive(s)}>
                           {s.is_active ? 'Deactivate' : 'Reactivate'}
                         </Button>
                       )}
                       {canManage && !s.locked && (
                       <Button
                         variant="danger"
-                        className="ml-1.5"
+                        className="ms-1.5"
                         disabled={busy}
                         onClick={() =>
                           run(() => supabase.from('suppliers').delete().eq('id', s.id))

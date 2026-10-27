@@ -52,7 +52,7 @@ const LEVEL_LABEL: Record<Level['kind'], string> = {
 
 export function Row({ label, value, bold, indent }: { label: string; value: string; bold?: boolean; indent?: boolean }) {
   return (
-    <div className={`flex items-center justify-between py-1 ${indent ? 'pl-3 text-muted' : ''}`}>
+    <div className={`flex items-center justify-between py-1 ${indent ? 'ps-3 text-muted' : ''}`}>
       <span className={bold ? 'font-bold' : ''}>{label}</span>
       <span className={`font-mono ${bold ? 'font-bold' : ''}`}>{value}</span>
     </div>
@@ -63,7 +63,7 @@ function DrillButton({ label, value, onClick }: { label: string; value: string; 
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-between py-2 px-2.5 -mx-2.5 rounded hover:bg-primary/10 text-left group"
+      className="w-full flex items-center justify-between py-2 px-2.5 -mx-2.5 rounded hover:bg-primary/10 text-start group"
     >
       <span className="flex items-center gap-1.5">
         {label}
@@ -239,7 +239,7 @@ function ExpensesLevel({ to, totalCents, timeZone }: { to: Date; totalCents: num
                 <div className="font-semibold">{r.category}</div>
                 <div className="text-muted text-[0.6875rem] truncate">{r.description || '—'} · {r.expense_date}</div>
               </div>
-              <div className="font-mono shrink-0 ml-2">{formatCents(r.amount_cents)}</div>
+              <div className="font-mono shrink-0 ms-2">{formatCents(r.amount_cents)}</div>
             </div>
           ))}
         </div>
@@ -300,7 +300,7 @@ function CogsLevel({
             <button
               key={`${r.menu_item_id}-${r.variant_id}`}
               onClick={() => onSelectItem({ kind: 'item', menuItemId: r.menu_item_id, variantId: r.variant_id, name: r.name })}
-              className="w-full flex items-center justify-between p-2 hover:bg-primary/10 text-left"
+              className="w-full flex items-center justify-between p-2 hover:bg-primary/10 text-start"
             >
               <div className="min-w-0">
                 <div className="font-semibold flex items-center gap-1.5">
@@ -309,7 +309,7 @@ function CogsLevel({
                 </div>
                 <div className="text-muted text-[0.6875rem]">{r.qty_sold} sold · {formatCents(r.revenue_cents)} revenue{r.food_cost_pct != null ? ` · ${r.food_cost_pct}% food cost` : ''}</div>
               </div>
-              <div className="font-mono shrink-0 ml-2 font-bold">{formatCents(r.cogs_cents)}</div>
+              <div className="font-mono shrink-0 ms-2 font-bold">{formatCents(r.cogs_cents)}</div>
             </button>
           ))}
         </div>
@@ -504,7 +504,7 @@ export function OrderDrilldownModal({ order, onClose }: { order: OrderProfitRow;
                     <button
                       key={i}
                       onClick={() => setItem({ menuItemId: l.menu_item_id!, variantId: l.variant_id ?? '', name: l.name_snapshot })}
-                      className="w-full flex items-center justify-between p-2 hover:bg-primary/10 text-left"
+                      className="w-full flex items-center justify-between p-2 hover:bg-primary/10 text-start"
                     >
                       <div>
                         <div className="font-semibold">{l.name_snapshot}</div>
@@ -590,7 +590,7 @@ export function DealDrilldownModal({ period, deals, onClose }: { period: string;
               <button
                 key={d.deal_id}
                 onClick={() => setSelected(d)}
-                className="w-full flex items-center justify-between p-2.5 hover:bg-primary/10 text-left"
+                className="w-full flex items-center justify-between p-2.5 hover:bg-primary/10 text-start"
               >
                 <div className="min-w-0">
                   <div className="font-semibold flex items-center gap-1.5">
@@ -602,7 +602,7 @@ export function DealDrilldownModal({ period, deals, onClose }: { period: string;
                     {d.contribution_margin_pct != null ? ` · ${d.contribution_margin_pct}% margin` : ''}
                   </div>
                 </div>
-                <div className="font-mono shrink-0 ml-2 font-bold">{formatCents(d.contribution_cents)}</div>
+                <div className="font-mono shrink-0 ms-2 font-bold">{formatCents(d.contribution_cents)}</div>
               </button>
             ))}
           </div>

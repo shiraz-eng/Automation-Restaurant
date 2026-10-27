@@ -269,7 +269,7 @@ export function PriorityManager({
                               <Select
                                 value={r.priority_level}
                                 onChange={(e) => changeLevel(r.menu_item_id, e.target.value as PriorityLevel)}
-                                className="text-[0.625rem] py-0.5 w-20 ml-auto"
+                                className="text-[0.625rem] py-0.5 w-20 ms-auto"
                               >
                                 {LEVELS.map((l) => (
                                   <option key={l.key} value={l.key}>

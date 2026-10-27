@@ -9,6 +9,8 @@ export type ModuleAiConfig = {
   settings: AiModuleSettings;
   /** The API can transcribe recordings (browsers without built-in recognition). */
   serverTranscription: boolean;
+  /** The API can read answers aloud in any language. */
+  serverVoice: boolean;
   loaded: boolean;
 };
 
@@ -25,7 +27,7 @@ export function useModuleAiConfig(slug: string | undefined, module: AiModuleKey,
   const key = `${slug ?? ''}:${module}`;
   const hit = cache.get(key);
   const [value, setValue] = useState<ModuleAiConfig>(
-    hit && Date.now() - hit.at < TTL ? hit.value : { settings: DEFAULT_AI_SETTINGS, serverTranscription: false, loaded: !slug },
+    hit && Date.now() - hit.at < TTL ? hit.value : { settings: DEFAULT_AI_SETTINGS, serverTranscription: false, serverVoice: false, loaded: !slug },
   );
   useEffect(() => {
     if (!slug || !getToken) return;
@@ -43,12 +45,12 @@ export function useModuleAiConfig(slug: string | undefined, module: AiModuleKey,
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(String(res.status));
-        const j = (await res.json()) as { settings?: AiModuleSettings; serverTranscription?: boolean };
-        const v: ModuleAiConfig = { settings: { ...DEFAULT_AI_SETTINGS, ...j.settings }, serverTranscription: !!j.serverTranscription, loaded: true };
+        const j = (await res.json()) as { settings?: AiModuleSettings; serverTranscription?: boolean; serverVoice?: boolean };
+        const v: ModuleAiConfig = { settings: { ...DEFAULT_AI_SETTINGS, ...j.settings }, serverTranscription: !!j.serverTranscription, serverVoice: !!j.serverVoice, loaded: true };
         cache.set(key, { at: Date.now(), value: v });
         if (live) setValue(v);
       } catch {
-        if (live) setValue({ settings: DEFAULT_AI_SETTINGS, serverTranscription: false, loaded: true });
+        if (live) setValue({ settings: DEFAULT_AI_SETTINGS, serverTranscription: false, serverVoice: false, loaded: true });
       }
     })();
     return () => {

@@ -20,7 +20,7 @@ const BARS = [38, 52, 44, 68, 58, 74, 61, 82, 70, 90, 64, 77];
 export function OverviewMockup() {
   return (
     <div className="flex text-[0.6875rem] select-none">
-      <div className="hidden sm:flex w-12 shrink-0 flex-col items-center gap-3 border-r border-border bg-surface/60 py-4">
+      <div className="hidden sm:flex w-12 shrink-0 flex-col items-center gap-3 border-e border-border bg-surface/60 py-4">
         {NAV_ICONS.map((Icon, i) => (
           <div
             key={i}

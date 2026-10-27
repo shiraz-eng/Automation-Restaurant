@@ -187,7 +187,7 @@ export function AskAi({
       {profitCard && (
         <button
           onClick={() => setDrilldownOpen(true)}
-          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-start"
         >
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted font-semibold">{profitCard.period}</span>
@@ -215,7 +215,7 @@ export function AskAi({
       {orderCard && (
         <button
           onClick={() => setOrderDrilldownOpen(true)}
-          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-start"
         >
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted font-semibold">Order #{orderCard.order_number}</span>
@@ -242,7 +242,7 @@ export function AskAi({
       {dealCard && (
         <button
           onClick={() => setDealDrilldownOpen(true)}
-          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-left"
+          className="mt-2 w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-2.5 text-start"
         >
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted font-semibold">{dealCard.period} · {dealCard.deals.length} deal(s)</span>

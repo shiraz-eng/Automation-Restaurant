@@ -63,7 +63,7 @@ export function WorkflowFeature({
               ))}
             </ul>
             {connectsWith && (
-              <p className="mt-5 text-xs text-muted border-l-2 border-black/20 pl-3">
+              <p className="mt-5 text-xs text-muted border-s-2 border-black/20 ps-3">
                 <span className="font-semibold text-body">Connects with:</span> {connectsWith}
               </p>
             )}

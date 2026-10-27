@@ -16,7 +16,7 @@ export function BrowserFrame({
         <span className="h-2.5 w-2.5 rounded-full bg-danger/50" />
         <span className="h-2.5 w-2.5 rounded-full bg-warn/50" />
         <span className="h-2.5 w-2.5 rounded-full bg-ok/50" />
-        <span className="ml-2 truncate rounded-md bg-border/40 px-2.5 py-0.5 text-[0.6875rem] text-muted font-mono">
+        <span className="ms-2 truncate rounded-md bg-border/40 px-2.5 py-0.5 text-[0.6875rem] text-muted font-mono">
           {url}
         </span>
       </div>

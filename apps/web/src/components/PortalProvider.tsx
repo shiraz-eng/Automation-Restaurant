@@ -89,3 +89,8 @@ export function usePortal() {
 export function usePortalSupabase(): SupabaseClient {
   return usePortal().supabase;
 }
+
+/** The shared client when rendered inside a portal, or null (e.g. the login page). */
+export function useOptionalPortalSupabase(): SupabaseClient | null {
+  return useContext(PortalContext)?.supabase ?? null;
+}

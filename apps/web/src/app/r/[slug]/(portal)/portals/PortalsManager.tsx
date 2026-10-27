@@ -477,12 +477,12 @@ export function PortalsManager({
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xs font-bold">Permissions</span>
                   <div className="relative">
-                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                    <Search size={12} className="absolute start-2 top-1/2 -translate-y-1/2 text-muted" />
                     <input
                       value={permSearch}
                       onChange={(e) => setPermSearch(e.target.value)}
                       placeholder="Search permissions…"
-                      className="rounded border border-border bg-surface pl-6 pr-2 py-1 text-[0.6875rem] outline-none focus:border-primary w-44"
+                      className="rounded border border-border bg-surface ps-6 pe-2 py-1 text-[0.6875rem] outline-none focus:border-primary w-44"
                     />
                   </div>
                 </div>
@@ -523,7 +523,7 @@ export function PortalsManager({
                     Clear visible
                   </button>
                 </div>
-                <div className="max-h-[30rem] overflow-y-auto pr-1 space-y-1.5 rounded border border-border p-2">
+                <div className="max-h-[30rem] overflow-y-auto pe-1 space-y-1.5 rounded border border-border p-2">
                   {filteredGroups.length === 0 ? (
                     <p className="text-muted text-xs p-2">No permissions match this search/filter.</p>
                   ) : (
@@ -612,7 +612,7 @@ export function PortalsManager({
                     </span>
                   </div>
                 )}
-                <div className="max-h-[30rem] overflow-y-auto pr-1 rounded border border-border p-2">
+                <div className="max-h-[30rem] overflow-y-auto pe-1 rounded border border-border p-2">
                   {selectedGroups.length === 0 ? (
                     <p className="text-muted text-xs p-2">Nothing selected yet — tick permissions on the left.</p>
                   ) : (

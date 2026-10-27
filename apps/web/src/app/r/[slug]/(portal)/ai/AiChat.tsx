@@ -9,7 +9,7 @@ import { downloadTextPdf } from '@/lib/textToPdf';
 import { ProfitDrilldownModal, OrderDrilldownModal, DealDrilldownModal, type OrderProfitRow, type DealProfitRow } from '@/components/ProfitDrilldown';
 import { aiLanguage, detectLanguage, isRtlLanguage, type AiModuleKey } from '@automation-restaurant/shared';
 import { useAiVoice } from '@/lib/ai/useAiVoice';
-import { speak, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
+import { speakAnswer, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
 import { AiVoiceSettings, MicButton, SpeakControls, VoiceStatus } from '@/components/ai/VoiceControls';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -132,7 +132,8 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
   const mic = useSpeechInput({
     language: voice.micLanguage,
     server: voice.server,
-    preferServer: voice.prefs.serverSpeech,
+    preferServer: voice.preferServerMic,
+    serverLanguage: voice.micServerLanguage,
     // Spoken words land in the box to check and edit; nothing is sent until Ask.
     onText: (text) => {
       setInput((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
@@ -356,7 +357,8 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
       scrollDown();
       // Announce the finished answer to screen readers and, if chosen, read it aloud.
       setAnnounce(data.pendingAction ? `${finalText} A change is waiting for you to confirm or cancel.` : finalText);
-      if (voice.speakEnabled && voice.prefs.autoSpeak) speak(`reply-${replyIndex}`, finalText, answerLanguage ?? 'en', { voiceName: voice.voiceName, rate: voice.rate });
+      if (voice.speakEnabled && voice.prefs.autoSpeak)
+        void speakAnswer(`reply-${replyIndex}`, finalText, answerLanguage ?? 'en', { voiceName: voice.voiceName, rate: voice.rate, speaker: voice.speaker, preferAiVoice: voice.prefs.aiVoice });
     } finally {
       abortRef.current = null;
       setBusy(false);
@@ -502,7 +504,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
         </div>
       )}
       {historyOpen && (
-        <div className="absolute left-2 right-2 top-11 z-20 max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
+        <div className="absolute start-2 end-2 top-11 z-20 max-h-[50vh] overflow-y-auto rounded-lg border border-border bg-surface shadow-xl">
           {history.length === 0 ? (
             <p className="p-3 text-xs text-muted">No saved chats yet — every chat you start is saved here automatically.</p>
           ) : (
@@ -511,7 +513,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                 key={h.id}
                 className={`flex items-center gap-2 px-3 py-2 border-b border-border/60 last:border-0 ${h.id === conversationId ? 'bg-primary/10' : 'hover:bg-main'}`}
               >
-                <button type="button" onClick={() => openChat(h.id)} className="flex-1 min-w-0 text-left">
+                <button type="button" onClick={() => openChat(h.id)} className="flex-1 min-w-0 text-start">
                   <div className="text-xs font-semibold truncate">{h.title}</div>
                   <div className="text-[0.625rem] text-muted">
                     {new Date(h.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ·{' '}
@@ -540,7 +542,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
               <button
                 key={s}
                 onClick={() => send(s)}
-                className="block text-left text-xs rounded border border-border px-3 py-2 hover:border-primary"
+                className="block text-start text-xs rounded border border-border px-3 py-2 hover:border-primary"
               >
                 {s}
               </button>
@@ -551,6 +553,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
             <div key={i} className={m.role === 'user' ? 'text-end' : ''}>
               {m.role === 'user' ? (
                 <div
+                  translate="no"
                   lang={detectLanguage(m.content)?.code}
                   dir="auto"
                   className="inline-block rounded-lg px-3 py-2 text-sm whitespace-pre-wrap max-w-[85%] bg-primary text-primary-fg text-start"
@@ -560,6 +563,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                 </div>
               ) : m.content ? (
                 <div
+                  translate="no"
                   lang={m.language}
                   dir={isRtlLanguage(m.language) ? 'rtl' : 'ltr'}
                   className={`inline-block rounded-lg px-3 py-2 text-sm max-w-[85%] bg-main border border-border text-start ${isRtlLanguage(m.language) ? 'leading-loose' : ''}`}
@@ -603,7 +607,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
               {m.profitCard && (
                 <button
                   onClick={() => setDrilldownCard(m.profitCard!)}
-                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-start"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted font-semibold">{m.profitCard.period}</span>
@@ -630,7 +634,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
               {m.orderCard && (
                 <button
                   onClick={() => setOrderDrilldown(m.orderCard!)}
-                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-start"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted font-semibold">Order #{m.orderCard.order_number}</span>
@@ -657,7 +661,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
               {m.dealCard && (
                 <button
                   onClick={() => setDealDrilldown(m.dealCard!)}
-                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-left"
+                  className="mt-2 max-w-[85%] w-full block rounded-lg border border-primary/40 bg-primary/5 hover:border-primary p-3 text-start"
                 >
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted font-semibold">{m.dealCard.period} · {m.dealCard.deals.length} deal(s)</span>
@@ -669,18 +673,18 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                 </button>
               )}
               {m.pendingAction && (
-                <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-left">
+                <div className="mt-2 max-w-[85%] rounded-lg border border-primary/40 bg-primary/5 p-3 text-start">
                   <p className="text-xs font-semibold mb-2">{m.pendingAction.summary}</p>
                   {m.pendingAction.name === 'add_inventory_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
                     <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                      <table className="w-full text-left">
+                      <table className="w-full text-start">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
                             <th className="pb-1 font-semibold">Item</th>
                             <th className="pb-1 font-semibold">Unit</th>
-                            <th className="pb-1 font-semibold text-right">Stock</th>
-                            <th className="pb-1 font-semibold text-right">Cost</th>
-                            <th className="pb-1 font-semibold text-right">Min</th>
+                            <th className="pb-1 font-semibold text-end">Stock</th>
+                            <th className="pb-1 font-semibold text-end">Cost</th>
+                            <th className="pb-1 font-semibold text-end">Min</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -688,9 +692,9 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                             <tr key={idx} className="border-b border-border/30 last:border-0">
                               <td className="py-1 font-medium">{it.name}</td>
                               <td className="py-1 text-muted">{it.unit ?? 'unit'}</td>
-                              <td className="py-1 text-right">{it.stock_qty ?? 0}</td>
-                              <td className="py-1 text-right font-mono">{it.cost_cents_per_unit != null ? formatCents(it.cost_cents_per_unit) : '—'}</td>
-                              <td className="py-1 text-right text-muted">{it.min_threshold ?? 0}</td>
+                              <td className="py-1 text-end">{it.stock_qty ?? 0}</td>
+                              <td className="py-1 text-end font-mono">{it.cost_cents_per_unit != null ? formatCents(it.cost_cents_per_unit) : '—'}</td>
+                              <td className="py-1 text-end text-muted">{it.min_threshold ?? 0}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -699,12 +703,12 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                   )}
                   {m.pendingAction.name === 'add_menu_items' && Array.isArray((m.pendingAction.args as { items?: unknown[] })?.items) && (
                     <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                      <table className="w-full text-left">
+                      <table className="w-full text-start">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
                             <th className="pb-1 font-semibold">Dish</th>
                             <th className="pb-1 font-semibold">Category</th>
-                            <th className="pb-1 font-semibold text-right">Price</th>
+                            <th className="pb-1 font-semibold text-end">Price</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -712,7 +716,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                             <tr key={idx} className="border-b border-border/30 last:border-0">
                               <td className="py-1 font-medium">{it.name}</td>
                               <td className="py-1 text-muted">{it.category_name ?? 'Mains'}</td>
-                              <td className="py-1 text-right font-mono font-bold">{formatCents(it.price_cents)}</td>
+                              <td className="py-1 text-end font-mono font-bold">{formatCents(it.price_cents)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -721,12 +725,12 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                   )}
                   {m.pendingAction.name === 'record_expenses' && Array.isArray((m.pendingAction.args as { expenses?: unknown[] })?.expenses) && (
                     <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                      <table className="w-full text-left">
+                      <table className="w-full text-start">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
                             <th className="pb-1 font-semibold">Category</th>
                             <th className="pb-1 font-semibold">Description</th>
-                            <th className="pb-1 font-semibold text-right">Amount</th>
+                            <th className="pb-1 font-semibold text-end">Amount</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -734,7 +738,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                             <tr key={idx} className="border-b border-border/30 last:border-0">
                               <td className="py-1 font-semibold">{ex.category}</td>
                               <td className="py-1 text-muted">{ex.description || '—'}</td>
-                              <td className="py-1 text-right font-mono font-bold text-danger">{formatCents(ex.amount_cents)}</td>
+                              <td className="py-1 text-end font-mono font-bold text-danger">{formatCents(ex.amount_cents)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -743,12 +747,12 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                   )}
                   {m.pendingAction.name === 'add_staff_members' && Array.isArray((m.pendingAction.args as { staff?: unknown[] })?.staff) && (
                     <div className="mb-3 max-h-48 overflow-auto rounded border border-border/80 bg-surface/80 p-2 text-[0.6875rem]" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                      <table className="w-full text-left">
+                      <table className="w-full text-start">
                         <thead>
                           <tr className="text-muted border-b border-border/60">
                             <th className="pb-1 font-semibold">Name</th>
                             <th className="pb-1 font-semibold">Role / Title</th>
-                            <th className="pb-1 font-semibold text-right">Contact</th>
+                            <th className="pb-1 font-semibold text-end">Contact</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -756,7 +760,7 @@ export function AiChat({ slug, module = 'global', compact = false }: { slug: str
                             <tr key={idx} className="border-b border-border/30 last:border-0">
                               <td className="py-1 font-medium">{st.full_name}</td>
                               <td className="py-1 font-semibold text-primary">{st.job_title}</td>
-                              <td className="py-1 text-right text-muted">{st.phone || st.email || '—'}</td>
+                              <td className="py-1 text-end text-muted">{st.phone || st.email || '—'}</td>
                             </tr>
                           ))}
                         </tbody>

@@ -175,11 +175,11 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
         </p>
       ) : (
         <div className="max-h-[28rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
                 <th className="p-2.5 font-semibold">Dish</th>
-                <th className="p-2.5 font-semibold text-right">Available</th>
+                <th className="p-2.5 font-semibold text-end">Available</th>
                 <th className="p-2.5 font-semibold">Status</th>
                 {(canManage || canWaste) && <th className="p-2.5" />}
               </tr>
@@ -198,7 +198,7 @@ export function KitchenAvailabilityBoard({ canManage, canWaste }: { canManage: b
                         <div className="text-muted text-[0.6875rem]">No recipe linked to inventory — not limited by stock</div>
                       ) : null}
                     </td>
-                    <td className="p-2.5 text-right font-mono tabular-nums text-sm font-bold">
+                    <td className="p-2.5 text-end font-mono tabular-nums text-sm font-bold">
                       {r.producible_qty == null ? <span className="text-muted text-xs font-normal">No limit</span> : Math.floor(Number(r.producible_qty))}
                     </td>
                     <td className="p-2.5">

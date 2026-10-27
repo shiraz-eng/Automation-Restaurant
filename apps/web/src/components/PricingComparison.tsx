@@ -47,7 +47,7 @@ export function PricingComparison({ plans }: { plans: PlanRow[] }) {
       <table className="w-full min-w-[560px] border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
-            <th className="text-left font-semibold text-muted pb-3 pr-4 text-xs uppercase tracking-wide">Included</th>
+            <th className="text-start font-semibold text-muted pb-3 pe-4 text-xs uppercase tracking-wide">Included</th>
             {tiers.map((t) => (
               <th key={t.key} className="text-center font-display font-bold pb-3 px-4 text-body">
                 {t.name}
@@ -58,14 +58,14 @@ export function PricingComparison({ plans }: { plans: PlanRow[] }) {
         <tbody>
           {ROWS.map((row, i) => (
             <tr key={row.area} className={i % 2 === 0 ? 'bg-surface' : ''}>
-              <td className="py-3 pr-4 rounded-l-lg text-body">{row.area}</td>
+              <td className="py-3 pe-4 rounded-s-lg text-body">{row.area}</td>
               <td className="py-3 px-4 text-center rounded-none">
                 <Cell value={row.starter} />
               </td>
               <td className="py-3 px-4 text-center">
                 <Cell value={row.growth} />
               </td>
-              <td className="py-3 px-4 text-center rounded-r-lg">
+              <td className="py-3 px-4 text-center rounded-e-lg">
                 <Cell value={row.enterprise} />
               </td>
             </tr>

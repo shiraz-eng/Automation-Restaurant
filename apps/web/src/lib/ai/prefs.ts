@@ -27,6 +27,8 @@ export type AiPrefs = {
   rate: number;
   /** Send speech straight to the server transcriber instead of the browser's recogniser. */
   serverSpeech: boolean;
+  /** Read answers with the AI voice (any language) even when the device has its own voice. */
+  aiVoice: boolean;
 };
 
 export const DEFAULT_AI_PREFS: AiPrefs = {
@@ -38,6 +40,7 @@ export const DEFAULT_AI_PREFS: AiPrefs = {
   voiceName: null,
   rate: 1,
   serverSpeech: false,
+  aiVoice: false,
 };
 
 const KEY = 'ar-ai-prefs';
@@ -61,6 +64,7 @@ function read(): AiPrefs {
     voiceName: typeof raw.voiceName === 'string' && raw.voiceName ? raw.voiceName.slice(0, 120) : null,
     rate: typeof raw.rate === 'number' && raw.rate >= 0.7 && raw.rate <= 1.4 ? raw.rate : 1,
     serverSpeech: raw.serverSpeech === true,
+    aiVoice: raw.aiVoice === true,
   };
   return cached;
 }

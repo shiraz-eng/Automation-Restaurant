@@ -293,12 +293,12 @@ export function DealsWorkspace({
             {/* Filters */}
             <div className="flex flex-wrap items-center gap-2 p-3 border-b border-border">
               <div className="relative">
-                <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                <Search size={13} className="absolute start-2 top-1/2 -translate-y-1/2 text-muted" />
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search deals…"
-                  className="rounded border border-border bg-surface pl-7 pr-2 py-1.5 text-xs outline-none focus:border-primary w-44"
+                  className="rounded border border-border bg-surface ps-7 pe-2 py-1.5 text-xs outline-none focus:border-primary w-44"
                 />
               </div>
               <div className="flex flex-wrap gap-1">
@@ -311,11 +311,11 @@ export function DealsWorkspace({
                     }`}
                   >
                     {t === 'all' ? 'All' : STATUS_LABEL[t]}
-                    <span className="ml-1 text-muted">{counts[t]}</span>
+                    <span className="ms-1 text-muted">{counts[t]}</span>
                   </button>
                 ))}
               </div>
-              <div className="ml-auto flex gap-2">
+              <div className="ms-auto flex gap-2">
                 <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as '' | DealType)} className="w-32">
                   <option value="">Deal type</option>
                   {(Object.keys(TYPE_LABEL) as DealType[]).map((t) => (
@@ -340,19 +340,19 @@ export function DealsWorkspace({
               </p>
             ) : (
               <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-start text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
                       <th className="p-2.5 font-semibold">Deal / Combo</th>
                       <th className="p-2.5 font-semibold">Type</th>
                       <th className="p-2.5 font-semibold">Items</th>
-                      <th className="p-2.5 font-semibold text-right">Price</th>
+                      <th className="p-2.5 font-semibold text-end">Price</th>
                       <th className="p-2.5 font-semibold">Discount</th>
                       <th className="p-2.5 font-semibold">Validity</th>
-                      <th className="p-2.5 font-semibold text-right">Usage</th>
-                      <th className="p-2.5 font-semibold text-right">Revenue</th>
+                      <th className="p-2.5 font-semibold text-end">Usage</th>
+                      <th className="p-2.5 font-semibold text-end">Revenue</th>
                       <th className="p-2.5 font-semibold">Status</th>
-                      <th className="p-2.5 font-semibold text-right">Actions</th>
+                      <th className="p-2.5 font-semibold text-end">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -382,7 +382,7 @@ export function DealsWorkspace({
                           </td>
                           <td className="p-2.5">{TYPE_LABEL[d.deal_type]}</td>
                           <td className="p-2.5 text-muted">{r.itemCount} items</td>
-                          <td className="p-2.5 text-right font-semibold tabular-nums whitespace-nowrap">{money(d.price_cents, currency)}</td>
+                          <td className="p-2.5 text-end font-semibold tabular-nums whitespace-nowrap">{money(d.price_cents, currency)}</td>
                           <td className="p-2.5">
                             {r.discount != null ? (
                               <span className="rounded bg-warn/10 text-warn px-1.5 py-0.5 text-[0.625rem] font-bold">{r.discount}%</span>
@@ -391,14 +391,14 @@ export function DealsWorkspace({
                             )}
                           </td>
                           <td className="p-2.5 text-muted whitespace-nowrap">{validityLabel(d)}</td>
-                          <td className="p-2.5 text-right tabular-nums whitespace-nowrap">{Number(r.perf?.orders ?? 0)} orders</td>
-                          <td className="p-2.5 text-right tabular-nums whitespace-nowrap">{money(Number(r.perf?.revenue_cents ?? 0), currency)}</td>
+                          <td className="p-2.5 text-end tabular-nums whitespace-nowrap">{Number(r.perf?.orders ?? 0)} orders</td>
+                          <td className="p-2.5 text-end tabular-nums whitespace-nowrap">{money(Number(r.perf?.revenue_cents ?? 0), currency)}</td>
                           <td className="p-2.5">
                             <span className={`rounded-full border px-2 py-0.5 text-[0.625rem] font-bold ${STATUS_STYLE[r.status]}`}>
                               {STATUS_LABEL[r.status]}
                             </span>
                           </td>
-                          <td className="p-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                          <td className="p-2.5 text-end" onClick={(e) => e.stopPropagation()}>
                             <div className="relative inline-flex gap-1">
                               <button
                                 onClick={() => setMenuOpen(menuOpen === d.id ? null : d.id)}
@@ -460,7 +460,7 @@ export function DealsWorkspace({
                   <div className="text-sm font-bold">Deal Performance</div>
                   <div className="text-[0.6875rem] text-muted">Revenue from deals, last 30 days</div>
                 </div>
-                <div className="flex gap-4 text-right">
+                <div className="flex gap-4 text-end">
                   <div>
                     <div className="text-[0.625rem] text-muted">Orders</div>
                     <div className="text-sm font-bold tabular-nums">{daily.reduce((s, p) => s + Number(p.orders), 0)}</div>
@@ -493,7 +493,7 @@ export function DealsWorkspace({
                     <li key={r.deal.id}>
                       <button
                         onClick={() => setSelectedId(r.deal.id)}
-                        className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${
+                        className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-start text-xs ${
                           selectedId === r.deal.id ? 'bg-primary/10' : 'hover:bg-main'
                         }`}
                       >
@@ -547,12 +547,12 @@ function ActionMenu({
     return () => document.removeEventListener('mousedown', h);
   }, [onClose]);
   return (
-    <div ref={ref} className="absolute right-0 top-8 z-20 w-36 rounded-lg border border-border bg-surface py-1 shadow-lg text-left">
+    <div ref={ref} className="absolute end-0 top-8 z-20 w-36 rounded-lg border border-border bg-surface py-1 shadow-lg text-start">
       {items.map((it) => (
         <button
           key={it.label}
           onClick={it.onClick}
-          className={`block w-full px-3 py-1.5 text-xs text-left hover:bg-main ${it.danger ? 'text-danger' : ''}`}
+          className={`block w-full px-3 py-1.5 text-xs text-start hover:bg-main ${it.danger ? 'text-danger' : ''}`}
         >
           {it.label}
         </button>
@@ -594,7 +594,7 @@ function DealDetails({
   const Line = ({ k, v }: { k: string; v: React.ReactNode }) => (
     <div className="flex justify-between gap-3 text-[0.6875rem]">
       <dt className="text-muted shrink-0">{k}</dt>
-      <dd className="font-semibold text-right">{v}</dd>
+      <dd className="font-semibold text-end">{v}</dd>
     </div>
   );
   return (

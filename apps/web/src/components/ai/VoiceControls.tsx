@@ -6,7 +6,7 @@ import { AI_LANGUAGES, aiLanguage, type AiLanguageChoice } from '@automation-res
 import {
   pauseSpeech,
   resumeSpeech,
-  speak,
+  speakAnswer,
   stopSpeech,
   ttsSupported,
   useSpeechState,
@@ -22,8 +22,10 @@ const iconBtn =
   'grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border text-body hover:bg-main disabled:opacity-40 transition-colors';
 
 /** The microphone: tap to talk, tap again to finish. The words go into the box to check before sending. */
+const langName = (code: string) => (code === 'auto' ? 'any language' : (aiLanguage(code)?.name ?? code));
+
 export function MicButton({ mic, language, disabled }: { mic: Mic; language: string; disabled?: boolean }) {
-  const name = aiLanguage(language)?.name ?? language;
+  const name = langName(language);
   if (mic.state === 'listening') {
     return (
       <button
@@ -62,7 +64,7 @@ export function MicButton({ mic, language, disabled }: { mic: Mic; language: str
 
 /** What the microphone is doing, announced to screen readers; Cancel and Retry live here. */
 export function VoiceStatus({ mic, language }: { mic: Mic; language: string }) {
-  const name = aiLanguage(language)?.name ?? language;
+  const name = langName(language);
   if (mic.state === 'idle') return <div role="status" aria-live="polite" className="sr-only" />;
   return (
     <div
@@ -112,22 +114,25 @@ export function VoiceStatus({ mic, language }: { mic: Mic; language: string }) {
 }
 
 /** Read-aloud controls for one answer: Listen / Pause / Resume / Stop / Replay. The text stays on screen. */
-export function SpeakControls({ id, text, language, voice }: { id: string; text: string; language: string; voice: Pick<AiVoice, 'voiceName' | 'rate'> }) {
+export function SpeakControls({ id, text, language, voice }: { id: string; text: string; language: string; voice: Pick<AiVoice, 'voiceName' | 'rate' | 'speaker' | 'prefs'> }) {
   const snap = useSpeechState();
   const [note, setNote] = useState<string | null>(null);
   const [played, setPlayed] = useState(false);
   const [canSpeak, setCanSpeak] = useState(false);
-  useEffect(() => setCanSpeak(ttsSupported()), []);
+  useEffect(() => setCanSpeak(ttsSupported() || !!voice.speaker), [voice.speaker]);
   if (!canSpeak) return null;
   const mine = snap.id === id;
   const name = aiLanguage(language)?.name ?? language;
-  const play = () => {
-    const r = speak(id, text, language, { voiceName: voice.voiceName, rate: voice.rate });
+  const play = async () => {
     setPlayed(true);
+    setNote(null);
+    const r = await speakAnswer(id, text, language, { voiceName: voice.voiceName, rate: voice.rate, speaker: voice.speaker, preferAiVoice: voice.prefs.aiVoice });
     setNote(
-      r === 'no_voice'
-        ? `This device has no ${name} voice, so the answer can't be read aloud — it's all in the text above. (Add ${/^[AEIOU]/i.test(name) ? 'an' : 'a'} ${name} voice in your system's speech settings.)`
-        : null,
+      r === 'no_voice' || r === 'unsupported'
+        ? `This device has no ${name} voice, so the answer can't be read aloud here — it's all in the text above.`
+        : r === 'error'
+          ? 'The answer could not be read aloud right now — it is all in the text above.'
+          : null,
     );
   };
   const btn = 'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[0.6875rem] font-semibold text-muted hover:bg-surface hover:text-body';
@@ -140,7 +145,11 @@ export function SpeakControls({ id, text, language, voice }: { id: string; text:
         </button>
       ) : (
         <>
-          {snap.paused ? (
+          {snap.loading ? (
+            <span className={`${btn} cursor-default`} role="status">
+              <Loader2 size={12} className="motion-safe:animate-spin" aria-hidden /> Preparing voice…
+            </span>
+          ) : snap.paused ? (
             <button type="button" onClick={resumeSpeech} className={btn} aria-label="Resume reading">
               <Play size={12} aria-hidden /> Resume
             </button>
@@ -265,7 +274,13 @@ export function AiVoiceSettings({ voice, answerLanguage, onClose }: { voice: AiV
           label="I speak in"
           value={prefs.inputLanguage}
           onChange={(v) => setPrefs({ inputLanguage: v })}
-          autoLabel={moduleInput ? `Restaurant default (${moduleInput})` : `Automatic (${aiLanguage(voice.micLanguage)?.name ?? 'browser language'})`}
+          autoLabel={
+            moduleInput
+              ? `Restaurant default (${moduleInput})`
+              : voice.micAuto
+                ? 'Automatic — any language'
+                : `Automatic (${aiLanguage(voice.micLanguage)?.name ?? 'browser language'})`
+          }
         />
       </div>
       <div className="space-y-2">
@@ -289,7 +304,16 @@ export function AiVoiceSettings({ voice, answerLanguage, onClose }: { voice: AiV
           disabled={!voice.speakEnabled}
           onChange={(v) => setPrefs({ autoSpeak: v })}
         />
-        {voice.server && (
+        {voice.speaker && (
+          <Toggle
+            label="AI voice for every language"
+            hint="Read answers with the AI voice even when this device has its own voice. Without a device voice (for example Urdu), the AI voice is used anyway."
+            checked={prefs.aiVoice}
+            disabled={!voice.speakEnabled}
+            onChange={(v) => setPrefs({ aiVoice: v })}
+          />
+        )}
+        {voice.server && !voice.micAuto && (
           <Toggle
             label="Use the server for speech recognition"
             hint="Try this if the microphone doesn't understand you or your browser has no speech recognition."

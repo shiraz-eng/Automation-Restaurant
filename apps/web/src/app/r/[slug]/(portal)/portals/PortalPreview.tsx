@@ -33,7 +33,7 @@ export function PortalPreview({
         <span className="h-2 w-2 rounded-full bg-danger/40" />
         <span className="h-2 w-2 rounded-full bg-warn/40" />
         <span className="h-2 w-2 rounded-full bg-ok/40" />
-        <span className="ml-1 text-[0.625rem] text-muted font-mono truncate">
+        <span className="ms-1 text-[0.625rem] text-muted font-mono truncate">
           /portal/{portalName.trim() ? portalName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'your-portal'}
         </span>
       </div>
@@ -54,7 +54,7 @@ export function PortalPreview({
             No section unlocked yet — this portal won&rsquo;t have anything to show when someone signs in.
           </p>
         ) : (
-          <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+          <div className="space-y-3 max-h-[28rem] overflow-y-auto pe-1">
             {sections.map((s) => (
               <div key={s.id} className="rounded-md border border-border/60 p-2">
                 <div className="text-xs font-bold mb-1">{s.label}</div>

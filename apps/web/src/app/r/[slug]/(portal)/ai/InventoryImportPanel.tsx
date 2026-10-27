@@ -36,7 +36,7 @@ function Field({ label, value, existing }: { label: string; value: string | null
   if (value == null && existing == null) return null;
   const changed = value != null && existing != null && value !== existing;
   return (
-    <span className="mr-2">
+    <span className="me-2">
       {label}:{' '}
       {changed ? (
         <span>
@@ -267,11 +267,11 @@ export function InventoryImportPanel({
                     <div className="text-[0.6875rem] text-muted">
                       {row.status === 'new' ? (
                         <>
-                          {row.unit && <span className="mr-2">unit: {row.unit}</span>}
-                          {row.opening_stock != null && <span className="mr-2">opening stock: {row.opening_stock}</span>}
-                          {costStr && <span className="mr-2">cost/unit: {costStr}</span>}
-                          {row.min_threshold != null && <span className="mr-2">min threshold: {row.min_threshold}</span>}
-                          {row.target_stock != null && <span className="mr-2">target stock: {row.target_stock}</span>}
+                          {row.unit && <span className="me-2">unit: {row.unit}</span>}
+                          {row.opening_stock != null && <span className="me-2">opening stock: {row.opening_stock}</span>}
+                          {costStr && <span className="me-2">cost/unit: {costStr}</span>}
+                          {row.min_threshold != null && <span className="me-2">min threshold: {row.min_threshold}</span>}
+                          {row.target_stock != null && <span className="me-2">target stock: {row.target_stock}</span>}
                         </>
                       ) : (
                         <>
@@ -304,7 +304,7 @@ export function InventoryImportPanel({
       {stage === 'done' && applyResult && (
         <div className="space-y-2 text-xs">
           <p className="text-ok font-semibold">Inventory import applied.</p>
-          <ul className="list-disc pl-4 text-muted">
+          <ul className="list-disc ps-4 text-muted">
             <li>{applyResult.items_created} item(s) created</li>
             <li>{applyResult.items_updated} item(s) updated</li>
           </ul>

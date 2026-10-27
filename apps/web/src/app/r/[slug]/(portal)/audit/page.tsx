@@ -109,7 +109,7 @@ export default async function AuditPage({
         <Card>No activity recorded yet.</Card>
       ) : (
         <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="p-3 font-semibold">When</th>
@@ -134,7 +134,7 @@ export default async function AuditPage({
                   <td className="p-3">
                     <span className="font-semibold">{r.entity.replace(/_/g, ' ')}</span>
                     <span
-                      className={`ml-1.5 text-[0.625rem] font-bold ${
+                      className={`ms-1.5 text-[0.625rem] font-bold ${
                         r.action === 'DELETE'
                           ? 'text-danger'
                           : r.action === 'INSERT'

@@ -9,15 +9,11 @@ import { useVoices } from '@/lib/ai/speech';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-type RegistryModel = { id: string; label: string; available: boolean };
-type RegistryProvider = { id: 'gemini' | 'anthropic'; label: string; configured: boolean; verified: boolean; models: RegistryModel[]; note?: string };
 type FullConfig = {
   stored: boolean;
   canEdit: boolean;
   overrides: Partial<Record<AiModuleKey, AiModuleOverride>>;
   modules: { key: AiModuleKey; label: string }[];
-  providers: RegistryProvider[];
-  defaultProvider: 'gemini' | 'anthropic' | null;
 };
 
 const INHERIT = '';
@@ -29,16 +25,16 @@ function fromOnOff(v: string): boolean | undefined {
   return v === INHERIT ? undefined : v === 'on';
 }
 
-function summary(s: AiModuleSettings, providers: RegistryProvider[], fallback: string | null): string {
-  const p = s.provider === 'auto' ? providers.find((x) => x.id === fallback)?.label ?? 'Automatic' : providers.find((x) => x.id === s.provider)?.label ?? s.provider;
-  const answer = s.responseLanguage === 'auto' ? (s.autoDetect ? 'match the question' : 'fixed') : aiLanguage(s.responseLanguage)?.name;
+function summary(s: AiModuleSettings): string {
+  const answer = s.responseLanguage === 'auto' ? (s.autoDetect ? 'match the question (any language)' : 'fixed') : aiLanguage(s.responseLanguage)?.name;
   const voice = [s.voiceInput ? 'mic on' : 'mic off', s.voiceOutput ? 'read-aloud on' : 'read-aloud off'].join(', ');
-  return `${p} · ${s.model === 'auto' ? 'automatic model' : s.model} · answers: ${answer} · ${voice}`;
+  return `Answers: ${answer} · ${voice}`;
 }
 
 /**
  * Edits public.ai_module_settings through PUT /api/ai/config (settings.update,
- * validated against the providers this server can really reach, audited).
+ * audited). The assistant understands every language it is spoken or written
+ * to in; these settings only fix the answer/listening language and voice.
  * Every module shows what it inherits, so leaving a field on "Inherit" is a
  * real, visible choice rather than a blank.
  */
@@ -46,30 +42,26 @@ export function AiSettingsManager({ slug, canEdit }: { slug: string; canEdit: bo
   const supabase = usePortalSupabase();
   const [cfg, setCfg] = useState<FullConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
 
   const token = useCallback(async () => (await supabase.auth.getSession()).data.session?.access_token ?? '', [supabase]);
 
   const load = useCallback(
-    async (refresh = false) => {
+    async () => {
       setLoadError(null);
-      setChecking(refresh);
       try {
-        const res = await fetch(`${API}/api/ai/config?slug=${encodeURIComponent(slug)}&module=global&full=1${refresh ? '&refresh=1' : ''}`, {
+        const res = await fetch(`${API}/api/ai/config?slug=${encodeURIComponent(slug)}&module=global&full=1`, {
           headers: { Authorization: `Bearer ${await token()}` },
         });
         const j = (await res.json().catch(() => ({}))) as Partial<FullConfig> & { message?: string };
         if (!res.ok) throw new Error(j.message ?? 'The AI settings could not be loaded.');
-        if (!j.providers) {
+        if (!j.modules) {
           // No settings.update: the API returns only this module's effective settings.
-          setCfg({ stored: true, canEdit: false, overrides: {}, modules: [], providers: [], defaultProvider: null });
+          setCfg({ stored: true, canEdit: false, overrides: {}, modules: [] });
           return;
         }
         setCfg(j as FullConfig);
       } catch (e) {
         setLoadError((e as Error).message);
-      } finally {
-        setChecking(false);
       }
     },
     [slug, token],
@@ -92,7 +84,7 @@ export function AiSettingsManager({ slug, canEdit }: { slug: string; canEdit: bo
     );
   }
   if (!cfg) return <p className="text-muted text-xs" role="status">Loading AI settings…</p>;
-  if (!cfg.providers.length) {
+  if (!cfg.modules.length) {
     return (
       <Card>
         <p className="text-xs text-muted">You can see which AI features are on, but only someone with permission to change settings can edit them.</p>
@@ -113,33 +105,11 @@ export function AiSettingsManager({ slug, canEdit }: { slug: string; canEdit: bo
       )}
 
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-bold text-sm">AI providers on this server</h2>
-            <p className="text-muted text-[0.6875rem] mt-0.5">Keys are kept on the server and never shown. Models are listed only when the provider confirms this key can use them.</p>
-          </div>
-          <Button variant="ghost" onClick={() => load(true)} disabled={checking}>
-            {checking ? 'Checking…' : 'Re-check models'}
-          </Button>
-        </div>
-        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {cfg.providers.map((p) => (
-            <li key={p.id} className="rounded-lg border border-border p-3 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold">{p.label}</span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[0.625rem] font-bold ${
-                    p.configured && p.verified ? 'bg-ok/10 text-ok' : p.configured ? 'bg-warn/10 text-warn' : 'bg-main text-muted'
-                  }`}
-                >
-                  {p.configured && p.verified ? `✓ Ready · ${p.models.length} models` : p.configured ? '! Key set, models not checked' : '— Not set up'}
-                </span>
-              </div>
-              {p.id === cfg.defaultProvider && <p className="mt-1 text-[0.6875rem] text-muted">Used when a module is on “Automatic”.</p>}
-              {p.note && <p className="mt-1 text-[0.6875rem] text-muted">{p.note}</p>}
-            </li>
-          ))}
-        </ul>
+        <h2 className="font-bold text-sm">Every language is understood</h2>
+        <p className="text-muted text-[0.6875rem] mt-0.5">
+          Staff can type or speak to the AI in Urdu, Roman Urdu, English, Hindi, Arabic or any other language, and it
+          answers in the same language unless an answer language is set below.
+        </p>
       </Card>
 
       <div className="space-y-2">
@@ -151,8 +121,6 @@ export function AiSettingsManager({ slug, canEdit }: { slug: string; canEdit: bo
             label={m.label}
             override={cfg.overrides[m.key] ?? {}}
             inherited={m.key === 'global' ? resolveAiSettings(null, null) : globalEff}
-            providers={cfg.providers}
-            defaultProvider={cfg.defaultProvider}
             editable={editable}
             token={token}
             onSaved={(o) => {
@@ -212,8 +180,6 @@ function ModuleRow({
   label,
   override,
   inherited,
-  providers,
-  defaultProvider,
   editable,
   token,
   onSaved,
@@ -223,8 +189,6 @@ function ModuleRow({
   label: string;
   override: AiModuleOverride;
   inherited: AiModuleSettings;
-  providers: RegistryProvider[];
-  defaultProvider: 'gemini' | 'anthropic' | null;
   editable: boolean;
   token: () => Promise<string>;
   onSaved: (o: AiModuleOverride) => void;
@@ -248,8 +212,6 @@ function ModuleRow({
     });
   };
   const inh = (txt: string) => (module === 'global' ? `Built-in default (${txt})` : `Inherit (${txt})`);
-  const providerFor = eff.provider === 'auto' ? defaultProvider : eff.provider;
-  const models = providers.find((p) => p.id === providerFor)?.models ?? [];
 
   async function save(next: AiModuleOverride | null) {
     setBusy(true);
@@ -293,7 +255,7 @@ function ModuleRow({
               <span className="ms-2 rounded-full bg-primary/10 px-2 py-0.5 text-[0.625rem] font-semibold text-primary">Customised</span>
             )}
           </span>
-          <span className="block truncate text-[0.6875rem] text-muted">{summary(resolveAiSettings(inherited, override), providers, defaultProvider)}</span>
+          <span className="block truncate text-[0.6875rem] text-muted">{summary(resolveAiSettings(inherited, override))}</span>
         </span>
         <span aria-hidden className="text-muted transition-transform group-open:rotate-180 motion-reduce:transition-none">
           ▾
@@ -301,37 +263,6 @@ function ModuleRow({
       </summary>
       <div className="space-y-3 border-t border-border px-4 py-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <SelectField
-            label="AI provider"
-            value={draft.provider ?? INHERIT}
-            disabled={!editable}
-            onChange={(v) => set({ provider: v || undefined, model: undefined })}
-          >
-            <option value={INHERIT}>{inh(inherited.provider === 'auto' ? 'automatic' : inherited.provider)}</option>
-            <option value="auto">Automatic (server default)</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id} disabled={!p.configured}>
-                {p.label}
-                {p.configured ? '' : ' — not set up'}
-              </option>
-            ))}
-          </SelectField>
-          <SelectField
-            label="Model"
-            value={draft.model ?? INHERIT}
-            disabled={!editable}
-            onChange={(v) => set({ model: v || undefined })}
-            hint={eff.provider === 'auto' && (draft.model ?? 'auto') === 'auto' ? 'Pick a provider to choose a specific model.' : undefined}
-          >
-            <option value={INHERIT}>{inh(inherited.model === 'auto' ? 'automatic' : inherited.model)}</option>
-            <option value="auto">Automatic (fastest, with backups)</option>
-            {eff.provider !== 'auto' &&
-              models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label === m.id ? m.id : `${m.label} (${m.id})`}
-                </option>
-              ))}
-          </SelectField>
           <SelectField label="Answer language" value={draft.responseLanguage ?? INHERIT} disabled={!editable} onChange={(v) => set({ responseLanguage: v || undefined })}>
             <option value={INHERIT}>{inh(langName(inherited.responseLanguage))}</option>
             {langOptions}

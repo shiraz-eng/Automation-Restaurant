@@ -26,7 +26,7 @@ export function PlanUpgradePaywall({
   return (
     <div className="max-w-2xl mx-auto py-12 px-4 sm:px-6">
       <Card className="p-8 text-center space-y-6 border border-border shadow-xl bg-surface relative overflow-hidden">
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-primary via-indigo-500 to-purple-600" />
+        <div className="absolute top-0 start-0 end-0 h-1.5 bg-gradient-to-r from-primary via-indigo-500 to-purple-600" />
 
         <div className="mx-auto w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-2xl shadow-inner">
           🔒
@@ -42,7 +42,7 @@ export function PlanUpgradePaywall({
           <p className="text-muted text-sm max-w-lg mx-auto leading-relaxed">{description}</p>
         </div>
 
-        <div className="p-4 rounded-xl bg-main/50 border border-border/60 text-left text-xs space-y-2.5 max-w-md mx-auto">
+        <div className="p-4 rounded-xl bg-main/50 border border-border/60 text-start text-xs space-y-2.5 max-w-md mx-auto">
           <div className="font-bold text-body text-[0.6875rem] uppercase tracking-wide text-muted">
             Included with {requiredPlan}:
           </div>

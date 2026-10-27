@@ -94,7 +94,7 @@ export function KotInspector({
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         <section>
           <h3 className="text-[0.625rem] font-bold uppercase tracking-wide text-muted mb-2">KOT #{kot.order_number} Details</h3>
-          <ol className="space-y-2 border-l border-border pl-3">
+          <ol className="space-y-2 border-s border-border ps-3">
             <li className="text-xs">
               <span className="font-semibold">Order received</span>
               <div className="text-muted">{formatDateTime(kot.created_at)}</div>

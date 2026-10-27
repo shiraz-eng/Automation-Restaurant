@@ -59,7 +59,7 @@ export function KotCard({
           }}
           aria-pressed={selected}
           aria-label={`KOT ${kot.order_number}, ${lane === 'new' ? 'new' : lane}, waiting ${formatElapsed(mins)}. Show ticket details`}
-          className="rounded text-left font-black text-sm hover:underline"
+          className="rounded text-start font-black text-sm hover:underline"
         >
           KOT #{kot.order_number}{' '}
           <span className={`font-semibold ${lane === 'delayed' ? 'text-danger' : 'text-muted'}`}>
@@ -98,7 +98,7 @@ export function KotCard({
                 e.stopPropagation();
                 if (next) onAdvanceLine(l.id, next);
               }}
-              className={`w-full text-left rounded border px-2.5 py-1.5 transition-colors ${
+              className={`w-full text-start rounded border px-2.5 py-1.5 transition-colors ${
                 done ? 'opacity-40 border-border/60' : 'border-border hover:border-primary'
               }`}
             >

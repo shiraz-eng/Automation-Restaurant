@@ -14,7 +14,7 @@ export function FaqAccordion({ items }: { items: Faq[] }) {
           <div key={i}>
             <button
               onClick={() => setOpen(isOpen ? null : i)}
-              className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
+              className="w-full flex items-center justify-between gap-4 px-5 py-4 text-start"
               aria-expanded={isOpen}
             >
               <span className="font-semibold text-sm">{it.q}</span>

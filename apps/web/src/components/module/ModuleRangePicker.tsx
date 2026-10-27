@@ -76,7 +76,7 @@ export function ModuleRangePicker({
           id={panelId}
           role="dialog"
           aria-label="Choose a date range"
-          className="absolute left-0 lg:left-auto lg:right-0 z-30 mt-2 w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface p-4 shadow-2xl shadow-black/30"
+          className="absolute start-0 lg:start-auto lg:end-0 z-30 mt-2 w-[min(34rem,calc(100vw-2rem))] rounded-xl border border-border bg-surface p-4 shadow-2xl shadow-black/30"
         >
           <FinancePeriodBar basePath={basePath} period={period} from={from} to={to} compareLabel={compareLabel} />
         </div>

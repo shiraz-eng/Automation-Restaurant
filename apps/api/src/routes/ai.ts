@@ -13,7 +13,6 @@ import { geminiTurn, noEmit, startSse, aiFailureMessage, type GContent, type GPa
 import { openConversation, saveExchange, compact } from '../lib/aiChatStore';
 import { isAiModuleKey, languageInstruction, moduleFocusInstruction, normalizeLanguageChoice, responseLanguageChoice, detectLanguage, type AiModuleKey } from '@automation-restaurant/shared';
 import { loadAiSettings } from '../lib/aiModuleSettings';
-import { chatTarget } from '../lib/aiRegistry';
 
 /**
  * Export audit trail (spec §39) — one row per generated report/export,
@@ -470,7 +469,6 @@ export async function runGemini(
   actor: Actor,
   files: FilesByIndex = new Map(),
   emit: Emitter = noEmit,
-  model: string | null = null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -507,7 +505,7 @@ export async function runGemini(
       emit.delta(text);
     };
     // geminiTurn retries on 429/503 itself (never after text has streamed).
-    const content = await geminiTurn(contents, declared, system, onText, undefined, model);
+    const content = await geminiTurn(contents, declared, system, onText);
     const calls = content.parts.filter(
       (p): p is Extract<GPart, { functionCall: unknown }> => 'functionCall' in p,
     );
@@ -626,7 +624,6 @@ async function runAnthropic(
   actor: Actor,
   files: FilesByIndex = new Map(),
   emit: Emitter = noEmit,
-  model: string | null = null,
 ): Promise<AgentResult> {
   const userId = actor.userId;
   const byName = new Map(tools.map((t) => [t.name, t]));
@@ -665,7 +662,7 @@ async function runAnthropic(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await withRetry(() =>
       anthropic.messages.create({
-        model: model ?? env.AI_MODEL,
+        model: env.AI_MODEL,
         max_tokens: 4096,
         system,
         tools: declared.map((t) => ({
@@ -778,8 +775,8 @@ aiRouter.post(
     const allowedActions = permits(permissions, role, 'ai.execute_write')
       ? AI_ACTIONS.filter((a) => permits(permissions, role, a.needs))
       : [];
-    // The module's AI settings (tenant-migrations/0108) pick the model and the
-    // answer language; the tools above stay exactly what this person may use.
+    // The module's AI settings (tenant-migrations/0108) pick the answer
+    // language; the tools above stay exactly what this person may use.
     const aiModule: AiModuleKey = isAiModuleKey(parsed.data.module) ? parsed.data.module : 'global';
     const [timeLine, workspace, aiSettings] = await Promise.all([
       currentTimeLine(admin),
@@ -792,20 +789,18 @@ aiRouter.post(
     const system = [SYSTEM_PROMPT(req.tenant!.slug, timeLine, workspace), moduleFocusInstruction(aiModule), languageInstruction(langChoice, lastText)]
       .filter(Boolean)
       .join('\n\n');
-    const target = chatTarget(aiSettings) ?? { provider: aiProvider!, model: null };
     const actor: Actor = { userId, email, role, permissions, tenantSlug: req.tenant!.slug };
     const run = (emit: Emitter) =>
-      target.provider === 'gemini'
-        ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit, target.model)
-        : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, files, emit, target.model);
+      aiProvider === 'gemini'
+        ? runGemini(messages, allowedTools, allowedActions, system, admin, actor, files, emit)
+        : runAnthropic(messages, allowedTools, allowedActions, system, admin, actor, files, emit);
     // Saved chat (tenant-migrations/0081): this person's conversation, or a new one.
     const lastUser = parsed.data.messages[parsed.data.messages.length - 1]!;
     const conversationId = await openConversation(admin, { kind: 'staff', userId }, parsed.data.conversationId, lastUser.content);
     const payload = (result: AgentResult) => ({
       reply: result.reply,
       tools: result.trace,
-      provider: target.provider,
-      model: target.model ?? 'auto',
+      provider: aiProvider,
       module: aiModule,
       language: answerLanguage,
       pendingAction: result.pendingAction ?? null,

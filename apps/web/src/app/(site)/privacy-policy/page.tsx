@@ -18,7 +18,7 @@ const sections: LegalSection[] = [
   {
     heading: 'Information We Collect',
     body: (
-      <ul className="list-disc pl-5 space-y-1">
+      <ul className="list-disc ps-5 space-y-1">
         <li>Name and contact details (email, phone).</li>
         <li>Restaurant and business information provided at signup.</li>
         <li>Account credentials (passwords are stored only as salted hashes).</li>

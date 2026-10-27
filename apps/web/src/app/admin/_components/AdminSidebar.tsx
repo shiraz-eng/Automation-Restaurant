@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export function AdminSidebar() {
   return (
-    <aside className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col p-4">
+    <aside className="w-64 bg-gray-950 border-e border-gray-800 flex flex-col p-4">
       <div className="flex items-center space-x-3 mb-6">
         <div className="h-8 w-8 bg-yellow-500 rounded"></div>
         <span className="text-xl font-bold text-yellow-500">Automation Restaurant</span>

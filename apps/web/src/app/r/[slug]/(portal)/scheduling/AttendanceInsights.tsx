@@ -225,7 +225,7 @@ function MyAttendance({ myMembershipId, canRequest }: { myMembershipId: string |
           </p>
           {rows.length > 0 && (
             <div className="overflow-x-auto mt-3" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs tabular-nums">
+              <table className="w-full text-start text-xs tabular-nums">
                 <tbody>
                   {rows.slice(0, 10).map((r) => (
                     <tr key={r.id} className="border-b border-border/60 last:border-0">
@@ -337,30 +337,30 @@ function MonthlyReport({ staff, allStaff, canExport }: { staff: StaffRow[]; allS
         <p className="p-3 text-muted text-xs">{allStaff || who ? 'No staff to report on.' : 'Choose an employee to see their month.'}</p>
       ) : (
         <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs tabular-nums">
+          <table className="w-full text-start text-xs tabular-nums">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="p-2.5 font-semibold">Employee</th>
-                <th className="p-2.5 font-semibold text-right">Present</th>
-                <th className="p-2.5 font-semibold text-right">Late</th>
-                <th className="p-2.5 font-semibold text-right">Absent</th>
-                <th className="p-2.5 font-semibold text-right">Leave</th>
-                <th className="p-2.5 font-semibold text-right">Worked</th>
-                <th className="p-2.5 font-semibold text-right">Attendance</th>
+                <th className="p-2.5 font-semibold text-end">Present</th>
+                <th className="p-2.5 font-semibold text-end">Late</th>
+                <th className="p-2.5 font-semibold text-end">Absent</th>
+                <th className="p-2.5 font-semibold text-end">Leave</th>
+                <th className="p-2.5 font-semibold text-end">Worked</th>
+                <th className="p-2.5 font-semibold text-end">Attendance</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ member, s }) => (
                 <tr key={member.membership_id} className="border-b border-border/60 last:border-0">
                   <td className="p-2.5 font-semibold">{staffName(member)}</td>
-                  <td className="p-2.5 text-right">
+                  <td className="p-2.5 text-end">
                     {s.present}/{s.scheduled_days}
                   </td>
-                  <td className="p-2.5 text-right text-warn">{s.late}</td>
-                  <td className="p-2.5 text-right text-danger">{s.absent}</td>
-                  <td className="p-2.5 text-right">{s.leave}</td>
-                  <td className="p-2.5 text-right">{hours(s.worked_minutes)}</td>
-                  <td className="p-2.5 text-right font-bold">{s.attendance_pct != null ? `${s.attendance_pct}%` : '—'}</td>
+                  <td className="p-2.5 text-end text-warn">{s.late}</td>
+                  <td className="p-2.5 text-end text-danger">{s.absent}</td>
+                  <td className="p-2.5 text-end">{s.leave}</td>
+                  <td className="p-2.5 text-end">{hours(s.worked_minutes)}</td>
+                  <td className="p-2.5 text-end font-bold">{s.attendance_pct != null ? `${s.attendance_pct}%` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -447,14 +447,14 @@ function History({ staff, canExport }: { staff: StaffRow[]; canExport: boolean }
         <p className="p-3 text-muted text-xs">No attendance recorded in this range.</p>
       ) : (
         <div className="max-h-[26rem] overflow-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs tabular-nums">
+          <table className="w-full text-start text-xs tabular-nums">
             <thead className="text-muted border-b border-border sticky top-0 bg-surface">
               <tr>
                 <th className="p-2.5 font-semibold">Date</th>
                 <th className="p-2.5 font-semibold">Employee</th>
                 <th className="p-2.5 font-semibold">In – out</th>
                 <th className="p-2.5 font-semibold">Status</th>
-                <th className="p-2.5 font-semibold text-right">Worked</th>
+                <th className="p-2.5 font-semibold text-end">Worked</th>
               </tr>
             </thead>
             <tbody>
@@ -469,7 +469,7 @@ function History({ staff, canExport }: { staff: StaffRow[]; canExport: boolean }
                     {r.status?.replace('_', ' ') ?? '—'}
                     {r.late_minutes > 0 ? <span className="text-warn"> · {r.late_minutes}m late</span> : null}
                   </td>
-                  <td className="p-2.5 text-right">{hours(r.worked_minutes)}</td>
+                  <td className="p-2.5 text-end">{hours(r.worked_minutes)}</td>
                 </tr>
               ))}
             </tbody>
@@ -611,7 +611,7 @@ function Corrections({
       {note && <p className="text-ok text-xs mt-2">{note}</p>}
       {list.length > 0 && (
         <div className="mt-4 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-start text-xs">
             <thead className="text-muted border-b border-border">
               <tr>
                 <th className="py-2 font-semibold">Employee · day</th>
@@ -643,13 +643,13 @@ function Corrections({
                     </span>
                     {c.review_note ? <div className="text-muted normal-case">{c.review_note}</div> : null}
                   </td>
-                  <td className="py-2 text-right whitespace-nowrap">
+                  <td className="py-2 text-end whitespace-nowrap">
                     {canApprove && c.status === 'pending' && (
                       <>
                         <Button disabled={busy} onClick={() => review(c, true)}>
                           Approve
                         </Button>
-                        <Button variant="danger" className="ml-1.5" disabled={busy} onClick={() => review(c, false)}>
+                        <Button variant="danger" className="ms-1.5" disabled={busy} onClick={() => review(c, false)}>
                           Reject
                         </Button>
                       </>

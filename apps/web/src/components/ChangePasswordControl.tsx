@@ -58,7 +58,7 @@ export function ChangePasswordControl() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="text-left text-[0.6875rem] text-muted hover:text-body hover:underline"
+        className="text-start text-[0.6875rem] text-muted hover:text-body hover:underline"
       >
         Change password
       </button>

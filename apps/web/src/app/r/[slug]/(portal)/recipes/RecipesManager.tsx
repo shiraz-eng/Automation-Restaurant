@@ -325,7 +325,7 @@ export function RecipesManager({
               <Card key={r.id} className="p-0 overflow-hidden">
                 <button
                   onClick={() => toggleExpand(r.id)}
-                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-main/40"
+                  className="w-full flex items-center justify-between gap-3 p-3 text-start hover:bg-main/40"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -344,7 +344,7 @@ export function RecipesManager({
                       {currentVersion?.recipe_ingredients.length === 1 ? '' : 's'} · v{currentVersion?.version ?? '—'} · updated {formatDate(r.created_at)}
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-end shrink-0">
                     {canViewCost && cost != null && <div className="font-bold text-sm">{formatCents(cost)}</div>}
                     {canViewCost && foodCostPct != null && <div className="text-[0.6875rem] text-muted">{foodCostPct}% food cost</div>}
                   </div>
@@ -469,7 +469,7 @@ export function RecipesManager({
                             </Button>
                           </>
                         )}
-                        <Button variant="danger" onClick={() => remove(r)} disabled={busy} className="ml-auto">
+                        <Button variant="danger" onClick={() => remove(r)} disabled={busy} className="ms-auto">
                           Delete Recipe
                         </Button>
                       </div>

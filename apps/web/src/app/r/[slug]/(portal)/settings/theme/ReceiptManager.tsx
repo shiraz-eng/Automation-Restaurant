@@ -305,7 +305,7 @@ export function ReceiptManager({
               </div>
 
               {id === 'header' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-2 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-2 text-[0.6875rem]">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.header.showLogo} disabled={!canEdit} onChange={(e) => patch('header', { showLogo: e.target.checked })} />
                     Show logo
@@ -335,7 +335,7 @@ export function ReceiptManager({
               )}
 
               {id === 'restaurant_info' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showAddress', 'showPhone', 'showEmail', 'showWebsite', 'showTaxId'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.restaurantInfo[k]} disabled={!canEdit} onChange={(e) => patch('restaurantInfo', { [k]: e.target.checked })} />
@@ -346,7 +346,7 @@ export function ReceiptManager({
               )}
 
               {id === 'order_info' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showOrderNumber', 'showDate', 'showTime', 'showTable', 'showCustomer', 'showOrderType'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.orderInfo[k]} disabled={!canEdit} onChange={(e) => patch('orderInfo', { [k]: e.target.checked })} />
@@ -357,7 +357,7 @@ export function ReceiptManager({
               )}
 
               {id === 'items' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showVariant', 'showModifiers', 'showNotes'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.items[k]} disabled={!canEdit} onChange={(e) => patch('items', { [k]: e.target.checked })} />
@@ -368,13 +368,13 @@ export function ReceiptManager({
               )}
 
               {id === 'discount' && (
-                <div className="mt-2 pl-6 flex items-center gap-3 text-[0.6875rem]">
+                <div className="mt-2 ps-6 flex items-center gap-3 text-[0.6875rem]">
                   <Input value={config.discount.label} disabled={!canEdit} onChange={(e) => patch('discount', { label: e.target.value })} placeholder="Label (e.g. Discount)" />
                 </div>
               )}
 
               {id === 'totals' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem] items-center">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem] items-center">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.totals.showSubtotal} disabled={!canEdit} onChange={(e) => patch('totals', { showSubtotal: e.target.checked })} />
                     Subtotal
@@ -392,7 +392,7 @@ export function ReceiptManager({
               )}
 
               {id === 'payment' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   {(['showMethod', 'showAmountPaid', 'showChange', 'showReference'] as const).map((k) => (
                     <label key={k} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={config.payment[k]} disabled={!canEdit} onChange={(e) => patch('payment', { [k]: e.target.checked })} />
@@ -403,7 +403,7 @@ export function ReceiptManager({
               )}
 
               {id === 'order_status' && (
-                <div className="mt-2 pl-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
+                <div className="mt-2 ps-6 grid grid-cols-2 gap-1.5 text-[0.6875rem]">
                   <label className="flex items-center gap-1.5">
                     <input type="checkbox" checked={config.orderStatus.showStatus} disabled={!canEdit} onChange={(e) => patch('orderStatus', { showStatus: e.target.checked })} />
                     Order status
@@ -416,7 +416,7 @@ export function ReceiptManager({
               )}
 
               {id === 'custom_text' && (
-                <div className="mt-2 pl-6 space-y-2">
+                <div className="mt-2 ps-6 space-y-2">
                   {config.customText.map((t, i) => (
                     <div key={t.id} className="rounded border border-border/60 p-2 space-y-1.5">
                       <textarea
@@ -445,7 +445,7 @@ export function ReceiptManager({
                         <button type="button" disabled={!canEdit || i === config.customText.length - 1} onClick={() => moveText(t.id, 1)} className="text-muted disabled:opacity-30 px-1 text-xs">
                           ↓
                         </button>
-                        <button type="button" disabled={!canEdit} onClick={() => removeText(t.id)} className="text-danger text-[0.6875rem] font-semibold ml-auto">
+                        <button type="button" disabled={!canEdit} onClick={() => removeText(t.id)} className="text-danger text-[0.6875rem] font-semibold ms-auto">
                           Remove
                         </button>
                       </div>
@@ -573,7 +573,7 @@ function ReceiptPreview({ blocks, width }: { blocks: ReceiptBlock[]; width: '58m
                   <span>{b.total}</span>
                 </div>
                 {b.sub.map((s, j) => (
-                  <div key={j} className="pl-3 text-[0.625rem] text-gray-600">
+                  <div key={j} className="ps-3 text-[0.625rem] text-gray-600">
                     {s}
                   </div>
                 ))}

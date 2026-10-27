@@ -262,7 +262,7 @@ export function RecipeImportPanel({
                     )}
                     <div className="text-[0.6875rem] text-muted">
                       {row.ingredients.map((ing, ii) => (
-                        <span key={ii} className={`mr-2 ${ing.issue ? 'text-danger' : ''}`}>
+                        <span key={ii} className={`me-2 ${ing.issue ? 'text-danger' : ''}`}>
                           {ing.qty_base != null ? `${ing.qty_base}${ing.base_unit} ` : ''}
                           {ing.inventory_item_name ?? ing.name}
                           {ing.issue ? ` (${ing.issue})` : ''}

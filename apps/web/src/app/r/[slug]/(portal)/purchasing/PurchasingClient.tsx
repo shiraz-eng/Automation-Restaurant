@@ -534,17 +534,17 @@ export function PurchasingClient({
           ) : (
             <Card className="p-0 overflow-hidden">
               <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-start text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
                       <th className="p-3 font-semibold">Supplier</th>
-                      <th className="p-3 font-semibold text-right">Invoiced</th>
-                      <th className="p-3 font-semibold text-right">Approved</th>
-                      <th className="p-3 font-semibold text-right">On hold</th>
-                      <th className="p-3 font-semibold text-right">Paid</th>
-                      <th className="p-3 font-semibold text-right">Credited</th>
-                      <th className="p-3 font-semibold text-right">Outstanding</th>
-                      <th className="p-3 font-semibold text-right">Overdue</th>
+                      <th className="p-3 font-semibold text-end">Invoiced</th>
+                      <th className="p-3 font-semibold text-end">Approved</th>
+                      <th className="p-3 font-semibold text-end">On hold</th>
+                      <th className="p-3 font-semibold text-end">Paid</th>
+                      <th className="p-3 font-semibold text-end">Credited</th>
+                      <th className="p-3 font-semibold text-end">Outstanding</th>
+                      <th className="p-3 font-semibold text-end">Overdue</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -553,13 +553,13 @@ export function PurchasingClient({
                       .map((r) => (
                         <tr key={r.supplier_id} className="border-b border-border/60 last:border-0">
                           <td className="p-3 font-semibold">{r.supplier_name}</td>
-                          <td className="p-3 text-right font-mono">{formatCents(r.invoiced_cents)}</td>
-                          <td className="p-3 text-right font-mono text-primary">{formatCents(r.approved_cents)}</td>
-                          <td className="p-3 text-right font-mono text-danger">{formatCents(r.on_hold_cents)}</td>
-                          <td className="p-3 text-right font-mono text-ok">{formatCents(r.paid_cents)}</td>
-                          <td className="p-3 text-right font-mono text-muted">{formatCents(r.credited_cents)}</td>
-                          <td className="p-3 text-right font-mono font-bold">{formatCents(r.outstanding_cents)}</td>
-                          <td className={`p-3 text-right font-mono ${r.overdue_cents > 0 ? 'text-danger font-bold' : 'text-muted'}`}>
+                          <td className="p-3 text-end font-mono">{formatCents(r.invoiced_cents)}</td>
+                          <td className="p-3 text-end font-mono text-primary">{formatCents(r.approved_cents)}</td>
+                          <td className="p-3 text-end font-mono text-danger">{formatCents(r.on_hold_cents)}</td>
+                          <td className="p-3 text-end font-mono text-ok">{formatCents(r.paid_cents)}</td>
+                          <td className="p-3 text-end font-mono text-muted">{formatCents(r.credited_cents)}</td>
+                          <td className="p-3 text-end font-mono font-bold">{formatCents(r.outstanding_cents)}</td>
+                          <td className={`p-3 text-end font-mono ${r.overdue_cents > 0 ? 'text-danger font-bold' : 'text-muted'}`}>
                             {formatCents(r.overdue_cents)}
                           </td>
                         </tr>
@@ -595,7 +595,7 @@ export function PurchasingClient({
                       </p>
                       <p className="text-xs text-danger mt-0.5">
                         {h.kind && h.kind !== 'other' && (
-                          <span className="mr-1.5 rounded bg-danger/10 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">
+                          <span className="me-1.5 rounded bg-danger/10 px-1.5 py-0.5 text-[0.625rem] font-bold uppercase">
                             {HOLD_KIND_LABEL[h.kind] ?? h.kind}
                           </span>
                         )}
@@ -714,7 +714,7 @@ export function PurchasingClient({
                   <div className="flex flex-wrap items-baseline justify-between gap-2 p-4 border-b border-border">
                     <div>
                       <span className="font-black">PO #{o.po_number}</span>
-                      <span className="text-muted text-xs ml-2">{o.supplier_name ?? '—'}</span>
+                      <span className="text-muted text-xs ms-2">{o.supplier_name ?? '—'}</span>
                     </div>
                     <div className="text-xs text-muted flex items-center gap-3">
                       {o.expected_at && <span>due {o.expected_at}</span>}
@@ -724,21 +724,21 @@ export function PurchasingClient({
                     </div>
                   </div>
                   <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-start text-xs">
                       <tbody>
                         {o.purchase_order_lines.map((l) => {
                           const outstanding = Number(l.qty) - Number(l.received_qty);
                           return (
                             <tr key={l.id} className="border-b border-border/50 last:border-0">
                               <td className="px-4 py-2">{l.description}</td>
-                              <td className="px-4 py-2 text-right font-mono">
+                              <td className="px-4 py-2 text-end font-mono">
                                 {Number(l.qty)}
                                 {Number(l.received_qty) > 0 && Number(l.received_qty) < Number(l.qty) ? ` (${Number(l.received_qty)} in)` : ''}
                                 {Number(l.rejected_qty) > 0 && <span className="text-danger"> −{Number(l.rejected_qty)} rej.</span>}
                               </td>
-                              <td className="px-4 py-2 text-right text-muted">{formatCents(l.unit_cost_cents)}</td>
-                              <td className="px-4 py-2 text-right font-mono">{formatCents(Math.round(Number(l.qty) * l.unit_cost_cents))}</td>
-                              <td className="px-4 py-2 text-right">
+                              <td className="px-4 py-2 text-end text-muted">{formatCents(l.unit_cost_cents)}</td>
+                              <td className="px-4 py-2 text-end font-mono">{formatCents(Math.round(Number(l.qty) * l.unit_cost_cents))}</td>
+                              <td className="px-4 py-2 text-end">
                                 {canReceive && ['sent', 'partial'].includes(o.status) && outstanding > 0 && (
                                   <button
                                     onClick={() => receiveLine(l)}
@@ -883,7 +883,7 @@ export function PurchasingClient({
                     type="file"
                     accept="application/pdf,image/jpeg,image/png,image/webp"
                     onChange={(e) => setInvFile(e.target.files?.[0] ?? null)}
-                    className="block w-full text-[0.6875rem] text-muted file:mr-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
+                    className="block w-full text-[0.6875rem] text-muted file:me-2 file:rounded file:border-0 file:bg-main file:px-2 file:py-1 file:text-xs"
                   />
                 </Field>
               </div>
@@ -949,7 +949,7 @@ export function PurchasingClient({
                       <div>
                         <p className="text-sm font-semibold">
                           {sup?.name ?? '—'} · {inv.supplier_invoice_number} · {formatCents(inv.total_cents)}{' '}
-                          <span className={`ml-2 text-[0.6875rem] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>
+                          <span className={`ms-2 text-[0.6875rem] uppercase font-bold ${STATUS_STYLE[inv.status] ?? ''}`}>
                             {INVOICE_STATUS_LABEL[inv.status] ?? inv.status}
                           </span>
                         </p>
@@ -1118,14 +1118,14 @@ export function PurchasingClient({
           )}
           {creditNotes.length > 0 && (
             <Card className="p-0 overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-muted border-b border-border">
                   <tr>
                     <th className="p-3 font-semibold">Date</th>
                     <th className="p-3 font-semibold">Supplier</th>
                     <th className="p-3 font-semibold">Invoice</th>
                     <th className="p-3 font-semibold">Reason</th>
-                    <th className="p-3 font-semibold text-right">Amount</th>
+                    <th className="p-3 font-semibold text-end">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1135,7 +1135,7 @@ export function PurchasingClient({
                       <td className="p-3 font-semibold">{one(c.suppliers)?.name ?? '—'}</td>
                       <td className="p-3 text-muted">{one(c.supplier_invoices)?.supplier_invoice_number ?? 'General'}</td>
                       <td className="p-3">{c.reason}</td>
-                      <td className="p-3 text-right font-mono">{formatCents(c.amount_cents)}</td>
+                      <td className="p-3 text-end font-mono">{formatCents(c.amount_cents)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -146,7 +146,7 @@ export function NewOrderPanel({
               <button
                 key={it.id}
                 onClick={() => bump(it.id, 1)}
-                className="rounded-lg border border-border bg-surface p-3 text-left hover:border-primary transition-colors"
+                className="rounded-lg border border-border bg-surface p-3 text-start hover:border-primary transition-colors"
               >
                 <div className="font-semibold text-xs">{it.name}</div>
                 <div className="text-primary font-bold text-sm mt-1">{formatCents(it.price_cents)}</div>
@@ -191,7 +191,7 @@ export function NewOrderPanel({
                   <button onClick={() => bump(l.item.id, 1)} className="w-5 h-5 rounded border border-border font-bold">
                     +
                   </button>
-                  <span className="w-14 text-right font-semibold">{formatCents(l.item.price_cents * l.qty)}</span>
+                  <span className="w-14 text-end font-semibold">{formatCents(l.item.price_cents * l.qty)}</span>
                 </div>
               </div>
             ))}

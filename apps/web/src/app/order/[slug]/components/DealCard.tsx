@@ -25,7 +25,7 @@ export function DealCard({
 
   return (
     <div className="group rounded-xl border border-primary/25 bg-gradient-to-br from-primary/[0.06] to-transparent overflow-hidden flex flex-col hover:border-primary/50 transition-colors">
-      <button type="button" onClick={onOpenSheet} className="relative block w-full aspect-[16/9] overflow-hidden text-left">
+      <button type="button" onClick={onOpenSheet} className="relative block w-full aspect-[16/9] overflow-hidden text-start">
         {deal.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -40,11 +40,11 @@ export function DealCard({
         ) : (
           <ImageFallback className="w-full h-full" />
         )}
-        <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-primary text-primary-fg text-[0.625rem] font-black uppercase tracking-wide px-2 py-1">
+        <span className="absolute top-2 start-2 inline-flex items-center gap-1 rounded-full bg-primary text-primary-fg text-[0.625rem] font-black uppercase tracking-wide px-2 py-1">
           <Sparkles size={11} /> Deal
         </span>
         {savings > 0 && (
-          <span className="absolute top-2 right-2 rounded-full bg-ok text-ink text-[0.625rem] font-black px-2 py-1">
+          <span className="absolute top-2 end-2 rounded-full bg-ok text-ink text-[0.625rem] font-black px-2 py-1">
             Save {formatCents(savings)}
           </span>
         )}

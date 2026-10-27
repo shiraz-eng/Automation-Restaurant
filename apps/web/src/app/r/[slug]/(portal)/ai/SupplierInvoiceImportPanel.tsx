@@ -344,21 +344,21 @@ export function SupplierInvoiceImportPanel({
           </div>
 
           <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-            <table className="w-full text-left">
+            <table className="w-full text-start">
               <thead className="text-muted">
                 <tr>
-                  <th className="py-1 pr-2 font-semibold">Item</th>
-                  <th className="py-1 pr-2 font-semibold w-20">Qty</th>
-                  <th className="py-1 pr-2 font-semibold w-24">Unit price</th>
-                  <th className="py-1 pr-2 font-semibold">PO line</th>
-                  <th className="py-1 font-semibold text-right">Amount</th>
+                  <th className="py-1 pe-2 font-semibold">Item</th>
+                  <th className="py-1 pe-2 font-semibold w-20">Qty</th>
+                  <th className="py-1 pe-2 font-semibold w-24">Unit price</th>
+                  <th className="py-1 pe-2 font-semibold">PO line</th>
+                  <th className="py-1 font-semibold text-end">Amount</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {lines.map((l, i) => (
                   <tr key={i} className="align-top">
-                    <td className="py-1 pr-2">
+                    <td className="py-1 pe-2">
                       <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={field} />
                       {l.notes.map((n) => (
                         <p key={n} className="text-[0.625rem] text-warn mt-0.5">
@@ -366,13 +366,13 @@ export function SupplierInvoiceImportPanel({
                         </p>
                       ))}
                     </td>
-                    <td className="py-1 pr-2">
+                    <td className="py-1 pe-2">
                       <input type="number" min="0" step="0.001" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} className={field} />
                     </td>
-                    <td className="py-1 pr-2">
+                    <td className="py-1 pe-2">
                       <input type="number" min="0" step="0.01" value={l.price} onChange={(e) => setLine(i, { price: e.target.value })} className={field} />
                     </td>
-                    <td className="py-1 pr-2">
+                    <td className="py-1 pe-2">
                       <select value={l.po_line_id} onChange={(e) => setLine(i, { po_line_id: e.target.value })} className={field} disabled={!poId}>
                         <option value="">Not linked</option>
                         {poLines.map((pl) => (
@@ -383,10 +383,10 @@ export function SupplierInvoiceImportPanel({
                         ))}
                       </select>
                     </td>
-                    <td className="py-1 text-right font-mono whitespace-nowrap">
+                    <td className="py-1 text-end font-mono whitespace-nowrap">
                       {formatCents(Math.round((parseFloat(l.qty) || 0) * toCents(l.price)))}
                     </td>
-                    <td className="py-1 pl-2">
+                    <td className="py-1 ps-2">
                       <button onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="text-muted" aria-label="Remove line">
                         ✕
                       </button>
@@ -448,7 +448,7 @@ export function SupplierInvoiceImportPanel({
             <div className={matchResult.matched ? 'text-ok' : 'text-danger'}>
               {matchResult.matched ? 'Matched — ready for approval.' : 'On hold — exceptions found:'}
               {!matchResult.matched && (
-                <ul className="mt-1 list-disc pl-4">
+                <ul className="mt-1 list-disc ps-4">
                   {matchResult.holds.map((h, i) => (
                     <li key={i}>{h.reason}</li>
                   ))}

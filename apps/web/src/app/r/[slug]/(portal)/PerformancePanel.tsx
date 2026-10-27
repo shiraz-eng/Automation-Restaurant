@@ -229,7 +229,7 @@ function PieTooltip({ active, payload }: TooltipProps<number, string>) {
   return (
     <div className="rounded border border-border bg-surface px-3 py-1.5 text-[0.6875rem] shadow-lg">
       <span className="font-bold text-body">{p.name}</span>
-      <span className="text-muted ml-2 font-mono">{formatCents(Number(p.value) * 100)}</span>
+      <span className="text-muted ms-2 font-mono">{formatCents(Number(p.value) * 100)}</span>
     </div>
   );
 }
@@ -251,7 +251,7 @@ function Kpi({ label, value, delta, tone, onClick }: { label: string; value: str
   return (
     <Tag
       onClick={onClick}
-      className={`rounded-lg border border-border bg-surface p-4 text-left w-full ${onClick ? 'hover:border-primary/50 cursor-pointer' : ''}`}
+      className={`rounded-lg border border-border bg-surface p-4 text-start w-full ${onClick ? 'hover:border-primary/50 cursor-pointer' : ''}`}
     >
       <div className="text-muted text-[0.6875rem] font-semibold flex items-center gap-1">
         {label}
@@ -786,7 +786,7 @@ export function PerformancePanel({
             <button
               onClick={() => setSheetPickerOpen((v) => !v)}
               title="Choose which sheets to export"
-              className={`px-2 py-1.5 text-[0.6875rem] border-l border-border ${sheetPickerOpen || selectedSheets ? 'bg-primary/10 text-primary' : 'bg-main text-muted hover:text-body'}`}
+              className={`px-2 py-1.5 text-[0.6875rem] border-s border-border ${sheetPickerOpen || selectedSheets ? 'bg-primary/10 text-primary' : 'bg-main text-muted hover:text-body'}`}
             >
               ▾
             </button>
@@ -1053,31 +1053,31 @@ export function PerformancePanel({
               <p className="text-muted text-xs">No deals sold in this period.</p>
             ) : (
               <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-start text-xs">
                   <thead className="text-muted border-b border-border">
                     <tr>
-                      <th className="py-2 pr-3 font-semibold">Deal</th>
-                      <th className="py-2 px-3 font-semibold text-right">Sold</th>
-                      <th className="py-2 px-3 font-semibold text-right">Orders</th>
-                      <th className="py-2 px-3 font-semibold text-right">Revenue</th>
-                      {canSeeProfit && <th className="py-2 px-3 font-semibold text-right">Contribution</th>}
-                      {canSeeProfit && <th className="py-2 pl-3 font-semibold text-right">Margin</th>}
+                      <th className="py-2 pe-3 font-semibold">Deal</th>
+                      <th className="py-2 px-3 font-semibold text-end">Sold</th>
+                      <th className="py-2 px-3 font-semibold text-end">Orders</th>
+                      <th className="py-2 px-3 font-semibold text-end">Revenue</th>
+                      {canSeeProfit && <th className="py-2 px-3 font-semibold text-end">Contribution</th>}
+                      {canSeeProfit && <th className="py-2 ps-3 font-semibold text-end">Margin</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {dealRows.map((d) => (
                       <tr key={d.deal_id} className="border-b border-border/50 last:border-0">
-                        <td className="py-2 pr-3 font-semibold">{d.name}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">{d.qty_sold}</td>
-                        <td className="py-2 px-3 text-right tabular-nums text-muted">{d.orders_count}</td>
-                        <td className="py-2 px-3 text-right tabular-nums font-bold">{formatCents(d.revenue_cents)}</td>
+                        <td className="py-2 pe-3 font-semibold">{d.name}</td>
+                        <td className="py-2 px-3 text-end tabular-nums">{d.qty_sold}</td>
+                        <td className="py-2 px-3 text-end tabular-nums text-muted">{d.orders_count}</td>
+                        <td className="py-2 px-3 text-end tabular-nums font-bold">{formatCents(d.revenue_cents)}</td>
                         {canSeeProfit && (
-                          <td className="py-2 px-3 text-right tabular-nums">
+                          <td className="py-2 px-3 text-end tabular-nums">
                             {d.contribution_cents != null ? formatCents(d.contribution_cents) : <span className="text-muted">no recipe cost</span>}
                           </td>
                         )}
                         {canSeeProfit && (
-                          <td className="py-2 pl-3 text-right tabular-nums text-muted">
+                          <td className="py-2 ps-3 text-end tabular-nums text-muted">
                             {d.contribution_margin_pct != null ? `${d.contribution_margin_pct}%` : '—'}
                           </td>
                         )}
@@ -1103,7 +1103,7 @@ export function PerformancePanel({
                     <span className="text-warn font-bold">{attCounts.late} late</span>
                     <span className="text-danger font-bold">{attCounts.absent} absent</span>
                     <span className="text-muted font-bold">{attCounts.leave} leave</span>
-                    {attendancePct != null && <span className="ml-auto font-bold text-body">{attendancePct}%</span>}
+                    {attendancePct != null && <span className="ms-auto font-bold text-body">{attendancePct}%</span>}
                   </div>
                   <div className="space-y-1.5 max-h-56 overflow-y-auto">
                     {attendance.map((a) => (

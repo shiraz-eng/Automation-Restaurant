@@ -106,7 +106,7 @@ export function LevelAllocationEditor({ initial, canManage }: { initial: LevelAl
                     setSaved(false);
                     setRows((rs) => rs.map((x, j) => (j === i ? { ...x, pct: e.target.value } : x)));
                   }}
-                  className={`text-right tabular-nums ${bad ? 'border-danger' : ''}`}
+                  className={`text-end tabular-nums ${bad ? 'border-danger' : ''}`}
                 />
                 <span className="text-xs text-muted">%</span>
               </div>

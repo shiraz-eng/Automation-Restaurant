@@ -70,12 +70,12 @@ export function KotHistory({ rows, auditRows }: { rows: HistoryRow[]; auditRows:
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+          <Search size={14} className="absolute start-2.5 top-1/2 -translate-y-1/2 text-muted" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search order #, table, item..."
-            className="w-full rounded-lg border border-border bg-surface pl-8 pr-3 py-2 text-xs outline-none focus:border-primary"
+            className="w-full rounded-lg border border-border bg-surface ps-8 pe-3 py-2 text-xs outline-none focus:border-primary"
           />
         </div>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-border bg-surface px-2.5 py-2 text-xs outline-none focus:border-primary" />
@@ -107,7 +107,7 @@ export function KotHistory({ rows, auditRows }: { rows: HistoryRow[]; auditRows:
 
       <div className="rounded-lg border border-border bg-surface overflow-hidden">
         <div className="overflow-x-auto" tabIndex={0} role="group" aria-label="Table — scroll to see more">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="w-full text-start text-xs border-collapse">
             <thead>
               <tr className="border-b border-border text-muted">
                 <th className="p-3 font-semibold">KOT</th>

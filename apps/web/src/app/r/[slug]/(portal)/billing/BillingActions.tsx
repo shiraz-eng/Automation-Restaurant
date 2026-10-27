@@ -331,7 +331,7 @@ export function BillingActions({
                   <div className="font-semibold">{new Date(inv.created * 1000).toLocaleDateString()}</div>
                   <div className="text-muted capitalize">{inv.status}</div>
                 </div>
-                <div className="text-right">
+                <div className="text-end">
                   <div className="font-semibold">{formatCents(inv.amount_paid_cents)}</div>
                   {inv.hosted_invoice_url && (
                     <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">

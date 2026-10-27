@@ -88,7 +88,7 @@ export function LoginForm({
         <div className="font-black text-xl mb-1">{name}</div>
         <p className="text-muted mb-8">
           Staff portal · /{baseSlug(slug)}
-          {slotOf(slug) && <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">{slotOf(slug)} sign-in</span>}
+          {slotOf(slug) && <span className="ms-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">{slotOf(slug)} sign-in</span>}
         </p>
 
         <form onSubmit={onSubmit} className="space-y-4">

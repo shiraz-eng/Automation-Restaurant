@@ -32,7 +32,7 @@ import {
   streamGuideMessage,
 } from '@/lib/guideAi';
 import { useAiVoice } from '@/lib/ai/useAiVoice';
-import { speak, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
+import { speakAnswer, stopSpeech, useSpeechInput } from '@/lib/ai/speech';
 import { AiVoiceSettings, MicButton, SpeakControls, VoiceStatus } from '@/components/ai/VoiceControls';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -371,7 +371,8 @@ export function GuideAiPanel({
   const mic = useSpeechInput({
     language: voice.micLanguage,
     server: voice.server,
-    preferServer: voice.prefs.serverSpeech,
+    preferServer: voice.preferServerMic,
+    serverLanguage: voice.micServerLanguage,
     onText: (text) => {
       setInput((cur) => (cur.trim() ? `${cur.trim()} ${text}` : text));
       requestAnimationFrame(() => inputRef.current?.focus());
@@ -450,7 +451,8 @@ export function GuideAiPanel({
         const shown = voice.answerChoice !== 'auto' ? voice.answerChoice : (detectLanguage(content)?.code ?? language);
         update({ content, suggestions, actions, streaming: false, language: shown });
         setAnnounce(content);
-        if (voice.speakEnabled && voice.prefs.autoSpeak) speak(assistantId, content, shown, { voiceName: voice.voiceName, rate: voice.rate });
+        if (voice.speakEnabled && voice.prefs.autoSpeak)
+          void speakAnswer(assistantId, content, shown, { voiceName: voice.voiceName, rate: voice.rate, speaker: voice.speaker, preferAiVoice: voice.prefs.aiVoice });
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           setMessages((ms) =>
@@ -587,7 +589,7 @@ export function GuideAiPanel({
           <span className="h-1.5 w-1.5 rounded-full bg-ok shrink-0" />
           <span className="font-semibold text-body truncate">{restaurantName}</span>
           {planTier && (
-            <span className="ml-auto shrink-0 rounded-full border border-border bg-surface px-2 py-0.5 font-semibold capitalize">
+            <span className="ms-auto shrink-0 rounded-full border border-border bg-surface px-2 py-0.5 font-semibold capitalize">
               {planTier}
             </span>
           )}
@@ -660,7 +662,7 @@ export function GuideAiPanel({
                       key={p.text}
                       onClick={() => pick(p)}
                       disabled={busy}
-                      className="w-full text-left rounded-lg border border-border bg-surface px-3 py-2 text-[0.75rem] hover:border-gold/60 hover:bg-main transition-colors"
+                      className="w-full text-start rounded-lg border border-border bg-surface px-3 py-2 text-[0.75rem] hover:border-gold/60 hover:bg-main transition-colors"
                     >
                       {p.label}
                     </button>
@@ -687,6 +689,7 @@ export function GuideAiPanel({
           return (
             <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
+                translate="no"
                 lang={lang}
                 dir={m.role === 'assistant' ? (rtl ? 'rtl' : 'ltr') : 'auto'}
                 className={`max-w-[88%] rounded-2xl px-3 py-2 text-[0.78125rem] leading-relaxed text-start ${rtl ? 'leading-loose' : ''} ${
@@ -723,7 +726,7 @@ export function GuideAiPanel({
         })}
 
         {!busy && lastAssistant?.suggestions && lastAssistant.suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pl-1">
+          <div className="flex flex-wrap gap-1.5 ps-1">
             {lastAssistant.suggestions.map((s) => (
               <button
                 key={s}

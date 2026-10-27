@@ -42,7 +42,7 @@ export function Header({
         <button
           type="button"
           onClick={onEditGuest}
-          className="text-right shrink-0 rounded-lg p-1 hover:bg-surface/80 transition-colors text-left"
+          className="text-end shrink-0 rounded-lg p-1 hover:bg-surface/80 transition-colors text-start"
           title="Click to edit table or name"
           aria-label={`${tableDisplay}, ordering as ${guestName}. Change table or name`}
         >
@@ -55,19 +55,19 @@ export function Header({
       </div>
 
       <div className="relative mt-3.5" role="search">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+        <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
         <input
           type="search"
           aria-label="Search the menu"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Search chicken, burgers, fries…"
-          className="w-full rounded-full border border-border bg-surface pl-9 pr-9 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+          className="w-full rounded-full border border-border bg-surface ps-9 pe-9 py-2.5 text-sm outline-none focus:border-primary transition-colors"
         />
         {searchQuery && (
           <button
             onClick={() => onSearchChange('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-body"
+            className="absolute end-3 top-1/2 -translate-y-1/2 text-muted hover:text-body"
             aria-label="Clear search"
           >
             <X size={15} />

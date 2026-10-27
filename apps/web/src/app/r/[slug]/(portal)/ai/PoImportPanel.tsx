@@ -217,7 +217,7 @@ export function PoImportPanel({
                     </div>
                     <div className="text-[0.6875rem] text-muted">
                       {po.lines.map((l, li) => (
-                        <span key={li} className={`mr-2 ${l.issue ? 'text-danger' : ''}`}>
+                        <span key={li} className={`me-2 ${l.issue ? 'text-danger' : ''}`}>
                           {l.qty}× {l.inventory_item_name ?? l.item_name}
                           {l.unit_cost_cents != null ? ` @ ${formatCents(l.unit_cost_cents)}${l.unit_label ? `/${l.unit_label}` : ''}` : ''}
                           {l.issue ? ` (${l.issue})` : ''}

@@ -190,7 +190,7 @@ export function ReviewsManager({
                     <div className="h-2 flex-1 rounded bg-main overflow-hidden">
                       <div className="h-full bg-warn" style={{ width: `${(n / maxStar) * 100}%` }} />
                     </div>
-                    <span className="w-8 text-right tabular-nums text-muted">{n}</span>
+                    <span className="w-8 text-end tabular-nums text-muted">{n}</span>
                   </div>
                 );
               })}
@@ -229,12 +229,12 @@ export function ReviewsManager({
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <Stars n={r.overall} />
-                  <span className="ml-2 text-xs font-semibold">{r.guest_name || 'Guest'}</span>
-                  <span className="ml-2 text-[0.6875rem] text-muted">
+                  <span className="ms-2 text-xs font-semibold">{r.guest_name || 'Guest'}</span>
+                  <span className="ms-2 text-[0.6875rem] text-muted">
                     {r.table_label ? `${r.table_label} · ` : ''}
                     {formatDateTime(r.created_at)}
                   </span>
-                  {r.is_hidden && <span className="ml-2 text-[0.625rem] font-bold text-danger uppercase">hidden</span>}
+                  {r.is_hidden && <span className="ms-2 text-[0.625rem] font-bold text-danger uppercase">hidden</span>}
                 </div>
                 {canModerate && (
                   <Button variant="ghost" disabled={busyId === r.id} onClick={() => moderate(r)}>

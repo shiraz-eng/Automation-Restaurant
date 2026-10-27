@@ -208,7 +208,7 @@ export function BrandKitManager({
                 />
               </label>
               {currentLogoUrl && (
-                <button onClick={removeLogo} className="text-xs font-semibold text-danger text-left">
+                <button onClick={removeLogo} className="text-xs font-semibold text-danger text-start">
                   Remove
                 </button>
               )}
@@ -242,7 +242,7 @@ export function BrandKitManager({
               key={name}
               disabled={!canEdit}
               onClick={() => setPreset(name)}
-              className={`rounded-lg border p-3 text-left ${
+              className={`rounded-lg border p-3 text-start ${
                 theme.preset === name ? 'border-primary' : 'border-border'
               }`}
             >
