@@ -48,3 +48,12 @@ export function formatDateTime(iso: string, locale = 'en-US'): string {
     minute: '2-digit',
   });
 }
+
+/**
+ * Money is formatted with a no-break space ("Rs 1,250.00"). In narrow
+ * tiles at large text sizes that makes the browser split the number itself;
+ * a normal space lets the line break after the currency instead.
+ */
+export function wrapAfterCurrency(text: string): string {
+  return text.replace(/ /g, ' ');
+}

@@ -378,7 +378,7 @@ function Kpi({
   const body = (
     <div className="min-w-0 rounded-lg border border-border bg-surface p-3 h-full hover:border-primary/60">
       <p className="text-[0.6875rem] text-muted">{label}</p>
-      <p className={`text-lg font-black font-mono leading-tight [overflow-wrap:anywhere] ${tone === 'bad' ? 'text-danger' : tone === 'good' ? 'text-ok' : ''}`}>{formatCents(cents)}</p>
+      <p className={`text-lg font-black font-mono leading-tight break-words ${tone === 'bad' ? 'text-danger' : tone === 'good' ? 'text-ok' : ''}`}>{formatCents(cents)}</p>
       <p className="text-[0.6875rem] text-muted">
         {delta != null && <span className={better ? 'text-ok' : 'text-danger'}>{delta > 0 ? '▲' : delta < 0 ? '▼' : '●'} {Math.abs(delta)}% </span>}
         {sub ?? (prev != null ? `prev ${formatCents(prev)}` : '')}

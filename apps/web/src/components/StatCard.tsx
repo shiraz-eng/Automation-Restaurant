@@ -1,3 +1,5 @@
+import { wrapAfterCurrency } from '@/lib/format';
+
 export function StatCard({
   label,
   value,
@@ -21,7 +23,7 @@ export function StatCard({
   return (
     <div className="min-w-0 rounded-lg border border-border bg-surface p-5">
       <div className="text-muted text-xs font-semibold">{label}</div>
-      <div className={`mt-2 text-2xl font-black leading-tight [overflow-wrap:anywhere] ${toneClass}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-black leading-tight break-words ${toneClass}`}>{typeof value === 'string' ? wrapAfterCurrency(value) : value}</div>
       {hint && <div className="mt-1 text-xs text-muted">{hint}</div>}
     </div>
   );

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { wrapAfterCurrency } from '@/lib/format';
 
 /**
  * The Dashboard/Command Center's own stat-tile treatment — deliberately
@@ -34,7 +35,7 @@ export function DashboardStat({
   const body = (
     <>
       <div className="text-muted text-[0.6875rem] font-semibold uppercase tracking-wide">{label}</div>
-      <div className={`mt-2 text-2xl font-black leading-tight [overflow-wrap:anywhere] ${valueCls}`}>{value}</div>
+      <div className={`mt-2 text-2xl font-black leading-tight break-words ${valueCls}`}>{typeof value === 'string' ? wrapAfterCurrency(value) : value}</div>
       {hint && <div className="mt-1 text-[0.6875rem] text-muted">{hint}</div>}
     </>
   );

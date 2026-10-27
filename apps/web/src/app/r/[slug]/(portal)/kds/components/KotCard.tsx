@@ -58,6 +58,8 @@ export function KotCard({
             onSelect();
           }}
           aria-pressed={selected}
+          // The waiting time ticks: server and browser can render it a minute apart.
+          suppressHydrationWarning
           aria-label={`KOT ${kot.order_number}, ${lane === 'new' ? 'new' : lane}, waiting ${formatElapsed(mins)}. Show ticket details`}
           className="rounded text-start font-black text-sm hover:underline"
         >
@@ -83,7 +85,7 @@ export function KotCard({
           ORDER #{kot.order_number} · {orderTypeLabel(kot.channel).toUpperCase()}
           {kot.table_label ? ` · TABLE ${tableNumberLabel(kot.table_label)}` : ''}
         </span>
-        <span className={`font-bold tabular-nums ${lane === 'delayed' ? 'text-danger' : ''}`}>Waiting {formatElapsed(mins)}</span>
+        <span suppressHydrationWarning className={`font-bold tabular-nums ${lane === 'delayed' ? 'text-danger' : ''}`}>Waiting {formatElapsed(mins)}</span>
       </div>
 
       <div className="p-3 space-y-2">

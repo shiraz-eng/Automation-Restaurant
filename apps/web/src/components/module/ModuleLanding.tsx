@@ -208,7 +208,7 @@ export function ModuleKpiCard({
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-medium text-muted">{label}</span>
         <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className={`text-xl sm:text-2xl font-black tracking-tight font-mono leading-tight [overflow-wrap:anywhere] ${valueTone === 'danger' ? 'text-danger' : 'text-body'}`}>{value}</span>
+          <span className={`text-xl sm:text-2xl font-black tracking-tight font-mono leading-tight break-words ${valueTone === 'danger' ? 'text-danger' : 'text-body'}`}>{value}</span>
           {hasDelta && (
             <span className={`inline-flex items-center gap-0.5 text-xs font-bold ${delta === 0 ? 'text-muted' : better ? 'text-ok' : 'text-danger'}`}>
               {delta! > 0 ? <ArrowUp className="h-3 w-3" aria-hidden /> : delta! < 0 ? <ArrowDown className="h-3 w-3" aria-hidden /> : null}
