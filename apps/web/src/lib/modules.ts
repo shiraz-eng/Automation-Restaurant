@@ -87,7 +87,7 @@ export const MODULES: ModuleDef[] = [
     tools: [
       { key: 'kds', title: 'Kitchen Display', description: 'Live tickets by station, food availability, bump when ready.', path: 'kds', icon: ChefHat, accent: 'orange', perm: 'kitchen.view', feature: 'kds.realtime' },
       { key: 'kot', title: 'KOT History', description: 'Every kitchen order ticket sent, with its timings.', path: 'kds/history', icon: ScrollText, accent: 'amber', perm: 'kitchen.view', feature: 'kds.realtime' },
-      { key: 'kitchen-waste', title: 'Record Waste', description: 'Log food that was spoiled, spilled or cooked wrong, for a manager to approve.', path: 'inventory/wastage', icon: Trash2, accent: 'rose', perm: 'kitchen.record_waste', feature: 'inventory.recipe_deduction' },
+      { key: 'kitchen-waste', title: 'Record Waste', description: 'Log food that was spoiled, spilled or cooked wrong, for a manager to approve.', path: 'inventory/wastage', icon: Trash2, accent: 'rose', perm: 'kitchen.record_waste', feature: 'inventory.recipe_deduction', shared: true },
     ],
   },
   {

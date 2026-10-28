@@ -366,7 +366,10 @@ export function wasteAlerts(current: WastageSummary, previous: WastageSummary | 
         inventory_item_id: i.inventory_item_id,
         name: i.name,
         rate_pct: i.waste_rate_pct,
-        message: `${i.name}: ${i.waste_rate_pct}% of what was used was wasted.`,
+        message:
+          i.usage_qty > 0
+            ? `${i.name}: ${i.waste_rate_pct}% of what was used was wasted.`
+            : `${i.name}: wasted, but none was used in orders this period.`,
       });
     }
     if (i.variance_qty < 0) {
