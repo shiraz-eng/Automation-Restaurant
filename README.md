@@ -187,6 +187,11 @@ tablets, laptops and large desktops.
 POS checkout. Tablet: website and Kitchen Display. Desktop: website, customer
 menu and Finance. Logos and personal data are blurred.</sub>
 
+<img src="docs/screenshots/phone-drawer.jpg" alt="Navigation drawer on a phone" width="320">
+
+<sub>The navigation drawer on a phone, with the Kitchen Display at full width
+behind it. Focus stays inside the drawer and Escape closes it.</sub>
+
 ## Languages, voice and accessibility
 
 **Multilingual AI.** The AI Guide, the Assistant and the customer menu's AI
@@ -221,11 +226,18 @@ same permission-checked Assistant: for example, ask in Urdu on the Inventory
 screen and it reads the real low-stock list. Each module offers its own
 suggested questions.
 
+![AI voice answering in Urdu on the Inventory screen](docs/screenshots/ai-voice-urdu.jpg)
+
+<sub>Inventory: an Urdu question answered in Urdu from the live low-stock list,
+read aloud by the AI voice on a computer with no Urdu voice of its own.</sub>
+
 **Settings → AI & Voice** (settings permission) sets, for all modules or for
 POS, Kitchen, Menu, Marketing, Inventory, Suppliers, Finance, Staff, Manager,
 Admin and Customer:
 - the answer and listening languages, and automatic language detection;
 - whether voice input and spoken answers are offered.
+
+![AI & Voice settings for every module](docs/screenshots/ai-voice-settings.jpg)
 
 Settings live in the restaurant's own database (`ai_module_settings`, tenant
 migration 0108) and are only written by the API, after validation, with an
@@ -242,6 +254,11 @@ are laid out right to left.
   (`POST /api/ai/translate-ui`), then cached on the device.
 - With the screen in Urdu, the AI answers in Urdu too.
 
+![The manager dashboard in Urdu, right to left](docs/screenshots/urdu-dashboard.jpg)
+
+<sub>The manager dashboard in Urdu, laid out right to left: menu, today's
+sales, orders, low stock and performance.</sub>
+
 ![Urdu portal, any-language AI and voice](docs/screenshots/urdu-voice-ui.jpg)
 
 <sub>Inventory and sign-in in Urdu, the AI Guide answering in Urdu from live
@@ -250,6 +267,9 @@ language". Logos blurred.</sub>
 
 All screenshots are also in one PDF:
 [docs/Automation-Restaurant-Screenshots.pdf](docs/Automation-Restaurant-Screenshots.pdf).
+The new features alone (accessibility, Urdu, AI voice, AI & Voice settings and
+the phone layout) are in
+[docs/Automation-Restaurant-New-Features.pdf](docs/Automation-Restaurant-New-Features.pdf).
 
 **Accessibility.** The ♿ button in every header (website, portals, kiosk
 portals, customer menu and admin) offers:
@@ -262,6 +282,11 @@ portals, customer menu and admin) offers:
 
 The choice is saved on the device and applied before the first paint on every
 page.
+
+![Accessibility menu with high contrast and larger text](docs/screenshots/accessibility-menu.jpg)
+
+<sub>The ♿ menu on the manager dashboard with high contrast and 112% text.
+Amounts wrap after the currency instead of splitting.</sub>
 
 Across the platform:
 - Keyboard focus is always visible, and every layout has a "Skip to main
