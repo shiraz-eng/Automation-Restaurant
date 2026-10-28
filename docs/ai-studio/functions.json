@@ -194,13 +194,54 @@
   },
   {
     "name": "get_wastage_summary",
-    "description": "Ingredient waste recorded over a period, valued at current cost, by ingredient.",
+    "description": "Recorded ingredient waste for a period, worked out by the database: total waste cost, waste rate (% of ingredient value consumed), by ingredient, by reason (expired, spoiled, preparation, cooking error, overproduction, spillage, other), the change vs the previous period, rule-based alerts (rising waste, high waste rate, over-purchasing, stock-count losses) and pending approvals. Pass `ingredient` for one ingredient (\"why is chicken waste increasing?\"): its reasons, recent entries with notes, and its trend. Stock-count differences are reported separately as unexplained variance — never as waste. Use for any waste/wastage/loss question.",
     "parameters": {
       "type": "object",
       "properties": {
+        "period": {
+          "type": "string",
+          "enum": [
+            "today",
+            "yesterday",
+            "this_week",
+            "last_week",
+            "this_month",
+            "last_month",
+            "last_3_months",
+            "last_6_months",
+            "this_year",
+            "last_year"
+          ],
+          "description": "Default this_month. Ignored if from/to are both given."
+        },
+        "from": {
+          "type": "string",
+          "description": "Custom range start, YYYY-MM-DD. Requires `to`; overrides `period`."
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom range end (inclusive), YYYY-MM-DD. Requires `from`; overrides `period`."
+        },
+        "ingredient": {
+          "type": "string",
+          "description": "Optional ingredient name to focus on."
+        },
         "days": {
           "type": "integer",
-          "description": "1-90, default 30"
+          "description": "Legacy: last N days (1-90). Ignored when period or from/to is given."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_expiry_risks",
+    "description": "Ingredients that may expire soon or may already be past their shelf life — an ESTIMATE from each ingredient's shelf life and its deliveries, assuming the oldest stock is used first (there is no batch tracking). Only ingredients with a shelf life set on the Wastage screen are covered; the result says how many have none. Use for \"what may expire soon\", \"what should we use first\", \"what is going off\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "within_days": {
+          "type": "integer",
+          "description": "Look-ahead window, 1-30 days. Default 3."
         }
       }
     }
@@ -974,7 +1015,7 @@
   },
   {
     "name": "record_waste",
-    "description": "Record ingredient wastage/spoilage for one inventory item, with a required reason (e.g. \"2kg of lettuce went off in the walk-in\"). Always deducts stock and always logs it as spoilage. Proposes the change for a manager to confirm.",
+    "description": "Record ingredient wastage for one inventory item, with a reason category and a note (e.g. \"2kg of lettuce went off in the walk-in\" → reason expiry). Deducts stock once and appears on the Wastage screen. Proposes the change for a manager to confirm — only when the person asks to record waste, never on your own initiative.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -985,9 +1026,22 @@
           "type": "number",
           "description": "Positive quantity wasted, in the item's own base/stock unit — NOT necessarily the unit the person spoke in. Check the item's real unit first (get_low_stock / get_inventory_value show it) and convert: kg stated but the item tracks grams -> x1000; L stated but it tracks ml -> x1000."
         },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "expiry",
+            "spoilage",
+            "preparation",
+            "cooking_error",
+            "overproduction",
+            "spillage",
+            "other"
+          ],
+          "description": "Default spoilage."
+        },
         "note": {
           "type": "string",
-          "description": "Required — why it was wasted."
+          "description": "Required — what happened."
         }
       },
       "required": [
