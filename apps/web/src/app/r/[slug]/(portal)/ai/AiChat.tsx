@@ -94,7 +94,7 @@ const MODULE_SUGGESTIONS: Partial<Record<AiModuleKey, string[]>> = {
   kitchen: ['What is happening in the kitchen right now?', 'Which dishes are unavailable right now?', 'How fast is the kitchen today?'],
   menu: ['Which dishes sold best this week?', 'Which dishes should I promote or drop?', 'How are my deals performing?'],
   marketing: ['How are my promotions performing this month?', 'What are guests saying in recent feedback?', 'Draft a post announcing tonight’s special'],
-  inventory: ['Which ingredients are low on stock?', 'What is my food cost this month?', 'How much did we waste this week?'],
+  inventory: ['Which ingredients are low on stock?', 'What is my food cost this month?', 'How much did we waste this week?', 'Which ingredients may expire soon?'],
   suppliers: ['What do I owe suppliers right now?', 'How are my suppliers performing?', 'Summarise purchasing this month'],
   finance: ['What is my profit this month so far?', 'Where did my money go this month?', 'How do sales compare with last month?'],
   staff: ['Who clocked in today?', 'How was attendance this month?', 'Which shifts are planned this week?'],

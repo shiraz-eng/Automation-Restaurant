@@ -307,7 +307,7 @@ Across the platform:
 | **Guests** | Table QR codes, no-login ordering (`/order/<slug>?table=…`), search and categories, deals with the saving shown, special instructions, promo codes, tax shown before checkout, live order tracking (placed → in the kitchen → ready → served), order more from the same table, five-part ratings, "Ask about the menu" AI |
 | **Kitchen** | Kitchen Display (KOT queue → preparing → ready), the ingredients each ticket consumes, portions left per dish, KOT history |
 | **Menu & recipes** | Categories, variants, modifiers, deals, promotions; recipes in base units (g / ml / piece) linked to dishes; per-dish food cost and margin; availability calculated from stock |
-| **Inventory** | Stock on hand, low-stock thresholds and email alerts, automatic deduction by recipe on every order, shared-ingredient impact across dishes |
+| **Inventory** | Stock on hand, low-stock thresholds and email alerts, automatic deduction by recipe on every order, shared-ingredient impact across dishes, [wastage management](#wastage-management) |
 | **Purchasing** | Supplier directory with payment terms, purchase requests → purchase orders → goods received → stock update → supplier invoices with a 3-way match (PO ↔ delivery ↔ invoice), typed exceptions, credit notes, and AI reading of invoice PDFs and photos |
 | **Finance** | Finance landing page (KPIs, tools, revenue vs expenses, recent transactions) and sub-navigation, finance overview (P&L vs the previous period, food cost % vs target, payables aging, needs-attention list), append-only ledger with corrections, expense approval workflow, supplier payables, cash movements and a locked day close, branded PDF and Excel finance reports — see [Finance model](#finance-model) |
 | **Staff & access** | Staff without logins (name, job, shift), custom portals built from individual permissions with a live preview, approvals, audit log, attendance and scheduling |
@@ -315,6 +315,41 @@ Across the platform:
 | **Brand** | Brand Kit (logo, colours, receipt style) applied to the menu, receipts, invoices and reports |
 | **Branches** | Owner panel for a group of locations: create independent branches (each its own database), a login per branch (password shown once), per-branch receipt details, rename, archive / restore, delete permanently, side-by-side comparison, one-click switching between workspaces — see [Multi-branch](#multi-branch) |
 | **Platform** | Marketing site, self-service sign-up and payment, automatic provisioning, plan tiers and upgrades, super-admin console |
+
+## Wastage management
+
+**Inventory → Wastage** (also Kitchen → Record Waste, Finance → Wastage). Tenant migration 0109.
+
+- **Record waste** by ingredient, quantity and unit (base unit, purchase unit, or kg ↔ g / L ↔ ml), reason, date and responsible staff member.
+  - Reasons: expired, spoiled, preparation waste, cooking error, overproduction, spillage, other (needs a note).
+- **Who approves:**
+  - Entries from managers, or anyone with `inventory.manage_waste` / `stock.adjust` / `inventory.manage`, apply at once.
+  - Entries from kitchen staff with only `kitchen.record_waste` wait for approval.
+  - Approved entries can be reversed with a reason.
+- **Stock and cost:**
+  - Stock is deducted exactly once, through the existing stock ledger. Each branch's stock row is locked, so stock never goes negative.
+  - Cost is fixed at the weighted-average cost at that moment.
+  - A repeated submit returns the first entry, keyed by a request id.
+  - A reversal puts the stock back once, at the same cost.
+- **Finance:** waste posts as `WASTE_RECORDED`; a reversal posts the same amount negative.
+- **No double counting:** waste of food an order already used (for example, a dish sent back) is recorded against that order. It is never deducted again, and it is capped at what the order used.
+- **Dashboard:** waste cost, waste rate, a trend (daily, weekly or monthly), waste by ingredient and reason, approvals, history and fixed-rule alerts.
+- **Expiry:** estimated from a shelf life you set per ingredient, assuming the oldest stock is used first. There is no batch tracking.
+
+**Calculations** (`packages/shared/src/wastage.ts`, from `wastage_report()`):
+- Waste cost = quantity wasted × unit cost when recorded, net of reversals.
+- Waste rate = waste cost ÷ (recipe usage + waste) at cost.
+- Expected closing = opening + receipts + adjustments in − recipe usage − waste − other outflows.
+- Variance = actual − expected. Only stock counts create a variance, and it is shown as unexplained, never as waste.
+
+**AI Guide.** `get_wastage_summary` (with an optional `ingredient`) and `get_expiry_risks` answer questions such as "how much did we waste this month?", "why is chicken waste increasing?" or "which ingredients may expire soon?", in any language.
+- Every figure comes from the database.
+- Suggestions are advice only; the AI never changes stock, purchases or finance on its own.
+- There is no forecasting yet; that is future work, once there is enough reliable history.
+
+Tests:
+- `npx tsx scripts/test-wastage.ts`, run from `apps/api` (rolled back).
+- `npm test -w @automation-restaurant/shared`.
 
 ## How a restaurant goes live
 
@@ -818,7 +853,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **107**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **109**).
 
 Roll it out to every live restaurant:
 

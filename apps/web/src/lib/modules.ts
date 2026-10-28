@@ -1,7 +1,7 @@
 import {
   Activity, BadgeCheck, BookOpen, Bot, Building2, CalendarCheck, CalendarClock, ChartColumn, ChefHat, ClipboardList, Coins, CreditCard,
   FileDown, HandCoins, Hourglass, KeyRound, Landmark, Languages, LayoutDashboard, LifeBuoy, Megaphone, Package, Palette, Percent, PieChart, QrCode,
-  ReceiptText, Scale, ScrollText, Settings, Share2, ShoppingCart, Sparkles, Star, Tag, TriangleAlert, Truck, Undo2, UserRound, Users,
+  ReceiptText, Scale, ScrollText, Settings, Share2, ShoppingCart, Sparkles, Star, Tag, Trash2, TriangleAlert, Truck, Undo2, UserRound, Users,
   UtensilsCrossed, Wallet, type LucideIcon,
 } from 'lucide-react';
 import type { FeatureKey } from '@automation-restaurant/shared';
@@ -87,6 +87,7 @@ export const MODULES: ModuleDef[] = [
     tools: [
       { key: 'kds', title: 'Kitchen Display', description: 'Live tickets by station, food availability, bump when ready.', path: 'kds', icon: ChefHat, accent: 'orange', perm: 'kitchen.view', feature: 'kds.realtime' },
       { key: 'kot', title: 'KOT History', description: 'Every kitchen order ticket sent, with its timings.', path: 'kds/history', icon: ScrollText, accent: 'amber', perm: 'kitchen.view', feature: 'kds.realtime' },
+      { key: 'kitchen-waste', title: 'Record Waste', description: 'Log food that was spoiled, spilled or cooked wrong, for a manager to approve.', path: 'inventory/wastage', icon: Trash2, accent: 'rose', perm: 'kitchen.record_waste', feature: 'inventory.recipe_deduction' },
     ],
   },
   {
@@ -123,6 +124,7 @@ export const MODULES: ModuleDef[] = [
     landing: 'modules/inventory',
     tools: [
       { key: 'stock', title: 'Stock', description: 'Ingredient levels, restocks, waste, counts and low-stock alerts.', path: 'inventory', icon: Package, accent: 'emerald', perm: 'stock.view', feature: 'inventory.recipe_deduction' },
+      { key: 'wastage', title: 'Wastage', description: 'Record and approve waste, see what it costs, why it happens and what may expire.', path: 'inventory/wastage', icon: Trash2, accent: 'rose', perm: 'stock.history', feature: 'inventory.recipe_deduction' },
       { key: 'recipes', title: 'Recipes & Food Cost', description: 'Link dishes to ingredients and see what each one costs.', path: 'recipes', icon: BookOpen, accent: 'teal', perm: 'menu.view', feature: 'inventory.recipe_deduction' },
       { key: 'availability', title: 'Availability History', description: 'When each dish went off and back on sale, and why.', path: 'menu/availability', icon: Hourglass, accent: 'amber', perm: 'availability.view' },
       { key: 'priority', title: 'Priority Allocation', description: 'Which dishes get scarce ingredients first.', path: 'menu/priority', icon: Scale, accent: 'indigo', perm: 'availability.view' },
@@ -165,6 +167,7 @@ export const MODULES: ModuleDef[] = [
       { key: 'expenses', title: 'Expenses', path: 'expenses', perm: 'finance.view', feature: 'accounting.finance' },
       { key: 'payables', title: 'Payables & Invoices', path: 'purchasing', perm: 'purchases.view', feature: 'inventory.recipe_deduction', shared: true },
       { key: 'close', title: 'Cash & Day Close', path: 'close', perm: 'finance.view', shared: true },
+      { key: 'wastage', title: 'Wastage', path: 'inventory/wastage', perm: 'stock.history', feature: 'inventory.recipe_deduction', shared: true },
       { key: 'recipes', title: 'Recipes & Food Cost', path: 'recipes', perm: 'menu.view', feature: 'inventory.recipe_deduction', shared: true },
       { key: 'performance', title: 'Performance', path: '', perm: 'analytics.view', shared: true },
       { key: 'reports', title: 'Report History', path: 'exports', perm: 'reports.view', feature: 'analytics.advanced', shared: true },

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { gatePortalPage, can } from '@/lib/permissions';
@@ -83,7 +84,14 @@ export default async function InventoryPage({
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <h1 className="text-xl font-black">Inventory</h1>
+        <div className="flex flex-wrap items-center gap-2">
+        {(can(perms, role, 'stock.history') || can(perms, role, 'inventory.manage_waste')) && (
+          <Link href={`/r/${slug}/inventory/wastage`} className="rounded border border-border px-3 py-1.5 text-xs font-semibold hover:border-primary/60">
+            Wastage
+          </Link>
+        )}
         <SectionReportButtons slug={slug} restaurantName={t.config.restaurantName} domain="inventory" label="Inventory" />
+        </div>
       </div>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">

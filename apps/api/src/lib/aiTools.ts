@@ -4,6 +4,18 @@ import { permits } from '../middleware/portalAuth';
 import { runLowStockSweepWithAdmin } from './lowStockAutomation';
 import { fromStock } from './inventoryStock';
 import { listBranches, restaurantMetrics, tenantBySlug } from './branchTenants';
+import {
+  WASTE_REASON_LABELS,
+  expiryRisks,
+  isWasteReason,
+  isWastageSchemaMissing,
+  wasteErrorMessage,
+  parseWastageReport,
+  summarizeWastage,
+  wasteAlerts,
+  type WasteReason,
+  type WastageReport,
+} from '@automation-restaurant/shared';
 
 // The caller's real role/permissions, threaded into a tool's run() only
 // where a tool internally blends data of different sensitivity (see
@@ -270,10 +282,45 @@ async function wasteCostBetween(admin: SupabaseClient, from: Date, to: Date): Pr
     .eq('reason', 'spoilage')
     .gte('created_at', from.toISOString())
     .lt('created_at', to.toISOString());
+  // −Δ, not |Δ|: a reversed waste entry (a positive spoilage row) takes its cost back off.
   return Math.round(((data ?? []) as { delta_qty: number; unit_cost_cents_base: number | null }[]).reduce(
-    (s, r) => s + Math.abs(r.delta_qty) * (r.unit_cost_cents_base ?? 0),
+    (s, r) => s - Number(r.delta_qty) * (r.unit_cost_cents_base ?? 0),
     0,
   ));
+}
+/** The last N days as a resolved range (today included), for get_wastage_summary's legacy `days`. */
+function customRangeDays(days: number) {
+  const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  return { ...customRange(fmt(new Date(today.getTime() - (days - 1) * 86400_000)), fmt(today)), label: `Last ${days} days` };
+}
+/** get_wastage_summary before tenant migration 0109: spoilage rows off the stock ledger. */
+async function legacyWastageSummary(admin: SupabaseClient, days: number) {
+  const { data } = await admin
+    .from('stock_ledger')
+    .select('delta_qty, unit_cost_cents_base, inventory_items(name, unit, cost_cents_per_base_unit)')
+    .eq('reason', 'spoilage')
+    .gte('created_at', daysAgo(days));
+  type Ii = { name: string; unit: string; cost_cents_per_base_unit: number };
+  const rows = (data ?? []) as { delta_qty: number; unit_cost_cents_base: number | null; inventory_items: Ii | Ii[] | null }[];
+  const byItem: Record<string, { qty: number; unit: string; cost_cents: number }> = {};
+  for (const r of rows) {
+    const ii = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+    const name = ii?.name ?? '—';
+    byItem[name] = byItem[name] ?? { qty: 0, unit: ii?.unit ?? '', cost_cents: 0 };
+    byItem[name].qty -= Number(r.delta_qty);
+    byItem[name].cost_cents += Math.round(-Number(r.delta_qty) * (r.unit_cost_cents_base ?? ii?.cost_cents_per_base_unit ?? 0));
+  }
+  const items = Object.entries(byItem)
+    .map(([name, v]) => ({ ingredient: name, qty_wasted: v.qty, unit: v.unit, cost_cents: v.cost_cents }))
+    .sort((a, b) => b.cost_cents - a.cost_cents);
+  return {
+    window_days: days,
+    total_waste_cost_cents: items.reduce((s, i) => s + i.cost_cents, 0),
+    events: rows.length,
+    by_ingredient: items,
+    note: 'Reasons, waste rate and approvals need tenant migration 0109, which is not applied to this restaurant yet.',
+  };
 }
 /** Total purchase-order value created between two exact dates — the same
  *  subtotal_cents get_purchasing_summary sums, parameterized for
@@ -1253,42 +1300,187 @@ export const AI_TOOLS: AiTool[] = [
   },
   {
     name: 'get_wastage_summary',
-    description: 'Ingredient waste recorded over a period, valued at current cost, by ingredient.',
+    description:
+      'Recorded ingredient waste for a period, worked out by the database: total waste cost, waste rate (% of ingredient value consumed), ' +
+      'by ingredient, by reason (expired, spoiled, preparation, cooking error, overproduction, spillage, other), the change vs the previous ' +
+      'period, rule-based alerts (rising waste, high waste rate, over-purchasing, stock-count losses) and pending approvals. ' +
+      'Pass `ingredient` for one ingredient ("why is chicken waste increasing?"): its reasons, recent entries with notes, and its trend. ' +
+      'Stock-count differences are reported separately as unexplained variance — never as waste. Use for any waste/wastage/loss question.',
     needs: 'stock.history',
     input_schema: {
       type: 'object',
-      properties: { days: { type: 'integer', description: '1-90, default 30' } },
+      properties: {
+        ...INTELLIGENCE_PERIOD_SCHEMA,
+        ingredient: { type: 'string', description: 'Optional ingredient name to focus on.' },
+        days: { type: 'integer', description: 'Legacy: last N days (1-90). Ignored when period or from/to is given.' },
+      },
+    },
+    async run(admin, args, actor) {
+      const hasPeriod = !!args.period || (!!args.from && !!args.to);
+      const legacyDays = !hasPeriod && args.days !== undefined ? clampInt(args.days, 30, 90) : null;
+      const r = legacyDays !== null ? customRangeDays(legacyDays) : resolvePeriod(args);
+      const cur = forwardRange(r);
+      const prev = forwardRange({ from: r.prevFrom, to: r.prevTo });
+      const [curRes, prevRes] = await Promise.all([
+        admin.rpc('wastage_report', { p_from: cur.from, p_to: cur.to }),
+        admin.rpc('wastage_report', { p_from: prev.from, p_to: prev.to }),
+      ]);
+      if (curRes.error && isWastageSchemaMissing(`${curRes.error.code} ${curRes.error.message}`)) {
+        return legacyWastageSummary(admin, legacyDays ?? 30);
+      }
+      if (curRes.error) return { error: curRes.error.message };
+      // Money only for people who may see ingredient cost (the service role sees everything).
+      const showCost = !actor || permits(actor.permissions, actor.role, 'inventory.view_cost');
+      const strip = (rep: WastageReport): WastageReport =>
+        showCost
+          ? rep
+          : {
+              ...rep,
+              costs_visible: false,
+              items: rep.items.map((i) => ({ ...i, usage_value_cents: null, waste_cost_cents: null, waste_after_use_cost_cents: null, unit_cost_cents: null })),
+              daily: rep.daily.map((d) => ({ ...d, cost_cents: null })),
+              by_item_reason: rep.by_item_reason.map((x) => ({ ...x, cost_cents: null })),
+            };
+      const curRep = strip(parseWastageReport(curRes.data));
+      const prevRep = prevRes.error ? null : strip(parseWastageReport(prevRes.data));
+      const s = summarizeWastage(curRep);
+      const p = prevRep ? summarizeWastage(prevRep) : null;
+      const alerts = wasteAlerts(s, p, { format: formatCentsPlain });
+      const { count: pending } = await admin.from('waste_entries').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+
+      const focusName = String(args.ingredient ?? '').trim().toLowerCase();
+      let focus: Record<string, unknown> | undefined;
+      if (focusName) {
+        const match = s.ingredients.find((i) => i.name.toLowerCase() === focusName) ?? s.ingredients.find((i) => i.name.toLowerCase().includes(focusName));
+        const item = match ?? (await findInventoryItem(admin, focusName));
+        const id = match?.inventory_item_id ?? (item as { id?: string } | null)?.id;
+        if (!id) {
+          focus = { ingredient: args.ingredient, note: 'No ingredient with that name.' };
+        } else {
+          const before = p?.ingredients.find((i) => i.inventory_item_id === id) ?? null;
+          const { data: entries } = await admin
+            .from('waste_entries')
+            .select('occurred_on, qty_base, entered_qty, entered_unit, reason, note, status, cost_cents, already_consumed, memberships:responsible_member_id(full_name)')
+            .eq('inventory_item_id', id)
+            .gte('occurred_on', cur.from)
+            .lte('occurred_on', cur.to)
+            .order('recorded_at', { ascending: false })
+            .limit(15);
+          focus = {
+            ingredient: match?.name ?? (item as { name?: string } | null)?.name,
+            this_period: match ?? { waste_qty: 0, waste_cost_cents: showCost ? 0 : null },
+            previous_period: before ?? { waste_qty: 0, waste_cost_cents: p && showCost ? 0 : null },
+            by_reason: curRep.by_item_reason
+              .filter((x) => x.inventory_item_id === id)
+              .map((x) => ({ reason: WASTE_REASON_LABELS[x.reason as WasteReason] ?? x.reason, qty: x.qty, cost_cents: x.cost_cents }))
+              .sort((a, b) => (b.cost_cents ?? b.qty) - (a.cost_cents ?? a.qty)),
+            recent_entries: ((entries ?? []) as Record<string, unknown>[]).map((e) => {
+              const m = e.memberships as { full_name?: string | null } | { full_name?: string | null }[] | null;
+              return {
+                date: e.occurred_on,
+                qty: `${e.entered_qty} ${e.entered_unit}`,
+                reason: WASTE_REASON_LABELS[e.reason as WasteReason] ?? e.reason,
+                note: e.note,
+                status: e.status,
+                responsible: (Array.isArray(m) ? m[0]?.full_name : m?.full_name) ?? null,
+                cost_cents: showCost ? e.cost_cents : undefined,
+                already_used_by_an_order: e.already_consumed || undefined,
+              };
+            }),
+            alerts: alerts.filter((a) => a.inventory_item_id === id).map((a) => a.message),
+          };
+        }
+      }
+
+      return {
+        period: r.label,
+        from: cur.from,
+        to: cur.to,
+        compared_with: `${prev.from} to ${prev.to}`,
+        total_waste_cost_cents: s.total_waste_cost_cents,
+        previous_total_waste_cost_cents: p?.total_waste_cost_cents ?? null,
+        waste_rate_pct: s.waste_rate_pct,
+        previous_waste_rate_pct: p?.waste_rate_pct ?? null,
+        consumed_value_cents: s.consumed_value_cents,
+        unexplained_stock_count_variance_cents: s.unexplained_variance_cents,
+        waste_movements: s.entries,
+        pending_approval: pending ?? 0,
+        top_ingredients: s.ingredients.slice(0, 10).map((i) => ({
+          ingredient: i.name,
+          qty_wasted: i.waste_qty,
+          unit: i.unit,
+          cost_cents: i.waste_cost_cents,
+          waste_rate_pct: i.waste_rate_pct,
+          main_reason: i.top_reason ? (WASTE_REASON_LABELS[i.top_reason as WasteReason] ?? i.top_reason) : null,
+          received_qty: i.receipts_qty,
+          used_in_recipes_qty: i.usage_qty,
+        })),
+        by_reason: s.by_reason.map((x) => ({ reason: x.label, cost_cents: x.cost_cents })),
+        alerts: alerts.slice(0, 10).map((a) => a.message),
+        focus,
+        costs_shown: showCost,
+        how_calculated:
+          'Waste cost = quantity wasted × the weighted-average cost when it was recorded, net of reversals. Waste rate = waste cost ÷ (recipe usage + waste) at cost. ' +
+          'Stock-count differences are unexplained variance, not waste. Alerts are fixed rules (≥50% rise, ≥10% waste rate, ≥15% of receipts going off), not a forecast.' +
+          (s.cost_estimated_rows > 0 ? ` ${s.cost_estimated_rows} older movement(s) had no recorded cost and use today's cost.` : ''),
+      };
+    },
+  },
+  {
+    name: 'get_expiry_risks',
+    description:
+      'Ingredients that may expire soon or may already be past their shelf life — an ESTIMATE from each ingredient\'s shelf life and its deliveries, ' +
+      'assuming the oldest stock is used first (there is no batch tracking). Only ingredients with a shelf life set on the Wastage screen are covered; ' +
+      'the result says how many have none. Use for "what may expire soon", "what should we use first", "what is going off".',
+    needs: 'stock.view',
+    input_schema: {
+      type: 'object',
+      properties: { within_days: { type: 'integer', description: 'Look-ahead window, 1-30 days. Default 3.' } },
     },
     async run(admin, args) {
-      const days = clampInt(args.days, 30, 90);
-      const { data } = await admin
-        .from('stock_ledger')
-        .select('delta_qty, note, created_at, inventory_items(name, unit, cost_cents_per_base_unit)')
-        .eq('reason', 'spoilage')
-        .gte('created_at', daysAgo(days))
-        .order('created_at', { ascending: false });
-      const rows = (data ?? []) as {
-        delta_qty: number;
-        note: string | null;
-        created_at: string;
-        inventory_items: { name: string; unit: string; cost_cents_per_base_unit: number } | { name: string; unit: string; cost_cents_per_base_unit: number }[] | null;
-      }[];
-      const byItem: Record<string, { qty: number; unit: string; cost_cents: number }> = {};
-      for (const r of rows) {
-        const ii = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
-        const name = ii?.name ?? '—';
-        byItem[name] = byItem[name] ?? { qty: 0, unit: ii?.unit ?? '', cost_cents: 0 };
-        byItem[name].qty += Math.abs(r.delta_qty);
-        byItem[name].cost_cents += Math.round(Math.abs(r.delta_qty) * (ii?.cost_cents_per_base_unit ?? 0));
+      const within = clampInt(args.within_days, 3, 30);
+      const shelf = await admin.from('inventory_shelf_life').select('inventory_item_id, shelf_life_days');
+      if (shelf.error) {
+        return isWastageSchemaMissing(`${shelf.error.code} ${shelf.error.message}`)
+          ? { error: 'Expiry estimates need tenant migration 0109, which has not been applied to this restaurant yet.' }
+          : { error: shelf.error.message };
       }
-      const items = Object.entries(byItem)
-        .map(([name, v]) => ({ ingredient: name, qty_wasted: v.qty, unit: v.unit, cost_cents: v.cost_cents }))
-        .sort((a, b) => b.cost_cents - a.cost_cents);
+      const rules = new Map(((shelf.data ?? []) as { inventory_item_id: string; shelf_life_days: number }[]).map((x) => [x.inventory_item_id, x.shelf_life_days]));
+      const { data: items } = await fromStock((t) => admin.from(t).select('id, name, unit, stock_qty'));
+      const all = (items ?? []) as { id: string; name: string; unit: string; stock_qty: number }[];
+      if (rules.size === 0) {
+        return { covered: 0, without_shelf_life: all.length, note: 'No ingredient has a shelf life set yet, so expiry cannot be estimated. Set them on Inventory → Wastage.' };
+      }
+      const longest = Math.max(...rules.values());
+      const { data: receipts } = await admin
+        .from('stock_ledger')
+        .select('inventory_item_id, created_at, delta_qty')
+        .eq('reason', 'restock')
+        .gt('delta_qty', 0)
+        .in('inventory_item_id', [...rules.keys()])
+        .gte('created_at', new Date(Date.now() - (longest + 1) * 86_400_000).toISOString());
+      const risks = expiryRisks(
+        all.map((i) => ({ ...i, shelf_life_days: rules.get(i.id) ?? null })),
+        (receipts ?? []) as { inventory_item_id: string; created_at: string; delta_qty: number }[],
+        new Date(),
+        within,
+      );
       return {
-        window_days: days,
-        total_waste_cost_cents: items.reduce((s, i) => s + i.cost_cents, 0),
-        events: rows.length,
-        by_ingredient: items,
+        within_days: within,
+        covered: risks.length,
+        without_shelf_life: all.length - risks.length,
+        at_risk: risks
+          .filter((x) => x.status === 'expired' || x.status === 'soon')
+          .map((x) => ({
+            ingredient: x.name,
+            in_stock: `${x.stock_qty} ${x.unit}`,
+            estimated_past_shelf_life: x.expired_qty ? `${x.expired_qty} ${x.unit}` : undefined,
+            expiring_within_window: x.expiring_qty ? `${x.expiring_qty} ${x.unit}` : undefined,
+            next_expiry_in_days: x.days_left,
+            shelf_life_days: x.shelf_life_days,
+          })),
+        age_unknown: risks.filter((x) => x.status === 'unknown').map((x) => x.name),
+        note: 'Estimated (first in, first out over recorded deliveries). Check the stock itself before discarding anything.',
       };
     },
   },
@@ -2346,7 +2538,7 @@ export const AI_TOOLS: AiTool[] = [
           .reduce((s, r) => s + (signed ? r.delta_qty : Math.abs(r.delta_qty)) * (r.unit_cost_cents_base ?? 0), 0);
       const purchasesCents = Math.round(sum('restock', false));
       const consumptionCents = Math.round(sum('order_deduction', false));
-      const wasteCents = Math.round(sum('spoilage', false));
+      const wasteCents = Math.round(-sum('spoilage', true)); // net of reversed waste
       const adjustmentsCents = Math.round(sum('adjustment', true));
       const stockTakeVarianceCents = Math.round(sum('stock_take', true));
       const closingValueCents = Math.round(
@@ -3238,7 +3430,7 @@ export const AI_ACTIONS: AiAction[] = [
   {
     name: 'record_waste',
     description:
-      'Record ingredient wastage/spoilage for one inventory item, with a required reason (e.g. "2kg of lettuce went off in the walk-in"). Always deducts stock and always logs it as spoilage. Proposes the change for a manager to confirm.',
+      'Record ingredient wastage for one inventory item, with a reason category and a note (e.g. "2kg of lettuce went off in the walk-in" → reason expiry). Deducts stock once and appears on the Wastage screen. Proposes the change for a manager to confirm — only when the person asks to record waste, never on your own initiative.',
     needs: 'inventory.manage_waste',
     input_schema: {
       type: 'object',
@@ -3249,7 +3441,12 @@ export const AI_ACTIONS: AiAction[] = [
           description:
             "Positive quantity wasted, in the item's own base/stock unit — NOT necessarily the unit the person spoke in. Check the item's real unit first (get_low_stock / get_inventory_value show it) and convert: kg stated but the item tracks grams -> x1000; L stated but it tracks ml -> x1000.",
         },
-        note: { type: 'string', description: 'Required — why it was wasted.' },
+        reason: {
+          type: 'string',
+          enum: ['expiry', 'spoilage', 'preparation', 'cooking_error', 'overproduction', 'spillage', 'other'],
+          description: 'Default spoilage.',
+        },
+        note: { type: 'string', description: 'Required — what happened.' },
       },
       required: ['inventory_item_name', 'qty', 'note'],
     },
@@ -3264,13 +3461,22 @@ export const AI_ACTIONS: AiAction[] = [
       if (Number(item.stock_qty) < qty) return { ok: false, error: `${item.name} only has ${item.stock_qty}${item.unit} on hand — can't waste ${qty}${item.unit}.` };
       return {
         ok: true,
-        summary: `Record ${qty}${item.unit} of ${item.name} as wasted (spoilage) — "${note}". Stock will go from ${item.stock_qty}${item.unit} to ${Number(item.stock_qty) - qty}${item.unit}.`,
+        summary: `Record ${qty}${item.unit} of ${item.name} as wasted (${WASTE_REASON_LABELS[(isWasteReason(args.reason) ? args.reason : 'spoilage') as WasteReason].toLowerCase()}) — "${note}". Stock will go from ${item.stock_qty}${item.unit} to ${Number(item.stock_qty) - qty}${item.unit}.`,
       };
     },
     async run(admin, args) {
       const name = String(args.inventory_item_name ?? '').trim();
       const item = await findInventoryItem(admin, name);
       if (!item) throw new Error('inventory_item_not_found');
+      const entry = await admin.rpc('record_waste_entry', {
+        p_inventory_item_id: item.id,
+        p_qty: Number(args.qty),
+        p_unit: item.unit,
+        p_reason: isWasteReason(args.reason) ? args.reason : 'spoilage',
+        p_note: String(args.note),
+      });
+      if (!entry.error) return { ok: true, new_stock_qty: (entry.data as { stock_qty?: number } | null)?.stock_qty ?? null };
+      if (!isWastageSchemaMissing(`${entry.error.code} ${entry.error.message}`)) throw new Error(wasteErrorMessage(entry.error.message));
       const { data, error } = await admin.rpc('record_ingredient_waste', {
         p_inventory_item_id: item.id,
         p_qty: Number(args.qty),
@@ -4928,6 +5134,7 @@ HOW TO ANSWER
 - For "what am I doing well" use get_positive_highlights; for "what should I improve" / "what am I doing wrong" (careful, non-accusatory framing — never blame the owner) use get_areas_to_review, presenting each item's evidence before its recommendation.
 - For "how much did I purchase" / "what did I buy from X" / supplier price-increase questions, use get_purchasing_summary. For comparing suppliers ("which supplier is better for chicken", fill rate, on-time %, lead time), use get_supplier_performance — pass ingredient_name to narrow it, and always name the specific metrics behind a "better" claim (never a bare opinion).
 - For inventory reconciliation ("does my inventory add up", waste/purchase/consumption movement for a period), use get_inventory_reconciliation — its implied_opening_value is null whenever it isn't reliably derivable; say so plainly rather than presenting a number that isn't there.
+- For waste questions ("how much did we waste this month", "which ingredients caused the biggest losses", "why is chicken waste increasing", "how can we reduce unnecessary purchasing", in any language) use get_wastage_summary (with ingredient set for one ingredient); for "what may expire soon" use get_expiry_risks. Quote only the figures these tools return; explain causes from the returned reasons, notes, alerts and receipts-vs-usage, framed as likely, never proven. Unexplained stock-count variance is not waste — keep the two apart. Expiry is an estimate (no batch tracking) — say so. Suggestions (order smaller amounts more often, use older stock first, adjust prep quantities) are advice for the manager; never change stock, purchases or finance unless the person explicitly asks for that action.
 - For "is my kitchen slow" / "how is my kitchen performing" / a prep-time trend question, use get_kitchen_performance — it's the historical trend (from the real kitchen.start/ready/complete log), distinct from get_kitchen_status's live snapshot. If it returns a correlation_with_speed_rating, present it explicitly as a CORRELATION per the language rule above — the two measures moved together, never "prep time caused the rating drop".
 - For "did raising/changing [item]'s price work" / "what happened after I changed the price of X" / any before/after impact of a specific management decision, use get_price_change_impact with the item name — it finds that item's own most recent recorded price change and compares sales in the two equal-length windows around it. Phrase the result as "After the change, sales volume/revenue changed X%" — never "Because of the change" — unless the data makes the direction and size of the effect unambiguous. If no price change is on record for that item, say so; don't guess a change happened.
 - Any of the above tools accepts period: 'last_3_months' | 'last_6_months' | 'last_year' in addition to the usual today..last_month, or an exact from/to ('YYYY-MM-DD') custom range instead of period — use whichever the owner actually asked for.

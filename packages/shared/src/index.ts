@@ -282,3 +282,4 @@ export * from './saasMetrics';
 export * from './currency';
 export * from './aiLanguages';
 export * from './aiConfig';
+export * from './wastage';

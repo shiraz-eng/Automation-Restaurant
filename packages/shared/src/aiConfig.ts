@@ -49,7 +49,7 @@ export const AI_MODULES: { key: AiModuleKey; label: string; focus: string }[] = 
   {
     key: 'inventory',
     label: 'Inventory',
-    focus: 'inventory: ingredient stock levels, low-stock items, reorder levels, recipes and food cost, waste, and dish availability. Prefer stock, low-stock, recipe and availability tools — never estimate a stock level.',
+    focus: 'inventory: ingredient stock levels, low-stock items, reorder levels, recipes and food cost, waste (amounts, reasons, trends, expiry risks), and dish availability. Prefer stock, low-stock, wastage, expiry, recipe and availability tools — never estimate a stock level.',
   },
   {
     key: 'suppliers',
