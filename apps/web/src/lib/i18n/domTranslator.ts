@@ -98,9 +98,12 @@ export class DomTranslator {
   /** The translation of `text`, or null when there is none yet (queued) or it shouldn't change. */
   private lookup(text: string): string | null {
     const { key, nums } = normalizeUiText(text);
-    if (!key || !isTranslatable(key)) return null;
+    if (!key) return null;
     const lead = text.match(/^\s*/)![0];
     const trail = text.match(/\s*$/)![0];
+    // Lower-case words look like codes (slugs, ids) and are never sent for translation, but
+    // the few the dictionary lists on purpose (statuses, roles, units: "active", "owner", "pcs") are shown translated.
+    if (!isTranslatable(key)) return this.dict[key] !== undefined ? lead + fillUiText(this.dict[key], nums) + trail : null;
     const hit = this.find(key);
     if (hit !== undefined) return lead + fillUiText(hit, nums) + trail;
     this.queue(key);

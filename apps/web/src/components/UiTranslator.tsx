@@ -9,6 +9,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 // Bundled dictionaries, loaded only when that language is chosen.
 const DICTS: Record<string, () => Promise<Record<string, string>>> = {
   ur: () => import('@/lib/i18n/dict/ur.json').then((m) => m.default as Record<string, string>),
+  hi: () => import('@/lib/i18n/dict/hi.json').then((m) => m.default as Record<string, string>),
 };
 
 /**

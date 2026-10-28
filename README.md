@@ -248,7 +248,7 @@ signed-in person's own permissions.
 kiosk portal and sign-in headers switches every screen: menus, buttons,
 forms, tables and messages. Urdu, Arabic, Persian, Pashto, Sindhi and Hebrew
 are laid out right to left.
-- Urdu ships with a dictionary of 2,477 screen texts.
+- Urdu and Hindi ship with dictionaries of about 2,600 screen texts each, so those screens switch instantly and completely.
 - Text it doesn't have yet, such as dish names or new messages, and every
   other language are translated by the AI the first time they appear
   (`POST /api/ai/translate-ui`), then cached on the device.

@@ -1,3 +1,4 @@
+import { FEATURE_METADATA, type FeatureKey } from '@automation-restaurant/shared';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
@@ -259,7 +260,7 @@ export default async function DashboardPage({
               {features.map((f) => (
                 <li key={f} className="flex items-center gap-2">
                   <span className="text-ok">✓</span>
-                  <span className="text-body">{f}</span>
+                  <span className="text-body">{FEATURE_METADATA[f as FeatureKey]?.name ?? f}</span>
                 </li>
               ))}
             </ul>
