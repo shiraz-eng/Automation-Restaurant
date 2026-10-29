@@ -53,7 +53,8 @@ async function main() {
       await runSql(p.project_ref, sql, token);
       const { error: upErr } = await supabaseAdmin
         .from('tenant_projects')
-        .update({ schema_version: version })
+        // Never lower it: an older migration applied late (0108 after 0109) keeps the newer version.
+        .update({ schema_version: Math.max(p.schema_version ?? 0, version) })
         .eq('tenant_id', p.tenant_id);
       if (upErr) throw upErr;
       console.log('ok');
