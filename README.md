@@ -318,7 +318,7 @@ Across the platform:
 
 ## Wastage management
 
-**Inventory → Wastage** (also Kitchen → Record Waste, Finance → Wastage). Tenant migrations 0109 and 0110.
+**Inventory → Wastage** (also Kitchen → Record Waste, Finance → Wastage). Tenant migrations 0109 and 0110. All the screenshots below are also in one PDF: [docs/Automation-Restaurant-Wastage.pdf](docs/Automation-Restaurant-Wastage.pdf).
 
 ![Wastage dashboard: waste cost, waste rate, approvals and alerts](docs/screenshots/wastage-dashboard.jpg)
 
