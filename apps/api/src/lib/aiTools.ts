@@ -1321,6 +1321,17 @@ export const AI_TOOLS: AiTool[] = [
       const r = legacyDays !== null ? customRangeDays(legacyDays) : resolvePeriod(args);
       const cur = forwardRange(r);
       const prev = forwardRange({ from: r.prevFrom, to: r.prevTo });
+      // Named periods are worked out on this server's calendar; the report counts the
+      // restaurant's business days, so line "today" up with the restaurant's own today.
+      if (!(typeof args.from === 'string' && typeof args.to === 'string' && args.from && args.to)) {
+        const local = new Date();
+        const serverToday = `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+        const shift = Math.round((Date.parse(`${(await restaurantToday(admin)).date}T00:00:00Z`) - Date.parse(`${serverToday}T00:00:00Z`)) / 86400_000);
+        if (shift) {
+          const move = (ymd: string) => new Date(Date.parse(`${ymd}T00:00:00Z`) + shift * 86400_000).toISOString().slice(0, 10);
+          cur.from = move(cur.from); cur.to = move(cur.to); prev.from = move(prev.from); prev.to = move(prev.to);
+        }
+      }
       const [curRes, prevRes] = await Promise.all([
         admin.rpc('wastage_report', { p_from: cur.from, p_to: cur.to }),
         admin.rpc('wastage_report', { p_from: prev.from, p_to: prev.to }),

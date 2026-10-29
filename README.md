@@ -318,7 +318,20 @@ Across the platform:
 
 ## Wastage management
 
-**Inventory → Wastage** (also Kitchen → Record Waste, Finance → Wastage). Tenant migration 0109.
+**Inventory → Wastage** (also Kitchen → Record Waste, Finance → Wastage). Tenant migrations 0109 and 0110.
+
+![Wastage dashboard: waste cost, waste rate, approvals and alerts](docs/screenshots/wastage-dashboard.jpg)
+
+<sub>Sample data in the DHA branch, last 7 days: Rs 2,097.80 wasted, one entry waiting for approval, one alert line per ingredient. Logo and staff names blurred.</sub>
+
+### How a waste entry moves
+
+```
+Kitchen staff records waste ──► Waiting for approval ──► Manager approves ──► stock −, Finance + waste cost
+                                        └──────────► Manager rejects  ──► nothing changes
+Manager records waste ─────────────────────────────► applied at once  ──► stock −, Finance + waste cost
+Approved entry ──► Manager reverses (with a reason) ──► stock +, Finance − the same cost
+```
 
 - **Record waste** by ingredient, quantity and unit (base unit, purchase unit, or kg ↔ g / L ↔ ml), reason, date and responsible staff member.
   - Reasons: expired, spoiled, preparation waste, cooking error, overproduction, spillage, other (needs a note).
@@ -341,6 +354,50 @@ Across the platform:
 - Waste rate = waste cost ÷ (recipe usage + waste) at cost.
 - Expected closing = opening + receipts + adjustments in − recipe usage − waste − other outflows.
 - Variance = actual − expected. Only stock counts create a variance, and it is shown as unexplained, never as waste.
+- The trend puts each entry on the day the waste happened (its date), or on the day it was recorded when that date is outside the period, so the bars always add up to the total.
+
+### Worked example (sample data, DHA branch)
+
+Eleven entries were recorded through the same functions the screen uses. Each note ends in "(sample)".
+
+| Date | Ingredient | Entered as | Reason | Recorded by | Result | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| 23 Oct | Lettuce | 600 g (stock unit kg → 0.6 kg) | Expired | Manager | Approved at once | Rs 270.00 |
+| 24 Oct | Chicken | 0.8 kg | Spoiled | Manager | Approved at once | Rs 680.00 |
+| 25 Oct | Burger Bun | 6 pcs | Overproduction | Manager | Approved at once | Rs 447.10 |
+| 26 Oct | French Fries | 500 g | Cooking error | Manager | Approved at once | Rs 250.00 |
+| 27 Oct | Cooking Oil | 0.3 L | Spillage | Manager | Approved at once | Rs 1.20 |
+| 27 Oct | Beef | 0.5 kg | Cooking error | Manager | **Reversed** ("recorded twice") | Rs 0 (stock put back) |
+| 28 Oct | Tomato | 0.4 kg | Preparation waste | Manager | Approved at once | Rs 12.00 |
+| 28 Oct | Chicken | 0.3 kg | Spoiled | Kitchen | **Rejected** ("already logged") | Rs 0 |
+| 29 Oct | Mayo | 150 g | Expired | Manager | Approved at once | Rs 97.50 |
+| 29 Oct | Chicken | 0.4 kg | Cooking error | Kitchen | Approved by the manager | Rs 340.00 |
+| 29 Oct | Cheese | 3 slices | Spillage | Kitchen | **Waiting for approval** | — |
+
+How the screen adds it up:
+- **Waste cost:** 270 + 680 + 447.10 + 250 + 1.20 + 12 + 97.50 + 340 = **Rs 2,097.80**. The reversed beef and the rejected chicken count as zero; the waiting cheese counts once it is approved.
+- **Cost of an entry:** quantity × the ingredient's average cost when it was recorded. For example, Chicken 0.8 kg × Rs 850/kg = Rs 680.
+- **By ingredient:** Chicken is highest at 1.2 kg (0.8 + 0.4) and Rs 1,020.
+- **By reason:** Spoiled Rs 680, Cooking error Rs 590, Overproduction Rs 447.10, Expired Rs 367.50, Preparation Rs 12, Spillage Rs 1.20.
+- **Waste rate:** 100%, because the branch sold nothing that week, so all ingredient value used went to waste. With sales it would be waste ÷ (recipe usage + waste).
+- **Alerts:** each ingredient had no waste the week before, so each gets one "wasted, none in the previous period" line. Cooking Oil (Rs 1.20) is below the Rs 5 change threshold, so it only notes that none was used in orders.
+- **Expiring stock:** with shelf lives set (Chicken 3 days, Lettuce 3, Tomato 4, Burger Bun 4, Mayo 30…), stock delivered more than that many days ago is flagged as possibly past its shelf life.
+
+**Recording waste.** 250 g of Lettuce, which is stocked in kg, is converted on the spot ("= 0.25 kg"). Below it, a kitchen entry waits for a manager to approve or reject.
+
+![Record waste form with unit conversion, and the approval queue](docs/screenshots/wastage-record.png)
+
+**Where the money went.** Waste by ingredient (with its main reason) and by reason.
+
+![Waste by ingredient and by reason](docs/screenshots/wastage-breakdown.png)
+
+**Expiring stock and history.** Stock older than its shelf life is flagged. Every entry keeps its reason, note, responsible person, cost and status, and approved entries can be reversed.
+
+![Expiring stock and the entry history with approve, reject and reverse](docs/screenshots/wastage-history.jpg)
+
+**AI Guide on the same data.** "How much stock did we waste in the last 7 days, and which 3 ingredients cost the most?" The answer comes from `get_wastage_summary`: Rs 2,097.80, with Chicken Rs 1,020, Burger Bun Rs 447.10 and Lettuce Rs 270, the same figures as the screen.
+
+![AI Guide answering a waste question with the dashboard behind it](docs/screenshots/wastage-ai.jpg)
 
 **AI Guide.** `get_wastage_summary` (with an optional `ingredient`) and `get_expiry_risks` answer questions such as "how much did we waste this month?", "why is chicken waste increasing?" or "which ingredients may expire soon?", in any language.
 - Every figure comes from the database.
