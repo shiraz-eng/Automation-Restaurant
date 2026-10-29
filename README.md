@@ -383,6 +383,10 @@ How the screen adds it up:
 - **Alerts:** each ingredient had no waste the week before, so each gets one "wasted, none in the previous period" line. Cooking Oil (Rs 1.20) is below the Rs 5 change threshold, so it only notes that none was used in orders.
 - **Expiring stock:** with shelf lives set (Chicken 3 days, Lettuce 3, Tomato 4, Burger Bun 4, Mayo 30…), stock delivered more than that many days ago is flagged as possibly past its shelf life.
 
+**The trend, day by day.** Each entry sits on the day the waste happened: 23 Oct Rs 270, 24 Oct Rs 680, 25 Oct Rs 447.10, 26 Oct Rs 250, 27 Oct Rs 1.20 (the reversed beef nets to zero), 28 Oct Rs 12, 29 Oct Rs 437.50 (Mayo + Chicken). Weekly and Monthly group the same figures.
+
+![Waste cost per day for the sample week](docs/screenshots/wastage-trend.png)
+
 **Recording waste.** 250 g of Lettuce, which is stocked in kg, is converted on the spot ("= 0.25 kg"). Below it, a kitchen entry waits for a manager to approve or reject.
 
 ![Record waste form with unit conversion, and the approval queue](docs/screenshots/wastage-record.png)
