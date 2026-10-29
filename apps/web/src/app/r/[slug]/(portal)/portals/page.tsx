@@ -44,6 +44,10 @@ export default async function PortalsPage({
     const { data: basic } = await t.client.from('permission_catalog').select('key, grp, label').order('grp');
     perms = ((basic ?? []) as { key: string; grp: string; label: string }[]).map((p) => ({ ...p, type: null, risk_level: null }));
   }
+  // Idle sign-out per portal (tenant-migrations/0111) — read on its own; without the column it stays undefined.
+  const idleRes = await t.client.from('portals').select('id, idle_minutes');
+  const idleById = new Map(idleRes.error ? [] : ((idleRes.data ?? []) as { id: string; idle_minutes: number | null }[]).map((r) => [r.id, r.idle_minutes]));
+  const portalRows = ((portals ?? []) as Portal[]).map((p) => (idleRes.error ? p : { ...p, idle_minutes: idleById.get(p.id) ?? null }));
   const brandKit = Array.isArray(brandKitRows) ? brandKitRows[0] : brandKitRows;
   const logoUrl: string | null = (brandKit as { logo_url?: string | null } | null)?.logo_url ?? null;
 
@@ -66,7 +70,8 @@ export default async function PortalsPage({
           slug={slug}
           restaurantName={t.config.restaurantName}
           logoUrl={logoUrl}
-          portals={(portals ?? []) as Portal[]}
+          portals={portalRows}
+          idleSupported={!idleRes.error}
           perms={perms ?? []}
         />
       )}

@@ -302,3 +302,54 @@ export function portalActionBreakdown(permissions: string[]): { sections: Sectio
   const unused = all ? [] : permissions.filter((k) => !effective.has(k));
   return { sections, unused };
 }
+
+/**
+ * Keys that act on the whole restaurant (who can log in, money corrections,
+ * settings). Legitimate for a manager's own station, risky on a shared or
+ * unattended device — Portal Management warns before granting them (it does
+ * not block them; the API's anti-escalation rules still apply).
+ */
+export const SHARED_DEVICE_RISK_KEYS = [
+  'portals.create', 'portals.update', 'portals.disable', 'portals.credentials',
+  'settings.update', 'finance.adjust_ledger', 'permissions.assign', 'staff.delete',
+] as const;
+
+export function sharedDeviceRisks(permissions: string[]): string[] {
+  if (permissions.includes('*')) return [...SHARED_DEVICE_RISK_KEYS];
+  return SHARED_DEVICE_RISK_KEYS.filter((k) => permissions.includes(k));
+}
+
+/**
+ * Starting points for common stations in Create Portal: they only tick
+ * permissions (the owner can change any of them) and carry no authorization
+ * of their own — a portal is still exactly its permission list.
+ */
+export const STATION_QUICK_STARTS: { id: string; label: string; name: string; permissions: string[] }[] = [
+  {
+    id: 'counter',
+    label: 'Counter / cashier',
+    name: 'Counter',
+    permissions: ['orders.view', 'orders.create', 'orders.update', 'payments.view', 'payments.accept', 'receipts.view', 'receipts.print', 'tables.view', 'menu.view'],
+  },
+  {
+    id: 'kitchen',
+    label: 'Kitchen screen',
+    name: 'Kitchen',
+    permissions: ['kitchen.view', 'kitchen.update_status', 'kitchen.manage_availability', 'kitchen.record_waste'],
+  },
+  {
+    id: 'attendance',
+    label: 'Attendance tablet',
+    name: 'Attendance',
+    permissions: ['attendance.view', 'attendance.check_in', 'attendance.check_out'],
+  },
+  {
+    id: 'manager',
+    label: 'Shift manager',
+    name: 'Shift manager',
+    permissions: [
+      'orders.view', 'orders.update', 'orders.cancel', 'kitchen.view', 'kitchen.update_status', 'payments.view', 'payments.refund',
+      'stock.view', 'stock.history', 'inventory.manage_waste', 'attendance.view', 'analytics.view', 'reports.view',
+    ],
+  },
+];

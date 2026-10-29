@@ -3,9 +3,10 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalSupabase } from '@/components/PortalProvider';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Button, Card, Field, Input, Select } from '@/components/ui';
 import { formatDateTime } from '@/lib/format';
 import { PortalPreview } from './PortalPreview';
+import { STATION_QUICK_STARTS, sharedDeviceRisks } from '@/lib/portalCapabilities';
 import { baseSlug, slotSlug } from '@/lib/sessionSlot';
 import { ChevronDown, ChevronRight, Plus, Search, X } from 'lucide-react';
 
@@ -22,6 +23,8 @@ export type Portal = {
   last_login_at: string | null;
   last_logout_at: string | null;
   created_at: string;
+  /** Idle sign-out in minutes (tenant-migrations/0111); undefined when the restaurant doesn't have it. */
+  idle_minutes?: number | null;
 };
 export type PermType = 'read' | 'write' | 'approval' | 'export';
 /** type/risk_level come from permission_catalog (tenant-migration 0057);
@@ -66,6 +69,7 @@ export function PortalsManager({
   caps = { create: true, update: true, disable: true, credentials: true },
   callerPermissions = ['*'],
   selfPortalId = null,
+  idleSupported = false,
 }: {
   slug: string;
   restaurantName: string;
@@ -79,6 +83,8 @@ export function PortalsManager({
   callerPermissions?: string[];
   /** A portal viewing Portal Management never sees controls for itself. */
   selfPortalId?: string | null;
+  /** The restaurant has portals.idle_minutes (tenant-migrations/0111). */
+  idleSupported?: boolean;
 }) {
   const router = useRouter();
   const supabase = usePortalSupabase();
@@ -96,6 +102,11 @@ export function PortalsManager({
   const [permSearch, setPermSearch] = useState('');
   const [permFilter, setPermFilter] = useState<PermFilter>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // '' = never. Only sent when changed, so a restaurant without the column (0111) still saves.
+  const [idleMinutes, setIdleMinutes] = useState('');
+  const [initialIdle, setInitialIdle] = useState('');
+  const idleChange = idleMinutes !== initialIdle ? { idle_minutes: idleMinutes ? Number(idleMinutes) : null } : {};
+  const risky = sharedDeviceRisks([...selected]);
 
 
   const callerAll = callerPermissions.includes('*');
@@ -243,6 +254,7 @@ export function PortalsManager({
             type,
             permissions: [...selected],
             ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
+            ...idleChange,
           }),
         });
         const body = await res.json().catch(() => ({}));
@@ -282,6 +294,7 @@ export function PortalsManager({
           permissions: [...selected],
           ...(loginEmail.trim() ? { email: loginEmail.trim() } : {}),
           ...(loginPassword ? { password: loginPassword } : {}),
+          ...idleChange,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -309,6 +322,8 @@ export function PortalsManager({
     setLoginPassword('');
     setPermSearch('');
     setPermFilter('all');
+    setIdleMinutes('');
+    setInitialIdle('');
     setFormOpen(true);
   }
   function startEditAccess(p: Portal) {
@@ -322,6 +337,8 @@ export function PortalsManager({
     setLoginPassword('');
     setPermSearch('');
     setPermFilter('all');
+    setIdleMinutes(p.idle_minutes ? String(p.idle_minutes) : '');
+    setInitialIdle(p.idle_minutes ? String(p.idle_minutes) : '');
     setFormOpen(true);
   }
   function closeForm() {
@@ -436,8 +453,8 @@ export function PortalsManager({
             <div>
               <h2 className="font-bold text-sm">{editId ? `Edit access — ${name}` : 'Create custom portal'}</h2>
               <p className="text-muted text-[0.6875rem] mt-0.5">
-                A portal is a name plus the individual permissions you grant it — nothing more.
-                There&rsquo;s no predefined &ldquo;Kitchen&rdquo; or &ldquo;Finance&rdquo; portal to pick.
+                A portal is a name plus the individual permissions you grant it — nothing more. Start from a
+                station below or pick permissions yourself; you can change any of them.
               </p>
             </div>
             <button type="button" onClick={closeForm} className="text-muted hover:text-body shrink-0" aria-label="Close">
@@ -446,7 +463,7 @@ export function PortalsManager({
           </div>
 
           <form onSubmit={createPortal} className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <Field label="Portal name">
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Counter 1" autoFocus />
               </Field>
@@ -468,8 +485,41 @@ export function PortalsManager({
                 />
               </Field>
               )}
+              {idleSupported && (
+              <Field label="Sign out when idle" hint="For shared or unattended devices.">
+                <Select value={idleMinutes} onChange={(e) => setIdleMinutes(e.target.value)}>
+                  <option value="">Never</option>
+                  {[5, 10, 15, 30, 60, 120].map((m) => (
+                    <option key={m} value={String(m)}>
+                      After {m} minutes
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              )}
             </div>
 
+            {!editId && (
+              <div>
+                <div className="mb-2 text-xs font-bold">Start from a station</div>
+                <div className="flex flex-wrap gap-2">
+                  {STATION_QUICK_STARTS.map((q) => (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => {
+                        const known = new Set(perms.map((p) => p.key));
+                        setSelected(new Set(q.permissions.filter((k) => known.has(k) && grantable(k))));
+                        if (!name.trim()) setName(q.name);
+                      }}
+                      className="min-h-10 rounded-full border border-border px-4 text-xs font-semibold hover:border-primary/60"
+                    >
+                      {q.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr] items-start">
               {/* ── 1. Permissions ── */}
@@ -653,6 +703,14 @@ export function PortalsManager({
                 <PortalPreview restaurantName={restaurantName} logoUrl={logoUrl} portalName={name} permissions={selected} catalog={perms} />
               </div>
             </div>
+
+            {risky.length > 0 && (
+              <div role="note" className="rounded border border-warn/40 bg-warn/10 p-3 text-xs">
+                <span className="font-bold text-warn">Owner-level access on a station.</span>{' '}
+                Anyone at this device could use: {risky.map((k) => permByKey.get(k)?.label ?? k).join(', ')}. Keep these off shared or
+                unattended devices, or set &ldquo;Sign out when idle&rdquo;.
+              </div>
+            )}
 
             <div className="flex gap-2 pt-1 border-t border-border">
               <Button type="submit" disabled={busy} className="mt-3">

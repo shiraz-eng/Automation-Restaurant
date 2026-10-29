@@ -412,6 +412,18 @@ Tests:
 - `npx tsx scripts/test-wastage.ts`, run from `apps/api` (rolled back).
 - `npm test -w @automation-restaurant/shared`.
 
+## Station (kiosk) portals
+
+**Settings → Kiosk Portals** creates station logins for a counter, kitchen screen, attendance tablet or shift manager.
+- **One portal, one permission list.** Each portal shows only the sections its permissions unlock, at `/r/<slug>/portal/<key>`. Customers order from the QR menu, not from a kiosk portal.
+- **Station quick-starts.** "Start from a station" ticks a sensible set of permissions (Counter, Kitchen screen, Attendance tablet, Shift manager). The owner can change any of them; a quick-start grants nothing by itself.
+- **Owner-level keys are flagged.** Granting Portal Management, settings changes, ledger corrections, permission assignment or staff deletion to a station shows a warning, because anyone at that device could use them.
+- **Own portal only.** A station login opens its own portal and never the main app. An owner or manager can preview any portal; another station cannot, even one with Portal Management.
+- **Touch layout.** One section at a time, with large tabs. The chosen section stays in the URL (`#kitchen`), and ← / → move between tabs.
+- **Idle sign-out.** Choose "Sign out when idle" (5 to 120 minutes) for shared or unattended devices. A 30-second warning lets whoever is there stay signed in. Tenant migration 0111.
+- **Waste from the kitchen.** A kitchen station records ingredient waste with a reason; its entries wait for a manager. A station that may approve waste sees the waiting list with Approve and Reject. It's the same form and rules as Inventory → Wastage.
+- **Same rules as the restaurant.** Station checkout places orders through the same `place_order` as the restaurant portal, so prices, tax, availability and recipe stock deductions are identical. Orders belong to the portal's branch when one is set.
+
 ## How a restaurant goes live
 
 | Step | What happens |
@@ -914,7 +926,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **110**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **111**).
 
 Roll it out to every live restaurant:
 

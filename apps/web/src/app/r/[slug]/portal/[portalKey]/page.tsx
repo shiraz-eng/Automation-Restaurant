@@ -10,6 +10,8 @@ import { KdsBoard } from '../../(portal)/kds/KdsBoard';
 import type { Kot, RecipeComponentRow } from '../../(portal)/kds/kitchenTypes';
 import { AttendancePortalBoard, type RosterRow } from './AttendancePortalBoard';
 import { AnalyticsSection } from './AnalyticsSection';
+import { WastePortalPanel } from './WastePortalPanel';
+import { PortalSectionTabs } from './PortalSectionTabs';
 import { CheckoutClient, type Bill, type NewOrderCategory, type NewOrderItem } from '../../(portal)/checkout/CheckoutClient';
 import { OrdersClient, type Order as OrdersClientOrder } from '../../(portal)/orders/OrdersClient';
 import { ExpensesManager, type ExpenseSupplier } from '../../(portal)/expenses/ExpensesManager';
@@ -124,12 +126,14 @@ export default async function PortalHome({
   // (PERMISSION_REQUIRES), so an action only renders when it can work.
   const has = effectiveHas(perms);
   const hasAny = (keys: string[]) => keys.some(has);
+  // Same keys as app.can_approve_waste() (tenant-migrations/0109); a station has no owner/manager role.
+  const canApproveWaste = hasAny(['inventory.manage_waste', 'stock.adjust', 'inventory.manage']);
 
   // ── Generated portal — a composition of the SAME real module
   // implementations every standalone Operations Portal page already uses,
   // one section per existing RMS area this portal actually holds a
   // permission for. `portal.type` is a Quick-start convenience label only
-  // (it preselects starting permissions in Portal Management) and carries
+  // (older portals keep the type they were created with) and carries
   // NO authorization weight here — a section's inclusion is driven
   // entirely by has()/hasAny() reads of portal.permissions itself, never
   // by the portal's name or type. A portal named/typed "Attendance" that
@@ -672,19 +676,7 @@ export default async function PortalHome({
         </Card>
       ) : (
         <>
-          {sections.length > 1 && (
-            <div className="sticky top-0 z-10 -mx-1 flex flex-wrap gap-1.5 bg-main/95 backdrop-blur px-1 py-2 border-b border-border">
-              {sections.map((s) => (
-                <a
-                  key={s.id}
-                  href={`#${s.id}`}
-                  className="rounded-full border border-border px-3 py-1 text-[0.6875rem] font-semibold hover:border-primary hover:text-primary"
-                >
-                  {s.label}
-                </a>
-              ))}
-            </div>
-          )}
+          {sections.length > 1 && <PortalSectionTabs sections={sections} />}
 
           {includeNotifications && (
             <section id="notifications" className="scroll-mt-16">
@@ -725,6 +717,7 @@ export default async function PortalHome({
               />
               )}
               <KitchenAvailabilityBoard canManage={has('kitchen.manage_availability')} canWaste={has('kitchen.record_waste')} />
+              {(has('kitchen.record_waste') || canApproveWaste) && <WastePortalPanel client={t.client} canApprove={canApproveWaste} />}
             </section>
           )}
 
@@ -873,6 +866,7 @@ export default async function PortalHome({
                 preferredBySupplierItem={Object.fromEntries(preferredBySupplierItem)}
                 lowStockEmailEnabled={(purchasingSettingsRes.data as { low_stock_email_enabled?: boolean } | null)?.low_stock_email_enabled ?? false}
               />
+              {canApproveWaste && !(includeKitchen || includeKitchenStock) && <WastePortalPanel client={t.client} canApprove />}
               {has('stock.history') && (
               <Card>
                 <h3 className="font-bold text-sm mb-3">Recent stock movements</h3>

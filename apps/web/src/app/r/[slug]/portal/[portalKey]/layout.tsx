@@ -5,6 +5,8 @@ import { notFound, redirect } from 'next/navigation';
 import { createTenantServerClient } from '@/lib/supabase/tenant-server';
 import { PortalProvider } from '@/components/PortalProvider';
 import { SignOutButton } from '@/components/SignOutButton';
+import { IdleSignOut } from '@/components/IdleSignOut';
+import { portalAccess, type PortalLoginMeta } from '@/lib/portalAccess';
 import { fetchPortalTheme } from '@/lib/theme';
 
 export const dynamic = 'force-dynamic';
@@ -32,30 +34,21 @@ export default async function PortalLayout({
     .maybeSingle();
   if (!portal) notFound();
 
-  const meta = (user.app_metadata ?? {}) as {
-    kind?: string;
-    portal_id?: string;
-    permissions?: string[];
-  };
-  const perms = meta.permissions ?? [];
-  const isOwner = perms.includes('*') || perms.includes('portals.view');
-  const isThisPortal = meta.kind === 'portal' && meta.portal_id === portal.id;
-
-  // A portal user may only enter its own portal; an admin may preview any.
-  if (!isThisPortal && !isOwner) {
-    redirect(`/r/${slug}/login`);
-  }
-  if (portal.status === 'disabled' && !isOwner) {
-    redirect(`/r/${slug}/login`);
-  }
+  // The portal's own login, or a staff login previewing it — never another station's login.
+  const { allowed, isThisPortal, mustSetPassword } = portalAccess((user.app_metadata ?? {}) as PortalLoginMeta, portal);
+  if (!allowed) redirect(`/r/${slug}/login`);
   // Force a password change on first sign-in for a freshly-created portal login.
-  if (isThisPortal && portal.force_pw_change) {
-    redirect(`/r/${slug}/set-portal-password?p=${portalKey}`);
-  }
+  if (mustSetPassword) redirect(`/r/${slug}/set-portal-password?p=${portalKey}`);
 
   // Logo only — the theme itself is now applied once, by the tenant root
   // layout (apps/web/src/app/r/[slug]/layout.tsx) that wraps this page.
   const { logoUrl } = await fetchPortalTheme(t.client);
+  // Idle sign-out for shared station devices (tenant-migrations/0111). Read on its own so a
+  // restaurant without the column (an error here) simply has none.
+  const { data: idle } = isThisPortal
+    ? await t.client.from('portals').select('idle_minutes').eq('id', portal.id).maybeSingle()
+    : { data: null };
+  const idleMinutes = Number((idle as { idle_minutes?: number | null } | null)?.idle_minutes) || 0;
 
   return (
     <PortalProvider
@@ -63,6 +56,7 @@ export default async function PortalLayout({
       value={{ slug, supabaseUrl: t.config.url, supabaseAnonKey: t.config.anonKey }}
     >
       <UiTranslator slug={slug} />
+      {idleMinutes > 0 && <IdleSignOut minutes={idleMinutes} redirectTo={`/r/${slug}/login`} />}
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>

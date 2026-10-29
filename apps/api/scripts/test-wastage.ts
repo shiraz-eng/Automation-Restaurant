@@ -12,6 +12,7 @@
 //   W10 the Inventory screen's record_ingredient_waste still works and creates an entry
 //   W11 an unknown unit and a missing "other" note are refused
 //   W12 the trend shows waste on the day it happened (0110)
+//   W13 a kitchen station gets the waste form's ingredient list; a waiter does not (0111)
 //
 // Usage (from apps/api):  npx tsx scripts/test-wastage.ts [project_ref] [--with-migration <file.sql>]
 import fs from 'node:fs';
@@ -199,6 +200,20 @@ begin
   select coalesce((x->>'cost_cents')::numeric, 0) into v from jsonb_array_elements(rep->'daily') x where (x->>'day')::date = app.business_day(now()) - 1;
   if coalesce(v, 0) >= 200 then res := res || E'PASS W12 waste dated yesterday shows on yesterday in the trend\n';
   else fails := fails + 1; res := res || format(E'FAIL W12 daily=%s\n', rep->'daily'); end if;
+
+  -- W13 (0111): a kitchen station gets the ingredient list for the waste form; a waiter gets nothing
+  if to_regprocedure('public.waste_item_options()') is not null then
+    perform set_config('request.jwt.claims', '${COOK}', true); set local role authenticated;
+    select count(*) into n from public.waste_item_options() where id = item;
+    reset role;
+    perform set_config('request.jwt.claims', '${WAITER}', true); set local role authenticated;
+    select count(*) into n2 from public.waste_item_options();
+    reset role;
+    if n = 1 and n2 = 0 then res := res || E'PASS W13 the kitchen station sees the ingredient list for waste; a waiter sees none\n';
+    else fails := fails + 1; res := res || format(E'FAIL W13 cook=%s waiter=%s\n', n, n2); end if;
+  else
+    res := res || E'SKIP W13 waste_item_options() needs migration 0111\n';
+  end if;
 
   raise exception E'RESULTS (rolled back) — % failed\n%', fails, res;
 end $$;

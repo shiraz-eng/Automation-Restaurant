@@ -136,6 +136,8 @@ const createSchema = z.object({
   password: z.string().min(8).max(200).optional(),
   /** Branches this portal works in (multi-branch); empty or left out = every branch. */
   branch_ids: z.array(z.string().uuid()).max(100).optional(),
+  /** Sign the station out after this many idle minutes (shared devices); null/absent = never. Tenant migration 0111. */
+  idle_minutes: z.number().int().min(1).max(720).nullable().optional(),
 });
 
 /** POST /api/portals — create a portal + its login. */
@@ -177,7 +179,7 @@ portalsRouter.post(
   const { data: portal, error: pErr } = await admin
     .from('portals')
     // branch_ids only when set, so restaurants before migration 0098 (no column) still work.
-    .insert({ name, type, route_key: key, permissions, force_pw_change: true, ...(branches.ids?.length ? { branch_ids: branches.ids } : {}) })
+    .insert({ name, type, route_key: key, permissions, force_pw_change: true, ...(branches.ids?.length ? { branch_ids: branches.ids } : {}), ...(parsed.data.idle_minutes ? { idle_minutes: parsed.data.idle_minutes } : {}) })
     .select('id, name, type, route_key, status, permissions')
     .single();
   if (pErr || !portal) return res.status(400).json({ error: 'create_failed', message: pErr?.message });
@@ -216,6 +218,7 @@ const patchSchema = z.object({
   status: z.enum(['active', 'disabled']).optional(),
   email: z.string().trim().toLowerCase().email().max(200).optional(),
   branch_ids: z.array(z.string().uuid()).max(100).optional(),
+  idle_minutes: z.number().int().min(1).max(720).nullable().optional(),
 });
 
 /** PATCH /api/portals/:id — rename / retype / re-permission / enable-disable. */
