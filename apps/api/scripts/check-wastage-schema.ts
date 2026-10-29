@@ -1,7 +1,7 @@
 // Read-only: which BBQ Tonight restaurants (main + branches) have tenant migrations 0108 / 0109.
 // Usage (from apps/api):  npx tsx scripts/check-wastage-schema.ts [parent_slug]
 import { supabaseAdmin } from '../src/supabase';
-import { getFreshConnection } from '../src/lib/supabaseOAuth';
+import { getFreshConnection, hasConnection } from '../src/lib/supabaseOAuth';
 import { env } from '../src/env';
 
 const PARENT = process.argv[2] ?? 'bbq-tonight';
@@ -12,8 +12,7 @@ async function main() {
   for (const t of [parent!, ...(kids ?? [])]) {
     const { data: proj } = await supabaseAdmin.from('tenant_projects').select('project_ref, schema_version').eq('tenant_id', t.id).maybeSingle();
     if (!proj?.project_ref) { console.log(`${t.slug}: no project`); continue; }
-    const { data: conns } = await supabaseAdmin.from('supabase_connections').select('tenant_id').eq('tenant_id', t.id);
-    const token = conns && conns.length ? (await getFreshConnection(t.id)).access_token : env.SUPABASE_ACCESS_TOKEN;
+    const token = (await hasConnection(t.id)) ? (await getFreshConnection(t.id)).access_token : env.SUPABASE_ACCESS_TOKEN;
     const r = await fetch(`https://api.supabase.com/v1/projects/${proj.project_ref}/database/query`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

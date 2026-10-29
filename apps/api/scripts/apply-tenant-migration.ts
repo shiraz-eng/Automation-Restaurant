@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import { env } from '../src/env';
 import { supabaseAdmin } from '../src/supabase';
-import { getFreshConnection } from '../src/lib/supabaseOAuth';
+import { getFreshConnection, hasConnection } from '../src/lib/supabaseOAuth';
 
 async function runSql(ref: string, query: string, token: string): Promise<void> {
   const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
@@ -45,7 +45,8 @@ async function main() {
   let failed = 0;
   for (const p of projects as { tenant_id: string; project_ref: string; schema_version: number }[]) {
     if (only && p.project_ref !== only) continue;
-    const isOauth = oauthTenantIds.has(p.tenant_id);
+    // A branch without its own connection uses its main restaurant's (same as the app).
+    const isOauth = oauthTenantIds.has(p.tenant_id) || (await hasConnection(p.tenant_id));
     process.stdout.write(`→ ${p.project_ref} (v${p.schema_version} → v${version})${isOauth ? ' [oauth]' : ''} ... `);
     try {
       const token = isOauth ? (await getFreshConnection(p.tenant_id)).access_token : env.SUPABASE_ACCESS_TOKEN;
