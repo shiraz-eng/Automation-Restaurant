@@ -1,9 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import {
+  ArrowLeft,
+  Banknote,
+  Check,
+  ChevronRight,
+  CreditCard,
+  FileText,
+  Plus,
+  Printer,
+  Download,
+  ReceiptText,
+  ShoppingBag,
+  ShoppingCart,
+  Smartphone,
+  Tag,
+  UtensilsCrossed,
+  X,
+} from 'lucide-react';
+import styles from './checkout.module.css';
 import { useRouter } from 'next/navigation';
-import { usePortalSupabase } from '@/components/PortalProvider';
-import { Button, Card, Input } from '@/components/ui';
+import { usePortalSupabase, usePortal } from '@/components/PortalProvider';
+import { Button, Input } from '@/components/ui';
 import { formatCents } from '@/lib/format';
 import { downloadReceiptPdf } from '@/lib/generateReceipt';
 import { renderReceiptBlocksHtml, RECEIPT_PRINT_STYLES } from '@/lib/receiptHtml';
@@ -29,14 +49,27 @@ export type ReceiptSettings = {
   footerText: string | null;
   templateHtml: string | null;
   receiptConfig: ReceiptTemplateConfig | null;
-  restaurant: { address: string | null; phone: string | null; email: string | null; website: string | null; taxId: string | null };
+  restaurant: {
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
+    taxId: string | null;
+  };
 };
 export type NewOrderCategory = { id: string; name: string };
 export type NewOrderItem = {
   id: string;
   name: string;
   category_id: string | null;
-  menu_variants: { id: string; name: string; price_cents: number; sort_order: number; is_available: boolean; computed_available?: boolean }[];
+  menu_variants: {
+    id: string;
+    name: string;
+    price_cents: number;
+    sort_order: number;
+    is_available: boolean;
+    computed_available?: boolean;
+  }[];
 };
 
 type Line = {
@@ -84,7 +117,12 @@ export type Bill = {
  *  both printInvoice() and the Download PDF button hand to the shared
  *  block builder. paidViaOverride lets a just-taken payment (not yet
  *  refetched into `bill.payments`) show up immediately. */
-function toReceiptContext(bill: Bill, restaurantName: string, receipt: ReceiptSettings, paidViaOverride?: { method: string; amountCents: number }): ReceiptContext {
+function toReceiptContext(
+  bill: Bill,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+  paidViaOverride?: { method: string; amountCents: number },
+): ReceiptContext {
   const activePayments = bill.payments.filter((p) => p.status !== 'voided');
   const lastPayment = activePayments[activePayments.length - 1] ?? null;
   return {
@@ -134,7 +172,14 @@ function effectiveReceiptConfig(receipt: ReceiptSettings): ReceiptTemplateConfig
   return {
     ...DEFAULT_RECEIPT_CONFIG,
     customText: receipt.footerText
-      ? [{ id: 'legacy-footer', text: receipt.footerText, align: 'center', bold: false }]
+      ? [
+          {
+            id: 'legacy-footer',
+            text: receipt.footerText,
+            align: 'center',
+            bold: false,
+          },
+        ]
       : DEFAULT_RECEIPT_CONFIG.customText,
   };
 }
@@ -145,9 +190,7 @@ const METHODS = ['cash', 'card', 'mobile'] as const;
 const ADJUST_METHODS = ['cash', 'card', 'mobile', 'online', 'wallet', 'other'] as const;
 
 function netPaid(b: Bill): number {
-  return b.payments
-    .filter((p) => p.status !== 'voided')
-    .reduce((s, p) => s + (p.amount_cents - p.refunded_cents), 0);
+  return b.payments.filter((p) => p.status !== 'voided').reduce((s, p) => s + (p.amount_cents - p.refunded_cents), 0);
 }
 function due(b: Bill): number {
   return Math.max(0, b.total_cents - b.refunded_cents - netPaid(b));
@@ -177,7 +220,13 @@ function renderCustomTemplate(html: string, tokens: Record<string, string>): str
  *  asynchronously, so takePayment() below opens the blank window
  *  SYNCHRONOUSLY on click, before awaiting record_payment, and hands
  *  that handle in here once the payment succeeds. */
-function printInvoice(bill: Bill, restaurantName: string, receipt: ReceiptSettings, paidViaOverride?: { method: string; amountCents: number }, existingWindow?: Window | null) {
+function printInvoice(
+  bill: Bill,
+  restaurantName: string,
+  receipt: ReceiptSettings,
+  paidViaOverride?: { method: string; amountCents: number },
+  existingWindow?: Window | null,
+) {
   const w = existingWindow ?? window.open('', '_blank', 'width=380,height=640');
   if (!w) return;
 
@@ -190,13 +239,26 @@ function printInvoice(bill: Bill, restaurantName: string, receipt: ReceiptSettin
         .map((p) => `${p.method} ${formatCents(p.amount_cents - p.refunded_cents)}`)
         .join(', ') ||
         'unpaid');
-    const logoHtml = receipt.logoUrl ? `<img src="${esc(receipt.logoUrl)}" alt="" style="max-width:120px;max-height:60px;display:block;margin:0 auto 8px" />` : '';
+    const logoHtml = receipt.logoUrl
+      ? `<img src="${esc(receipt.logoUrl)}" alt="" style="max-width:120px;max-height:60px;display:block;margin:0 auto 8px" />`
+      : '';
     const linesHtml = bill.order_lines
-      .map((l) => `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`)
+      .map(
+        (l) =>
+          `<tr><td>${l.qty}&times; ${esc(l.name_snapshot)}</td><td class="right">${formatCents(l.line_total_cents)}</td></tr>`,
+      )
       .join('');
-    const discountRow = bill.discount_cents > 0 ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>` : '';
-    const refundedRow = bill.refunded_cents > 0 ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>` : '';
-    const footerHtml = receipt.footerText ? `<div class="muted" style="margin-top:8px">${esc(receipt.footerText)}</div>` : '';
+    const discountRow =
+      bill.discount_cents > 0
+        ? `<tr><td>Discount</td><td class="right">&minus;${formatCents(bill.discount_cents)}</td></tr>`
+        : '';
+    const refundedRow =
+      bill.refunded_cents > 0
+        ? `<tr><td>Refunded</td><td class="right">&minus;${formatCents(bill.refunded_cents)}</td></tr>`
+        : '';
+    const footerHtml = receipt.footerText
+      ? `<div class="muted" style="margin-top:8px">${esc(receipt.footerText)}</div>`
+      : '';
     body = renderCustomTemplate(receipt.templateHtml, {
       restaurant_name: esc(restaurantName),
       logo_html: logoHtml,
@@ -275,6 +337,8 @@ export function CheckoutClient({
   refundThresholdCents?: number | null;
 }) {
   const router = useRouter();
+  const { slug } = usePortal();
+  const mutationLock = useRef(false);
   const supabase = usePortalSupabase();
   const [bills, setBills] = useState<Bill[]>(initial);
   const [open, setOpen] = useState<string | null>(initial[0]?.id ?? null);
@@ -319,36 +383,49 @@ export function CheckoutClient({
   const owed = bill ? due(bill) : 0;
   const amountCents = amount.trim() ? Math.round(parseFloat(amount) * 100) : owed;
   const tenderedCents = tendered.trim() ? Math.round(parseFloat(tendered) * 100) : null;
-  const change =
-    method === 'cash' && tenderedCents != null ? tenderedCents - amountCents : null;
+  const change = method === 'cash' && tenderedCents != null ? tenderedCents - amountCents : null;
 
-  async function run(
-    fn: () => PromiseLike<{ error: { message: string } | null }>,
-    ok?: string,
-  ): Promise<boolean> {
+  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>, ok?: string): Promise<boolean> {
+    if (mutationLock.current) return false;
+    mutationLock.current = true;
     setBusy(true);
     setError(null);
     setNote(null);
-    const { error: e } = await fn();
-    setBusy(false);
-    if (e) {
-      setError(
-        /refund_needs_approval/.test(e.message)
-          ? `Refunds above ${formatCents(refundThresholdCents ?? 0)} need someone with refund approval.`
-          : e.message,
-      );
+    try {
+      const { error: e } = await fn();
+      if (e) {
+        setError(
+          /refund_needs_approval/.test(e.message)
+            ? `Refunds above ${formatCents(refundThresholdCents ?? 0)} need someone with refund approval.`
+            : e.message,
+        );
+        return false;
+      }
+      if (ok) setNote(ok);
+      setAmount('');
+      setTendered('');
+      await load();
+      router.refresh();
+      return true;
+    } catch {
+      setError('Unable to confirm the result. Refresh the bill before trying again.');
       return false;
+    } finally {
+      mutationLock.current = false;
+      setBusy(false);
     }
-    if (ok) setNote(ok);
-    setAmount('');
-    setTendered('');
-    await load();
-    router.refresh();
-    return true;
   }
 
   async function takePayment() {
-    if (!bill || amountCents <= 0) return;
+    if (
+      !bill ||
+      mutationLock.current ||
+      !Number.isFinite(amountCents) ||
+      amountCents <= 0 ||
+      amountCents > owed ||
+      (method === 'cash' && tenderedCents != null && (!Number.isFinite(tenderedCents) || tenderedCents < amountCents))
+    )
+      return;
     const paidBill = bill;
     const paidMethod = method;
     const paidAmount = amountCents;
@@ -428,7 +505,12 @@ export function CheckoutClient({
     const reason = window.prompt('Reason for the price override:');
     if (!reason) return;
     await run(
-      () => supabase.rpc('override_line_price', { p_line_id: line.id, p_unit_price_cents: cents, p_reason: reason }),
+      () =>
+        supabase.rpc('override_line_price', {
+          p_line_id: line.id,
+          p_unit_price_cents: cents,
+          p_reason: reason,
+        }),
       'Price updated.',
     );
   }
@@ -445,7 +527,13 @@ export function CheckoutClient({
     const reason = window.prompt('Reason for the correction:');
     if (!reason) return;
     await run(
-      () => supabase.rpc('adjust_payment', { p_payment_id: p.id, p_method: method, p_reference: ref, p_reason: reason }),
+      () =>
+        supabase.rpc('adjust_payment', {
+          p_payment_id: p.id,
+          p_method: method,
+          p_reference: ref,
+          p_reason: reason,
+        }),
       'Payment corrected.',
     );
   }
@@ -456,238 +544,383 @@ export function CheckoutClient({
     await run(() => supabase.rpc('void_payment', { p_payment_id: p.id, p_reason: reason }));
   }
 
-  return (
-    <div className="space-y-4">
-      {canCreateOrder && (
-        <div className="flex gap-2">
-          <button
-            onClick={() => setViewMode('bills')}
-            className={`px-3 py-1.5 rounded text-xs font-semibold ${
-              viewMode === 'bills' ? 'bg-primary text-primary-fg' : 'border border-border'
-            }`}
-          >
-            Open bills{bills.length > 0 ? ` (${bills.length})` : ''}
-          </button>
-          <button
-            onClick={() => setViewMode('new')}
-            className={`px-3 py-1.5 rounded text-xs font-semibold ${
-              viewMode === 'new' ? 'bg-primary text-primary-fg' : 'border border-border'
-            }`}
-          >
-            + New order
-          </button>
-        </div>
-      )}
+  const invalidAmount = !Number.isFinite(amountCents) || amountCents <= 0 || amountCents > owed;
+  const invalidCash =
+    method === 'cash' && tenderedCents != null && (!Number.isFinite(tenderedCents) || tenderedCents < amountCents);
 
+  return (
+    <div className={styles.checkout} aria-busy={busy}>
+      <header className={styles.header}>
+        <div>
+          <Link href={`/r/${slug}/orders`} className={styles.back}>
+            <ArrowLeft size={18} /> Back to Orders
+          </Link>
+          <h1>Checkout</h1>
+          <p className="text-muted text-sm">Review your order and complete the payment.</p>
+        </div>
+        {bill && (
+          <div className={styles.tableBadge}>
+            <span className={styles.icon}>
+              <UtensilsCrossed size={26} />
+            </span>
+            <div>
+              <strong>{bill.table_label || `Order #${bill.order_number}`}</strong>
+              <p className="text-muted text-xs mt-1 capitalize">
+                {bill.channel.replaceAll('_', ' ')} · {bill.status.replaceAll('_', ' ')}
+              </p>
+            </div>
+          </div>
+        )}
+      </header>
+      <div role="status" aria-live="polite">
+        {note && <p className={styles.success}>{note}</p>}
+      </div>
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
       {viewMode === 'new' && canCreateOrder ? (
-        <NewOrderPanel taxRateBps={taxRateBps} categories={menuCategories} items={menuItems} onPlaced={onOrderPlaced} />
-      ) : bills.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted text-sm">
-          No open bills.
+        <div className="space-y-4">
+          <Button variant="ghost" onClick={() => setViewMode('bills')} disabled={busy}>
+            <ArrowLeft size={16} /> Active bills ({bills.length})
+          </Button>
+          <NewOrderPanel
+            taxRateBps={taxRateBps}
+            categories={menuCategories}
+            items={menuItems}
+            onPlaced={onOrderPlaced}
+          />
         </div>
       ) : (
-    <div className="flex flex-col lg:flex-row gap-4">
-      <div className="lg:w-64 shrink-0 space-y-1.5">
-        {bills.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setOpen(b.id)}
-            className={`w-full text-start rounded-lg border p-3 ${
-              open === b.id ? 'border-primary bg-primary/5' : 'border-border bg-surface'
-            }`}
-          >
-            <div className="flex justify-between text-xs">
-              <span className="font-black">
-                {b.table_label ? b.table_label : `#${b.order_number}`}
-              </span>
-              <span className={due(b) === 0 ? 'text-ok' : 'text-body font-bold'}>
-                {due(b) === 0 ? 'paid' : formatCents(due(b))}
-              </span>
-            </div>
-            <div className="text-[0.6875rem] text-muted">
-              #{b.order_number} · {b.status.replace('_', ' ')}
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {bill && (
-        <Card className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-3">
-            <h2 className="font-black">
-              Order #{bill.order_number}
-              {bill.table_label ? ` · ${bill.table_label}` : ''}
-            </h2>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="text-xs text-muted">{bill.customer_name ?? ''}</span>
-              {canPrintReceipt && (
-                <button
-                  onClick={() => printInvoice(bill, restaurantName, receipt)}
-                  className="min-h-6 py-1 text-primary text-xs font-semibold underline"
-                >
-                  Print invoice
-                </button>
+        <div className={styles.columns}>
+          <div className="min-w-0 space-y-5">
+            <section className={styles.card} aria-labelledby="checkout-items">
+              <div className={styles.sectionHeading}>
+                <h2 id="checkout-items">
+                  <ShoppingCart /> Order Items
+                </h2>
+                {bill && <span className={styles.pill}>{bill.order_lines.reduce((n, l) => n + l.qty, 0)} items</span>}
+              </div>
+              {bill ? (
+                bill.order_lines.map((l) => (
+                  <div key={l.id} className={styles.item}>
+                    <span className={styles.productIcon}>
+                      <UtensilsCrossed size={26} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-sm">{l.name_snapshot}</h3>
+                      {l.variant_name_snapshot && <p className="text-muted text-xs mt-1">{l.variant_name_snapshot}</p>}
+                      {l.modifiers?.length > 0 && (
+                        <p className="text-muted text-xs mt-1">{l.modifiers.map((m) => m.name).join(', ')}</p>
+                      )}
+                      {l.customer_note && (
+                        <p className="text-muted text-xs mt-2 break-words">Note: {l.customer_note}</p>
+                      )}
+                    </div>
+                    <span className={styles.quantity} aria-label={`Quantity ${l.qty}`}>
+                      {l.qty}×
+                    </span>
+                    <strong className="text-sm tabular-nums">{formatCents(l.line_total_cents)}</strong>
+                  </div>
+                ))
+              ) : (
+                <p className="py-10 text-center text-muted text-sm">Select a bill to review its items.</p>
               )}
-              {canViewReceipt && (
-                <button
-                  onClick={() => downloadReceiptPdf(effectiveReceiptConfig(receipt), toReceiptContext(bill, restaurantName, receipt))}
-                  className="min-h-6 py-1 text-primary text-xs font-semibold underline"
-                >
-                  Download PDF
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-1 text-xs mb-3">
-            {bill.order_lines.map((l) => (
-              <div key={l.id} className="flex justify-between gap-2">
-                <span>
-                  {l.qty}× {l.name_snapshot}
-                </span>
-                <span className="flex items-center gap-2">
-                  {canOverridePrice && (
-                    <button onClick={() => overridePrice(l)} disabled={busy} className="min-h-6 py-1 text-primary underline text-[0.6875rem]">
-                      change price
-                    </button>
-                  )}
-                  {formatCents(l.line_total_cents)}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <dl className="text-xs space-y-1 border-t border-border pt-2">
-            <div className="flex justify-between">
-              <dt className="text-muted">Subtotal</dt>
-              <dd>{formatCents(bill.subtotal_cents)}</dd>
-            </div>
-            {bill.discount_cents > 0 && (
-              <div className="flex justify-between">
-                <dt className="text-muted">Discount</dt>
-                <dd>−{formatCents(bill.discount_cents)}</dd>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <dt className="text-muted">Tax</dt>
-              <dd>{formatCents(bill.tax_cents)}</dd>
-            </div>
-            {bill.refunded_cents > 0 && (
-              <div className="flex justify-between text-warn">
-                <dt>Refunded</dt>
-                <dd>−{formatCents(bill.refunded_cents)}</dd>
-              </div>
-            )}
-            <div className="flex justify-between font-black text-sm pt-1">
-              <dt>Amount due</dt>
-              <dd>{formatCents(owed)}</dd>
-            </div>
-          </dl>
-
-          {owed > 0 && canTakePayment && (
-            <div className="mt-4 space-y-2">
-              <div className="grid grid-cols-3 gap-2">
-                {METHODS.map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setMethod(m)}
-                    className={`rounded py-1.5 text-xs font-semibold capitalize ${
-                      method === m ? 'bg-primary text-primary-fg' : 'border border-border'
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  placeholder={`Amount (${(owed / 100).toFixed(2)})`}
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-                {method === 'cash' && (
-                  <Input
-                    placeholder="Cash tendered"
-                    value={tendered}
-                    onChange={(e) => setTendered(e.target.value)}
-                  />
+            </section>
+            <section className={styles.card} aria-labelledby="checkout-bills">
+              <div className={styles.sectionHeading}>
+                <div>
+                  <h2 id="checkout-bills">
+                    <ReceiptText /> Active Bills
+                  </h2>
+                  <p className="text-muted text-xs mt-2">Open a bill, take payment, or issue a refund.</p>
+                </div>
+                {canCreateOrder && (
+                  <Button variant="ghost" onClick={() => setViewMode('new')} disabled={busy} className={styles.outline}>
+                    <Plus size={16} /> New order
+                  </Button>
                 )}
               </div>
-              {change != null && (
-                <p className={`text-xs font-bold ${change < 0 ? 'text-danger' : 'text-ok'}`}>
-                  {change < 0 ? 'Short ' : 'Change '}
-                  {formatCents(Math.abs(change))}
-                </p>
-              )}
-              <Button
-                className="w-full"
-                disabled={busy || amountCents <= 0 || (method === 'cash' && (change ?? 0) < 0)}
-                onClick={takePayment}
-              >
-                {busy ? 'Working…' : `Take ${formatCents(amountCents)}`}
-              </Button>
-            </div>
-          )}
-
-          {bill.payments.length > 0 && (
-            <div className="mt-4 border-t border-border pt-2 space-y-1">
-              <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Payments</div>
-              {bill.payments.map((p) => (
-                <div key={p.id} className="flex items-center justify-between text-xs">
-                  <span className="capitalize">
-                    {p.method} · {formatCents(p.amount_cents)}
-                    {p.status !== 'captured' && (
-                      <span className="text-warn"> · {p.status.replace('_', ' ')}</span>
-                    )}
-                  </span>
-                  <span className="flex gap-1">
-                    {canRefund && p.status !== 'voided' && p.refunded_cents < p.amount_cents && (
-                      <button onClick={() => refund(p)} className="text-primary underline">
-                        refund
-                      </button>
-                    )}
-                    {canAdjustPayment && p.status !== 'voided' && (
-                      <button onClick={() => adjustPayment(p)} className="text-primary underline">
-                        correct
-                      </button>
-                    )}
-                    {canVoid && p.status === 'captured' && p.refunded_cents === 0 && (
-                      <button onClick={() => voidPay(p)} className="text-danger underline">
-                        void
-                      </button>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {canRefund && refundThresholdCents != null && (
-            <p className="mt-2 text-[0.6875rem] text-muted">
-              {canApproveRefund
-                ? `You can approve refunds above the ${formatCents(refundThresholdCents)} limit.`
-                : `Refunds above ${formatCents(refundThresholdCents)} need someone with refund approval.`}
-            </p>
-          )}
-
-          <div className="mt-4 flex gap-2 flex-wrap">
-            {canDiscount && (
-              <Button variant="ghost" onClick={discount} disabled={busy}>
-                Discount
-              </Button>
-            )}
-            {canCancel && bill.status !== 'void' && due(bill) === bill.total_cents - bill.refunded_cents && (
-              <Button variant="ghost" onClick={cancel} disabled={busy}>
-                Cancel order
-              </Button>
-            )}
+              <div className="space-y-3">
+                {bills.map((b) => (
+                  <button
+                    key={b.id}
+                    disabled={busy}
+                    aria-pressed={open === b.id}
+                    onClick={() => {
+                      setOpen(b.id);
+                      setAmount('');
+                      setTendered('');
+                      setError(null);
+                      setNote(null);
+                    }}
+                    className={`${styles.bill} ${open === b.id ? styles.selected : ''}`}
+                  >
+                    <span className={styles.icon}>
+                      <ShoppingBag size={21} />
+                    </span>
+                    <span className="flex-1 min-w-0 text-start">
+                      <strong className="text-sm">{b.table_label || `Order #${b.order_number}`}</strong>
+                      <span className="block text-muted text-xs mt-1 capitalize">
+                        #{b.order_number} · {b.status.replaceAll('_', ' ')} ·{' '}
+                        {b.order_lines.reduce((n, l) => n + l.qty, 0)} items
+                      </span>
+                    </span>
+                    <strong className="text-sm tabular-nums">{due(b) === 0 ? 'Paid' : formatCents(due(b))}</strong>
+                    <ChevronRight size={18} className="text-muted shrink-0" />
+                  </button>
+                ))}
+                {bills.length === 0 && <p className="py-6 text-muted text-sm text-center">No open bills.</p>}
+              </div>
+            </section>
           </div>
+          {bill && (
+            <section className={`${styles.card} ${styles.summary}`} aria-labelledby="checkout-summary">
+              <div className={styles.sectionHeading}>
+                <h2 id="checkout-summary">
+                  <FileText /> Order Summary
+                </h2>
+                <span className="text-xs font-bold">Order #{bill.order_number}</span>
+              </div>
+              <div className="space-y-4 pb-5">
+                {bill.order_lines.map((l) => (
+                  <div key={l.id} className="flex items-start gap-3">
+                    <span className={styles.quantity}>{l.qty}×</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold">
+                        {l.name_snapshot}
+                        {l.variant_name_snapshot ? ` · ${l.variant_name_snapshot}` : ''}
+                      </p>
+                      {canOverridePrice && (
+                        <button
+                          onClick={() => overridePrice(l)}
+                          disabled={busy}
+                          className="text-primary text-xs underline mt-1"
+                        >
+                          Change price
+                        </button>
+                      )}
+                    </div>
+                    <strong className="text-xs tabular-nums">{formatCents(l.line_total_cents)}</strong>
+                  </div>
+                ))}
+              </div>
+              <dl className={styles.totals}>
+                <div>
+                  <dt>Subtotal</dt>
+                  <dd>{formatCents(bill.subtotal_cents)}</dd>
+                </div>
+                {bill.discount_cents > 0 && (
+                  <div>
+                    <dt>Discount</dt>
+                    <dd>−{formatCents(bill.discount_cents)}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Tax ({bill.tax_rate_bps / 100}%)</dt>
+                  <dd>{formatCents(bill.tax_cents)}</dd>
+                </div>
+                {bill.refunded_cents > 0 && (
+                  <div>
+                    <dt>Refunded</dt>
+                    <dd>−{formatCents(bill.refunded_cents)}</dd>
+                  </div>
+                )}
+                <div className={styles.total}>
+                  <dt>Total Amount</dt>
+                  <dd>{formatCents(bill.total_cents)}</dd>
+                </div>
+                {netPaid(bill) !== 0 && (
+                  <div>
+                    <dt>Net payments</dt>
+                    <dd>{formatCents(netPaid(bill))}</dd>
+                  </div>
+                )}
+              </dl>
+              <div className={styles.payment}>
+                <h2>
+                  <CreditCard /> Payment Method
+                </h2>
+                {owed > 0 && canTakePayment ? (
+                  <>
+                    <div className={styles.methods}>
+                      {METHODS.map((m) => {
+                        const Icon = m === 'cash' ? Banknote : m === 'card' ? CreditCard : Smartphone;
+                        return (
+                          <button
+                            key={m}
+                            aria-pressed={method === m}
+                            disabled={busy}
+                            onClick={() => setMethod(m)}
+                            className={method === m ? styles.selected : ''}
+                          >
+                            <Icon size={24} />
+                            {method === m && <Check size={14} className={styles.check} />}
+                            <strong className="capitalize">{m}</strong>
+                            <span>
+                              {m === 'cash' ? 'Pay with cash' : m === 'card' ? 'Debit / Credit' : 'Mobile payment'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className={styles.amountDue}>
+                      <span>Amount due</span>
+                      <strong>{formatCents(owed)}</strong>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                      <label className="text-xs text-muted">
+                        Payment amount
+                        <Input
+                          inputMode="decimal"
+                          value={amount}
+                          disabled={busy}
+                          placeholder={(owed / 100).toFixed(2)}
+                          onChange={(e) => setAmount(e.target.value)}
+                          aria-invalid={invalidAmount}
+                        />
+                      </label>
+                      {method === 'cash' && (
+                        <label className="text-xs text-muted">
+                          Cash tendered
+                          <Input
+                            inputMode="decimal"
+                            value={tendered}
+                            disabled={busy}
+                            placeholder="Enter amount"
+                            onChange={(e) => setTendered(e.target.value)}
+                            aria-invalid={invalidCash}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    {invalidAmount && (
+                      <p className="text-danger text-xs mt-2" role="alert">
+                        Enter an amount greater than zero and no more than the amount due.
+                      </p>
+                    )}
+                    {change != null && (
+                      <p
+                        role="status"
+                        className={`text-xs font-semibold mt-3 ${invalidCash ? 'text-danger' : 'text-ok'}`}
+                      >
+                        {Number.isFinite(change)
+                          ? `${change < 0 ? 'Short' : 'Change'} ${formatCents(Math.abs(change))}`
+                          : 'Enter a valid cash amount.'}
+                      </p>
+                    )}
+                    {method === 'cash' && !invalidAmount && (
+                      <div className={styles.quickAmounts}>
+                        {Array.from(
+                          new Set([
+                            amountCents,
+                            Math.ceil(amountCents / 50000) * 50000,
+                            Math.ceil(amountCents / 100000) * 100000,
+                          ]),
+                        )
+                          .filter((v) => v > 0)
+                          .map((v) => (
+                            <button key={v} disabled={busy} onClick={() => setTendered((v / 100).toFixed(2))}>
+                              {formatCents(v)}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                    <Button
+                      className={styles.payButton}
+                      disabled={busy || invalidAmount || invalidCash}
+                      onClick={takePayment}
+                    >
+                      <ReceiptText size={18} />
+                      {busy
+                        ? 'Working…'
+                        : `Take Payment — ${formatCents(Number.isFinite(amountCents) ? amountCents : 0)}`}
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted py-4">
+                    {owed === 0 ? 'This bill is fully paid.' : 'You do not have permission to accept payments.'}
+                  </p>
+                )}
+                {bill.payments.length > 0 && (
+                  <div className="mt-4 border-t border-border pt-2 space-y-1">
+                    <div className="text-[0.625rem] uppercase tracking-wide text-muted font-bold">Payments</div>
+                    {bill.payments.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between text-xs">
+                        <span className="capitalize">
+                          {p.method} · {formatCents(p.amount_cents)}
+                          {p.status !== 'captured' && (
+                            <span className="text-warn"> · {p.status.replace('_', ' ')}</span>
+                          )}
+                        </span>
+                        <span className="flex gap-1">
+                          {canRefund && p.status !== 'voided' && p.refunded_cents < p.amount_cents && (
+                            <button disabled={busy} onClick={() => refund(p)} className="text-primary underline">
+                              refund
+                            </button>
+                          )}
+                          {canAdjustPayment && p.status !== 'voided' && (
+                            <button disabled={busy} onClick={() => adjustPayment(p)} className="text-primary underline">
+                              correct
+                            </button>
+                          )}
+                          {canVoid && p.status === 'captured' && p.refunded_cents === 0 && (
+                            <button disabled={busy} onClick={() => voidPay(p)} className="text-danger underline">
+                              void
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {error && <p className="text-danger text-xs mt-2">{error}</p>}
-          {note && <p className="text-ok text-xs mt-2">{note}</p>}
-        </Card>
-      )}
-    </div>
+                {canRefund && refundThresholdCents != null && (
+                  <p className="mt-2 text-[0.6875rem] text-muted">
+                    {canApproveRefund
+                      ? `You can approve refunds above the ${formatCents(refundThresholdCents)} limit.`
+                      : `Refunds above ${formatCents(refundThresholdCents)} need someone with refund approval.`}
+                  </p>
+                )}
+
+                <div className="mt-5 flex justify-between gap-3 flex-wrap">
+                  {canDiscount && (
+                    <Button variant="ghost" onClick={discount} disabled={busy}>
+                      <Tag size={16} /> Discount
+                    </Button>
+                  )}
+                  {canCancel && bill.status !== 'void' && due(bill) === bill.total_cents - bill.refunded_cents && (
+                    <Button variant="danger" onClick={cancel} disabled={busy}>
+                      <X size={16} /> Cancel order
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {(canPrintReceipt || canViewReceipt) && (
+                <div className={styles.receipts}>
+                  {canPrintReceipt && (
+                    <button onClick={() => printInvoice(bill, restaurantName, receipt)}>
+                      <Printer size={16} /> Print invoice
+                    </button>
+                  )}
+                  {canViewReceipt && (
+                    <button
+                      onClick={() =>
+                        downloadReceiptPdf(
+                          effectiveReceiptConfig(receipt),
+                          toReceiptContext(bill, restaurantName, receipt),
+                        )
+                      }
+                    >
+                      <Download size={16} /> Download PDF
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+        </div>
       )}
     </div>
   );

@@ -72,8 +72,6 @@ export default async function CheckoutPage({ params }: { params: Promise<{ slug:
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-black">Checkout</h1>
-      <p className="text-muted text-xs -mt-3">Open a bill, take payment, issue a refund.</p>
       {error ? (
         <div className="rounded-lg border border-danger/40 bg-danger/10 text-danger p-4 text-xs">
           {error.message}
