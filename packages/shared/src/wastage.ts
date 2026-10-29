@@ -359,7 +359,11 @@ export function wasteAlerts(current: WastageSummary, previous: WastageSummary | 
             : `${i.name}: waste up ${Math.round(((cur - prev) / prev) * 100)}% (${fmt(prev)} → ${fmt(cur)}).`,
       });
     }
-    if (i.waste_rate_pct !== null && i.waste_rate_pct >= high && (cur ?? 0) >= minChange / 5) {
+    const rising = out.find((a) => a.kind === 'rising_waste' && a.inventory_item_id === i.inventory_item_id);
+    if (rising && i.usage_qty <= 0) {
+      // One line per ingredient: "none used in orders" belongs with the rise it explains.
+      rising.message = rising.message.replace(/\.$/, '; none was used in orders.');
+    } else if (i.waste_rate_pct !== null && i.waste_rate_pct >= high && (cur ?? 0) >= minChange / 5) {
       out.push({
         kind: 'high_waste_rate',
         severity: i.waste_rate_pct >= high * 2 ? 'danger' : 'warn',

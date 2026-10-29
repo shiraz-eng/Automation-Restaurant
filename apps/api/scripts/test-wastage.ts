@@ -11,6 +11,7 @@
 //   W9  the report: net waste, cost only with inventory.view_cost
 //   W10 the Inventory screen's record_ingredient_waste still works and creates an entry
 //   W11 an unknown unit and a missing "other" note are refused
+//   W12 the trend shows waste on the day it happened (0110)
 //
 // Usage (from apps/api):  npx tsx scripts/test-wastage.ts [project_ref] [--with-migration <file.sql>]
 import fs from 'node:fs';
@@ -189,6 +190,15 @@ begin
   reset role;
   if err = 'bad_unit / reason_required' then res := res || E'PASS W11 ml for a gram item and "other" without a note are refused\n';
   else fails := fails + 1; res := res || format(E'FAIL W11 err=%s\n', err); end if;
+
+  -- W12 (0110): the trend shows waste on the day it happened, not the day it was typed in
+  perform set_config('request.jwt.claims', '${MANAGER}', true); set local role authenticated;
+  perform public.record_waste_entry(item, 100, 'g', 'expiry', 'yesterday', app.business_day(now()) - 1);
+  rep := public.wastage_report(app.business_day(now()) - 1, app.business_day(now()), b_main);
+  reset role;
+  select coalesce((x->>'cost_cents')::numeric, 0) into v from jsonb_array_elements(rep->'daily') x where (x->>'day')::date = app.business_day(now()) - 1;
+  if coalesce(v, 0) >= 200 then res := res || E'PASS W12 waste dated yesterday shows on yesterday in the trend\n';
+  else fails := fails + 1; res := res || format(E'FAIL W12 daily=%s\n', rep->'daily'); end if;
 
   raise exception E'RESULTS (rolled back) — % failed\n%', fails, res;
 end $$;

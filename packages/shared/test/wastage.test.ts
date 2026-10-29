@@ -206,3 +206,12 @@ test('error messages are plain language; missing migration is detected', () => {
   assert.equal(isWastageSchemaMissing('PGRST202 Could not find the function public.wastage_report'), true);
   assert.equal(isWastageSchemaMissing('insufficient_stock'), false);
 });
+
+test('alerts: an ingredient wasted but not used gets one line, not two', () => {
+  const base = { from: 'a', to: 'b', branch_id: null, costs_visible: true, daily: [], by_item_reason: [] };
+  const cur = summarizeWastage({ ...base, items: [item({ usage_qty: 0, usage_value_cents: 0, opening_qty: 8500, closing_qty: 7000, receipts_qty: 0 })] });
+  const prev = summarizeWastage({ ...base, items: [] });
+  const alerts = wasteAlerts(cur, prev);
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0].message, /none in the previous period; none was used in orders\./);
+});

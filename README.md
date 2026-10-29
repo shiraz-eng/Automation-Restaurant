@@ -853,7 +853,7 @@ Every tenant schema change is done three ways so new and existing restaurants ma
 
 1. Add `supabase/tenant-migrations/NNNN_name.sql`.
 2. Mirror it into `supabase/tenant-template/schema.sql`.
-3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **109**).
+3. Bump `SCHEMA_VERSION` in `apps/api/src/provisioning.ts` (currently **110**).
 
 Roll it out to every live restaurant:
 

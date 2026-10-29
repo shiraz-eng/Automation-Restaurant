@@ -350,7 +350,7 @@ import { syncEntitlementsForTenant } from './lib/entitlementSync';
 //   v106 inventory_stock view: ingredient stock as the branch in view sees it (a branch login never sees another branch's stock).
 //   v107 retire in-database branch logins: every portal and staff login works across the whole restaurant (branches are separate restaurants now).
 //   v108 AI settings per module: ai_module_settings (languages, auto-detect, voice in/out per module; API-only writes).
-const SCHEMA_VERSION = 109;
+const SCHEMA_VERSION = 110;
 const MAX_ATTEMPTS = 5;
 
 // Bundled from supabase/tenant-template/schema.sql — the DDL for one restaurant's project.
