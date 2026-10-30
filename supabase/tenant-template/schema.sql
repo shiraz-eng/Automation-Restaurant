@@ -3572,6 +3572,7 @@ create table public.invoice_counter (
   next_number bigint not null default 1
 );
 insert into public.invoice_counter default values;
+alter table public.invoice_counter enable row level security; -- functions only (0112)
 create or replace function public.next_invoice_ref() returns bigint
 language plpgsql security definer set search_path = public, app as $fn$
 declare v bigint;
